@@ -1,0 +1,1 @@
+964:                      { label: 'Attendance Average', val: '94.2%', color: 'text-indigo-600', bg: 'bg-indigo-50/50' },

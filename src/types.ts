@@ -1,0 +1,81 @@
+export type Role = 'principal' | 'teacher' | 'student' | 'coordinator';
+
+export interface Teacher {
+  id: string;
+  name: string;
+  email: string;
+  username: string; // Added for login
+  password: string; // Added for login
+  subject: string;
+  phone: string;
+}
+
+export interface Student {
+  id: string;
+  name: string;
+  email: string;
+  username: string; // Added for login
+  password: string; // Added for login
+  classId: string; // References Class.id
+  rollNumber: string;
+  parentPhone: string;
+  baseFee?: number;
+}
+
+export interface Class {
+  id: string;
+  className: string; // e.g., "Grade 10", "Grade 11"
+  section: string;   // e.g., "A", "B"
+  classTeacherId: string; // References Teacher.id
+}
+
+export type ExamType = 'Unit Test' | 'Half Yearly' | 'Final';
+
+export interface Mark {
+  id: string;
+  studentId: string;   // References Student.id
+  subject: string;
+  examType: ExamType;
+  marksObtained: number;
+  maxMarks: number;
+}
+
+export interface Attendance {
+  id: string;
+  studentId: string;   // References Student.id
+  date: string;        // YYYY-MM-DD
+  status: 'present' | 'absent';
+}
+
+export interface FeeRecord {
+  id: string;
+  studentId: string;   // References Student.id
+  amount: number;
+  dueDate: string;     // YYYY-MM-DD
+  status: 'paid' | 'unpaid' | 'pending';
+  paidDate?: string;   // YYYY-MM-DD
+  month: string;       // e.g., "June 2026"
+  paymentMethod?: string; // e.g., "Credit Card", "Bank Transfer", "Cash"
+  feeType?: 'Tuition Fee' | 'Admission Fee' | 'Annual Fee' | 'Paper Fund' | 'Pending Balance' | 'Miscellaneous' | string;
+  description?: string;
+}
+
+export type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday';
+
+export interface TimetableEntry {
+  id: string;
+  classId: string;     // References Class.id
+  day: DayOfWeek;
+  period: string;      // e.g., "Period 1", "Period 2", etc.
+  time: string;        // e.g., "09:00 AM - 10:00 AM"
+  subject: string;
+  teacherId: string;   // References Teacher.id
+}
+
+export interface UserSession {
+  role: Role;
+  email: string;
+  username: string;
+  id?: string; // links to student or teacher, or undefined for principal
+  name: string;
+}
