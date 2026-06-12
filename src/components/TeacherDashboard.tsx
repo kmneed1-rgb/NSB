@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon
 } from 'lucide-react';
+import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
+import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek } from '../types';
 
 interface TeacherDashboardProps {
@@ -189,6 +191,131 @@ export default function TeacherDashboard({
 
   // Unique list of class IDs taught today
   const classesTaughtToday = Array.from(new Set(todayClasses.map(tt => tt.classId)));
+
+  // Notifications local states
+  const [notifications, setNotifications] = useState<PortalNotification[]>(() => getNotifications());
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const notifiedPeriodsRef = useRef<string[]>([]);
+
+  // Theme support
+  const [darkTheme, setDarkTheme] = useState<boolean>(() => {
+    return localStorage.getItem('acadamis_dark_theme') === 'true';
+  });
+
+  useEffect(() => {
+    const syncTheme = () => {
+      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+    };
+    window.addEventListener('acadamis_toggle_theme', syncTheme);
+    return () => window.removeEventListener('acadamis_toggle_theme', syncTheme);
+  }, []);
+
+  const handleToggleTheme = () => {
+    const nextVal = !darkTheme;
+    setDarkTheme(nextVal);
+    localStorage.setItem('acadamis_dark_theme', String(nextVal));
+    window.dispatchEvent(new Event('acadamis_toggle_theme'));
+    toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
+  };
+
+  // Update notifications from global state on external events
+  useEffect(() => {
+    const updateNotifs = () => {
+      setNotifications(getNotifications());
+    };
+    window.addEventListener('acadamis_new_notification', updateNotifs);
+    return () => window.removeEventListener('acadamis_new_notification', updateNotifs);
+  }, []);
+
+  // Real-time period detection interval (runs every 10 seconds)
+  useEffect(() => {
+    const checkActivePeriods = () => {
+      // Find today's lectures for this teacher
+      const myTodayLectures = timetable.filter(tt => tt.teacherId === teacherId && tt.day === currentDayName);
+      if (myTodayLectures.length === 0) return;
+
+      myTodayLectures.forEach(lecture => {
+        const status = getPeriodStatus(lecture.time);
+        if (status === 'current') {
+          // Check if we already notified during this session
+          if (!notifiedPeriodsRef.current.includes(lecture.id)) {
+            notifiedPeriodsRef.current.push(lecture.id);
+            
+            const classObj = classes.find(c => c.id === lecture.classId);
+            const classStr = classObj ? `${classObj.className}-${classObj.section}` : '';
+            
+            // Trigger Toast Notification
+            toast.success(`🔔 Class Bell: ${lecture.period} has started!`, {
+              description: `Subject "${lecture.subject}" is active for Class ${classStr}.`,
+              duration: 8000
+            });
+
+            // Add notification
+            addNotification({
+              type: 'period_bell',
+              title: `${lecture.period} Started ⏰`,
+              message: `Class bell is ringing! Your scheduled lecture for "${lecture.subject}" is now active for Class ${classStr}. Kindly proceed to your classroom.`,
+              teacherId: teacherId,
+              classId: lecture.classId,
+              role: 'teacher'
+            });
+          }
+        }
+      });
+    };
+
+    const interval = /^[0-9]/.test(attendanceDate) ? setInterval(checkActivePeriods, 10050) : null;
+    checkActivePeriods();
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [timetable, teacherId, currentDayName, classes, attendanceDate]);
+
+  // Manually Simulate Next Period
+  const handleSimulateNextPeriod = () => {
+    // Collect all lectures for this teacher regardless of day, sorted chronologically
+    const allTeacherLectures = timetable.filter(tt => tt.teacherId === teacherId);
+    if (allTeacherLectures.length === 0) {
+      toast.error("No lectures scheduled for you in the timetable yet. Ask the Principal to add one!");
+      return;
+    }
+
+    // Pick one at random to simulate
+    const randIndex = Math.floor(Math.random() * allTeacherLectures.length);
+    const lecture = allTeacherLectures[randIndex];
+    const classObj = classes.find(c => c.id === lecture.classId);
+    const classStr = classObj ? `${classObj.className}-${classObj.section}` : 'General';
+
+    // Show simulation toast
+    toast.info(`🔔 Simulated Bell: ${lecture.period} started!`, {
+      description: `Class: ${classStr} | Subject: ${lecture.subject}. Notification has been dispatched to both your portal and your students!`,
+      duration: 6000
+    });
+
+    // Add persistent notification so both teacher and student get it
+    addNotification({
+      type: 'period_bell',
+      title: `${lecture.period} Started (${lecture.subject}) ⏰`,
+      message: `🔔 Simulated School Bell is ringing! Today's lecture "${lecture.subject}" for Class ${classStr} with instructor ${userSession.name} has begun.`,
+      teacherId: teacherId,
+      classId: lecture.classId,
+      role: 'all'
+    });
+  };
+
+  const handleMarkAllRead = () => {
+    const updated = notifications.map(n => ({ ...n, isUnread: false }));
+    saveNotifications(updated);
+    setNotifications(updated);
+    toast.success("All notifications marked as read.");
+  };
+
+  const handleClearNotifications = () => {
+    saveNotifications([]);
+    setNotifications([]);
+    toast.success("Notification history cleared.");
+  };
 
   // All relevant classes to track for attendance today (Assigned Class + classes taught today)
   const classesToCheckForReminders = Array.from(new Set([
@@ -390,15 +517,31 @@ export default function TeacherDashboard({
           <BookOpen className="text-emerald-600" size={20} />
           <span className="font-bold text-gray-900 tracking-tight">Teacher Desk</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
+          {/* Mobile Bell Button */}
+          <button 
+            type="button"
+            onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+            className="p-1.5 text-slate-500 hover:text-slate-900 transition-colors relative"
+            title="Notifications"
+          >
+            <Bell size={18} />
+            {notifications.filter(n => n.isUnread).length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-650 text-white font-black text-[7px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+                {notifications.filter(n => n.isUnread).length}
+              </span>
+            )}
+          </button>
+
           <button 
              onClick={onLogout}
              className="px-3 py-1.5 rounded-lg border border-red-100 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white flex items-center gap-1.5 font-black text-[10px] uppercase transition-all shadow-sm"
              title="Logout"
           >
-            <LogOut size={16} />
+            <LogOut size={14} />
             EXIT
           </button>
+          
           <button 
             id="teacher-sidebar-toggle" 
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -498,6 +641,144 @@ export default function TeacherDashboard({
 
       {/* Main Panel Content */}
       <main className="flex-1 min-h-screen flex flex-col p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full text-slate-800 font-sans">
+        
+        {/* Global Desktop Top Bar with Real-time Period Alert & Notification Bell */}
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
+          <div className="flex items-center gap-6">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Faculty portal</h1>
+            
+            {/* Real-time active period locator */}
+            {(() => {
+              // Find today's current lecture based on clock time & selected day
+              const currentPeriodObj = timetable.find(tt => {
+                if (tt.teacherId !== teacherId) return false;
+                const systemDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const systName = systemDays[new Date().getDay()];
+                // Match today or our date selector's weekday
+                if (tt.day !== systName && tt.day !== currentDayName) return false;
+                
+                try {
+                  const status = getPeriodStatus(tt.time);
+                  return status === 'current';
+                } catch (e) {
+                  return false;
+                }
+              });
+
+              if (!currentPeriodObj) return (
+                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                  No Active Lecture Right Now
+                </div>
+              );
+
+              const matchingClass = classes.find(c => c.id === currentPeriodObj.classId);
+              const classLabel = matchingClass ? `${matchingClass.className}-${matchingClass.section}` : '';
+
+              return (
+                <div className="flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-100 text-red-700 rounded-full text-[10px] font-extrabold uppercase tracking-widest animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-650 animate-ping"></span>
+                  LIVE: {currentPeriodObj.period} ({currentPeriodObj.subject} — Class {classLabel})
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Quick Period Simulator */}
+            <button
+              onClick={handleSimulateNextPeriod}
+              className="text-[9px] font-extrabold uppercase tracking-widest bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-3 py-2 transition-all shadow-xs rounded-none flex items-center gap-1.5 cursor-pointer"
+              title="Test class bells and push notifications"
+            >
+              <Clock size={12} className="animate-spin-slow" />
+              Simulate Bell
+            </button>
+
+            {/* Quick Dark Mode Toggler */}
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-none transition-all flex items-center justify-center text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900"
+              title="Toggle Dark/Light Mode"
+            >
+              {darkTheme ? <Sun size={15} className="text-amber-500 animate-pulse" /> : <Moon size={15} />}
+            </button>
+
+            {/* Notification Bell Dropdown */}
+            {/* Visible on both mobile and desktop via single dropdown trigger */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                className={`p-2 hover:bg-slate-100 border border-slate-200 rounded-none transition-all flex items-center justify-center relative uppercase font-black text-[10px] ${showNotifDropdown ? 'bg-slate-100' : 'bg-white'}`}
+                title="Notifications"
+              >
+                <Bell size={16} className="text-slate-600" />
+                {notifications.filter(n => n.isUnread).length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-[8px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+                    {notifications.filter(n => n.isUnread).length}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {showNotifDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowNotifDropdown(false)} />
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-none shadow-xl z-50 py-3 flex flex-col font-sans"
+                    >
+                      <div className="px-4 pb-2 border-b border-slate-150 flex items-center justify-between">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">School Bells / Alerts</span>
+                        <div className="flex items-center gap-2">
+                          {notifications.length > 0 && (
+                            <button onClick={handleMarkAllRead} className="text-[9px] hover:underline text-indigo-600 font-bold uppercase">Mark Read</button>
+                          )}
+                          {notifications.length > 0 && (
+                            <span className="text-slate-200">|</span>
+                          )}
+                          <button onClick={handleClearNotifications} className="text-[9px] hover:underline text-rose-600 font-bold uppercase">Clear</button>
+                        </div>
+                      </div>
+
+                      <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                        {notifications.length === 0 ? (
+                          <div className="py-8 text-center text-slate-400 text-xs italic">
+                            No notifications received yet
+                          </div>
+                        ) : (
+                          notifications.map(notif => (
+                            <div 
+                              key={notif.id} 
+                              className={`p-3 text-left transition-colors hover:bg-slate-50/50 ${notif.isUnread ? 'bg-indigo-55/10' : ''}`}
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-xs">
+                                  {notif.type === 'period_bell' ? '🔔' : notif.type === 'fee_due' ? '💰' : '📅'}
+                                </span>
+                                <div className="space-y-0.5 max-w-[210px] overflow-hidden">
+                                  <h4 className="font-extrabold text-xs text-slate-900 leading-tight flex items-center gap-1.5">
+                                    <span className="truncate">{notif.title}</span>
+                                    {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-605 shrink-0"></span>}
+                                  </h4>
+                                  <p className="text-[10px] text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
+                                  <span className="text-[8px] text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
         
         {/* ========== TEACHER DASHBOARD HOME ========== */}
         {activeTab === 'dashboard' && (
@@ -1600,19 +1881,35 @@ export default function TeacherDashboard({
                                   }
                                 } catch (e) {}
                                 
+                                const systemDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                const systName = systemDays[new Date().getDay()];
+                                const isLive = (day === systName || day === currentDayName) && getPeriodStatus(entry.time) === 'current';
+
                                 return (
                                   <div 
-                                    style={{ borderLeft: `3px solid ${col}`, backgroundColor: `${col}12` }}
-                                    className="p-2.5 rounded-r-xl border-t border-r border-b border-l-0 border-gray-150 text-left"
+                                    style={{ 
+                                      borderLeft: isLive ? `4px solid #ef4444` : `3px solid ${col}`, 
+                                      backgroundColor: isLive ? '#fef2f2' : `${col}12` 
+                                    }}
+                                    className={`p-2.5 rounded-r-xl border-t border-r border-b border-l-0 border-gray-150 text-left transition-all ${
+                                      isLive ? 'ring-2 ring-red-500 shadow-md shadow-red-100 animate-pulse' : ''
+                                    }`}
                                   >
-                                    <div className="font-bold text-xs truncate" style={{ color: col }}>
-                                      {entry.subject}
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="font-bold text-xs truncate" style={{ color: isLive ? '#ef4444' : col }}>
+                                        {entry.subject}
+                                      </div>
+                                      {isLive && (
+                                        <span className="shrink-0 bg-red-650 text-white text-[7px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
+                                          LIVE
+                                        </span>
+                                      )}
                                     </div>
-                                    <div className="text-[10px] text-slate-700 mt-0.5 truncate font-medium">
+                                    <div className="text-[10px] text-slate-755 mt-0.5 truncate font-medium">
                                       🏫 Class: {getClassLabel(entry.classId)}
                                     </div>
-                                    <div className="text-[9px] font-mono text-slate-500 mt-1">
-                                      {entry.time}
+                                    <div className="text-[9px] font-mono text-slate-500 mt-1 flex items-center justify-between">
+                                      <span>{entry.time}</span>
                                     </div>
                                   </div>
                                 );

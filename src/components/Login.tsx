@@ -115,22 +115,22 @@ export default function Login({ teachers, students, onLogin, onBackToLanding }: 
   };
 
   return (
-    <div id="login-container" className="min-h-screen flex flex-col items-center justify-center bg-white px-6 font-sans border-t-8 border-slate-900">
-      <div className="w-full max-w-sm space-y-16">
+    <div id="login-container" className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-slate-950 px-6 font-sans border-t-8 border-slate-900 dark:border-indigo-600 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      <div className="w-full max-w-sm space-y-12">
         
         {/* Minimalist Header */}
-        <div className="text-center space-y-6">
+        <div className="text-center space-y-4">
           <img 
             src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
             alt="NSB 1 ACADEMY" 
-            className="mx-auto h-24 w-auto object-contain mb-4"
+            className="mx-auto h-20 w-auto object-contain mb-2 invert dark:invert-0"
             referrerPolicy="no-referrer"
           />
           <div className="space-y-1">
-            <h2 id="login-title" className="text-3xl font-light tracking-tighter text-slate-950 uppercase italic">
+            <h2 id="login-title" className="text-3xl font-light tracking-tighter text-slate-950 dark:text-white uppercase italic">
               Terminal <span className="font-extrabold not-italic">Login</span>
             </h2>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em]">
+            <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em]">
               NSB1 School & Academy
             </p>
           </div>
@@ -139,7 +139,7 @@ export default function Login({ teachers, students, onLogin, onBackToLanding }: 
         {/* Simplified Form */}
         <form onSubmit={handleLogin} className="space-y-8">
           {error && (
-            <div id="login-error" className="text-[10px] font-bold text-red-500 uppercase tracking-[0.2em] text-center bg-red-50 py-3 border border-red-100">
+            <div id="login-error" className="text-[10px] font-bold text-red-550 uppercase tracking-[0.2em] text-center bg-red-50 dark:bg-red-950/25 py-3 border border-red-100 dark:border-red-900/30">
               {error}
             </div>
           )}
@@ -153,7 +153,7 @@ export default function Login({ teachers, students, onLogin, onBackToLanding }: 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Username or Email"
-                className="w-full border-b border-slate-200 py-4 text-[11px] font-bold tracking-[0.2em] focus:outline-none focus:border-indigo-600 transition-all placeholder:text-slate-300"
+                className="w-full bg-transparent border-b border-slate-200 dark:border-slate-800 py-4 text-[11px] font-bold tracking-[0.2em] focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500 text-slate-900 dark:text-white transition-all placeholder:text-slate-300 dark:placeholder:text-slate-650"
               />
             </div>
 
@@ -165,16 +165,16 @@ export default function Login({ teachers, students, onLogin, onBackToLanding }: 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full border-b border-slate-200 py-4 text-[11px] font-bold tracking-[0.2em] focus:outline-none focus:border-indigo-600 transition-all placeholder:text-slate-300"
+                className="w-full bg-transparent border-b border-slate-200 dark:border-slate-800 py-4 text-[11px] font-bold tracking-[0.2em] focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500 text-slate-900 dark:text-white transition-all placeholder:text-slate-300 dark:placeholder:text-slate-650"
               />
             </div>
           </div>
 
-          <div className="space-y-4 pt-4">
+          <div className="space-y-4 pt-2">
             <button
               id="login-submit-btn"
               type="submit"
-              className="w-full py-4 bg-slate-950 hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-[0.4em] transition-all cursor-pointer shadow-2xl shadow-slate-900/10"
+              className="w-full py-4 bg-slate-950 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-500 text-white font-bold text-[10px] uppercase tracking-[0.4em] transition-all cursor-pointer shadow-2xl"
             >
               Authenticate
             </button>

@@ -5,9 +5,10 @@ import {
   Users, BookOpen, Calendar, LogOut, Plus, Edit2, Trash2, Search, X, 
   Menu, Shield, Phone, Mail, Award, AlertCircle, RefreshCw, BarChart2, PlusCircle, CreditCard,
   TrendingUp, CheckCircle2, AlertTriangle, ArrowUpRight, Percent, CalendarDays,
-  ChevronDown, ChevronUp, Bell, User
+  ChevronDown, ChevronUp, Bell, User, Sun, Moon
 } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
+import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord } from '../types';
 import CashPaymentEntry from './CashPaymentEntry';
@@ -47,6 +48,28 @@ export default function PrincipalDashboard({
   const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes'>('teachers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Theme support
+  const [darkTheme, setDarkTheme] = useState<boolean>(() => {
+    return localStorage.getItem('acadamis_dark_theme') === 'true';
+  });
+
+  // Track global theme triggers in case theme toggles else where
+  useEffect(() => {
+    const syncTheme = () => {
+      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+    };
+    window.addEventListener('acadamis_toggle_theme', syncTheme);
+    return () => window.removeEventListener('acadamis_toggle_theme', syncTheme);
+  }, []);
+
+  const handleToggleTheme = () => {
+    const nextVal = !darkTheme;
+    setDarkTheme(nextVal);
+    localStorage.setItem('acadamis_dark_theme', String(nextVal));
+    window.dispatchEvent(new Event('acadamis_toggle_theme'));
+    toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
+  };
+
   // Search/Filter States
   const [teacherSearch, setTeacherSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
@@ -72,6 +95,7 @@ export default function PrincipalDashboard({
   const [isCashPayment, setIsCashPayment] = useState(true);
   const [amountCollected, setAmountCollected] = useState('');
   const [selectedStudentForLedger, setSelectedStudentForLedger] = useState('');
+  const [showPendingFeeSummary, setShowPendingFeeSummary] = useState(false);
 
   // WhatsApp Alert & Autopilot States
   const [whatsAppAutoFee, setWhatsAppAutoFee] = useState(true);
@@ -171,6 +195,29 @@ export default function PrincipalDashboard({
   const handleDeleteInvoice = (id: string) => {
     setFees(prev => prev.filter(f => f.id !== id));
     toast.success("Invoice successfully expunged from ledger records.");
+  };
+
+  const handleGenerateReportAndAlert = (outstandingStudents: Array<{ id: string; name: string; classId: string; totalOwed: number }>) => {
+    if (outstandingStudents.length === 0) {
+      toast.error("Excellent! No student has any outstanding dues. Perfect clearance!");
+      return;
+    }
+    
+    // Trigger notifications for outstanding students
+    let alertCount = 0;
+    outstandingStudents.forEach(st => {
+      addNotification({
+        type: 'fee_due',
+        title: '⚠️ Pending Fee Arrears Alert 💰',
+        message: `Dear ${st.name}, you have outstanding school fee dues totaling Rs. ${st.totalOwed}. Kindly settle the bill inside your fee portal as soon as possible to avoid inconvenience. Principal.`,
+        classId: st.classId,
+        role: 'student'
+      });
+      alertCount++;
+    });
+    
+    setShowPendingFeeSummary(true);
+    toast.success(`📋 Defaulters summary report generated! Sent portal alerts to all ${alertCount} students.`);
   };
 
   const handleToggleSettleFee = (id: string) => {
@@ -676,6 +723,21 @@ export default function PrincipalDashboard({
         };
         setTimetable([...timetable, newTT]);
 
+        // Push real-time notification
+        const matchClass = classes.find(c => c.id === ttClassId);
+        const classLabel = matchClass ? `${matchClass.className}-${matchClass.section}` : `Class ID ${ttClassId}`;
+        const matchTeacher = teachers.find(t => t.id === ttTeacherId);
+        const teacherLabel = matchTeacher ? matchTeacher.name : 'Unassigned';
+
+        addNotification({
+          type: 'timetable_created',
+          title: 'New Lecture Scheduled 📅',
+          message: `${ttPeriod} (${ttSubject.trim()}) is scheduled on ${ttDay} [${ttTime}] for Class ${classLabel} under ${teacherLabel}.`,
+          teacherId: ttTeacherId,
+          classId: ttClassId,
+          role: 'all'
+        });
+
         // If the period was marked as deleted, clear it from deleted list
         setDeletedPeriods(prev => {
           const currentList = prev[ttClassId] || [];
@@ -716,6 +778,21 @@ export default function PrincipalDashboard({
           subject: ttSubject.trim(),
           teacherId: ttTeacherId
         } : tt));
+
+        // Push real-time notification
+        const matchClass = classes.find(c => c.id === ttClassId);
+        const classLabel = matchClass ? `${matchClass.className}-${matchClass.section}` : `Class ID ${ttClassId}`;
+        const matchTeacher = teachers.find(t => t.id === ttTeacherId);
+        const teacherLabel = matchTeacher ? matchTeacher.name : 'Unassigned';
+
+        addNotification({
+          type: 'timetable_updated',
+          title: 'Timetable Session Updated 🔄',
+          message: `${ttPeriod} [${ttTime}] on ${ttDay} changed to "${ttSubject.trim()}" with assigned instructor ${teacherLabel} for Class ${classLabel}.`,
+          teacherId: ttTeacherId,
+          classId: ttClassId,
+          role: 'all'
+        });
 
         // If the period was marked as deleted, clear it from deleted list
         setDeletedPeriods(prev => {
@@ -787,7 +864,22 @@ export default function PrincipalDashboard({
   };
 
   const handleDeleteTimetableEntry = (id: string) => {
-    if (confirm('Delete this timetable session?')) {
+    const entry = timetable.find(t => t.id === id);
+    if (entry && confirm('Delete this timetable session?')) {
+      const matchClass = classes.find(c => c.id === entry.classId);
+      const classLabel = matchClass ? `${matchClass.className}-${matchClass.section}` : `Class ID ${entry.classId}`;
+      const matchTeacher = teachers.find(t => t.id === entry.teacherId);
+      const teacherLabel = matchTeacher ? matchTeacher.name : 'Unassigned';
+
+      addNotification({
+        type: 'timetable_deleted',
+        title: 'Lecture Cancelled ❌',
+        message: `${entry.period} (${entry.subject}) on ${entry.day} for Class ${classLabel} has been removed or cancelled.`,
+        teacherId: entry.teacherId,
+        classId: entry.classId,
+        role: 'all'
+      });
+
       setTimetable(timetable.filter(t => t.id !== id));
     }
   };
@@ -1420,14 +1512,13 @@ export default function PrincipalDashboard({
                   </span>
                 )}
              </div>
-
-            {/* Timetable Grid View */}
+              {/* Timetable Grid View */}
             {selectedTimetableClass ? (
               <div className="space-y-4">
                  {DAYS.map(day => (
                    <div key={day} className="space-y-2">
                      <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 pl-2">{day} Schedule</h3>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                     <div className="grid grid-cols-5 sm:grid-cols-5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-2">
                         {allPeriods.map(p => {
                            const entry = timetable.find(
                              tt => tt.classId === selectedTimetableClass && 
@@ -1445,7 +1536,7 @@ export default function PrincipalDashboard({
                                onDragOver={handleDragOver}
                                onDrop={e => handleDrop(e, { day, period: p })}
                                onClick={() => setSelectedSlot({day, period: p})}
-                               className={`border border-slate-100 p-4 transition-all rounded-r-xl ${entry ? 'shadow-xs' : 'hover:bg-slate-50/50'} cursor-pointer ${
+                               className={`border border-slate-100 p-1 px-1.5 sm:p-4 transition-all rounded-r-xl ${entry ? 'shadow-xs' : 'hover:bg-slate-50/50'} cursor-pointer ${
                                  selectedSlot?.day === day && selectedSlot?.period === p ? 'ring-2 ring-indigo-500' : ''
                                }`}
                                style={{
@@ -1453,9 +1544,9 @@ export default function PrincipalDashboard({
                                  backgroundColor: entry ? `${statusCol}10` : 'white'
                                }}
                              >
-                               <div className="flex justify-between items-center mb-2 pb-1 border-b border-dashed border-slate-100/80">
-                                 <div className="flex items-center gap-1.5">
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500" style={{ color: statusCol }}>{p}</span>
+                               <div className="flex justify-between items-center mb-1 sm:mb-2 pb-0.5 sm:pb-1 border-b border-dashed border-slate-100/80">
+                                 <div className="flex items-center gap-0.5 sm:gap-1.5 overflow-hidden">
+                                    <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-widest text-slate-500 truncate" style={{ color: statusCol }}>{p}</span>
                                     {allPeriods.length > 1 && (
                                       <button
                                         type="button"
@@ -1466,11 +1557,11 @@ export default function PrincipalDashboard({
                                         className="p-0.5 rounded text-slate-300 hover:text-red-500 hover:bg-slate-100 transition-all"
                                         title={`Remove "${p}" completely from this class`}
                                       >
-                                        <X size={10} className="stroke-[2.5] pointer-events-none" />
+                                        <X size={10} className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[2.5] pointer-events-none" />
                                       </button>
                                     )}
-                                  </div>
-                                 <div className="flex items-center gap-1.5">
+                                 </div>
+                                 <div className="flex items-center gap-0.5 sm:gap-1.5">
                                    {p === allPeriods[allPeriods.length - 1] && (
                                      <button 
                                        type="button"
@@ -1492,21 +1583,21 @@ export default function PrincipalDashboard({
 
                                          toast.info(`Creating schedule slot for ${nextPeriodName} on ${day}. Fill timetable details to save!`);
                                        }}
-                                       className="p-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1 shadow-sm px-2"
+                                       className="p-0.5 sm:p-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-[6px] sm:text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-0.5 sm:gap-1 shadow-sm px-1 sm:px-2"
                                        title="Add Next Period"
                                      >
-                                       <Plus size={10} className="stroke-[3]" /> Add
+                                       <Plus size={8} className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5 stroke-[3]" /> <span className="hidden xs:inline">Add</span>
                                      </button>
                                    )}
                                  </div>
                                </div>
                                {entry ? (
-                                 <div className="space-y-1">
-                                   <p className="font-extrabold text-xs uppercase tracking-tight italic text-slate-900" style={{ color: col }}>{entry.subject}</p>
-                                   <p className="text-slate-500 text-[9px] font-bold uppercase tracking-widest">{getTeacherName(entry.teacherId)}</p>
-                                   <div className="flex items-center gap-2 pt-2 border-t border-slate-200/50 mt-2">
-                                     <button onClick={() => openEditModal('timetable', entry.id)} className="text-slate-400 hover:text-slate-700 transition-colors"><Edit2 size={10} /></button>
-                                     <button onClick={() => handleDeleteTimetableEntry(entry.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={10} /></button>
+                                 <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
+                                   <p className="font-extrabold text-[8px] sm:text-xs uppercase tracking-tight italic text-slate-900 truncate" style={{ color: col }} title={entry.subject}>{entry.subject}</p>
+                                   <p className="text-slate-500 text-[6px] sm:text-[9px] font-bold uppercase tracking-wider sm:tracking-widest truncate" title={getTeacherName(entry.teacherId)}>{getTeacherName(entry.teacherId)}</p>
+                                   <div className="flex items-center gap-1 sm:gap-2 pt-0.5 sm:pt-2 border-t border-slate-200/50 mt-1 sm:mt-2">
+                                     <button onClick={() => openEditModal('timetable', entry.id)} className="text-slate-400 hover:text-slate-700 transition-colors"><Edit2 size={8} className="w-2 h-2 sm:w-2.5 sm:h-2.5" /></button>
+                                     <button onClick={() => handleDeleteTimetableEntry(entry.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={8} className="w-2 h-2 sm:w-2.5 sm:h-2.5" /></button>
                                    </div>
                                  </div>
                                ) : (
@@ -1516,14 +1607,14 @@ export default function PrincipalDashboard({
                                        setTtPeriod(p);
                                        openAddModal('timetable');
                                    }}
-                                   className="w-full text-slate-400 hover:text-slate-600 font-bold text-[10px] uppercase italic text-left pt-1"
+                                   className="w-full text-slate-400 hover:text-slate-600 font-bold text-[7px] sm:text-[10px] uppercase italic text-left pt-0.5 sm:pt-1 truncate"
                                  >
-                                   + Click to Assign
+                                   + Assign
                                  </button>
                                )}
                              </div>
                            );
-                         })}
+                        })}
                      </div>
                    </div>
                  ))}
@@ -2694,14 +2785,47 @@ Thank you.`;
               {/* Outstandling Dues List */}
               <div className="bg-white p-6 shadow-sm border border-slate-100 space-y-4 lg:col-span-3 flex flex-col justify-between">
                 <div>
-                  <div className="border-b pb-3 flex justify-between items-center">
+                  <div className="border-b pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         🚨 Outstanding Dues Ledger (List of Arrears)
                       </h3>
-                      <p className="text-[11px] text-slate-500">List of students with accrued unpaid balances for current academic cycle.</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">List of students with accrued unpaid balances for current academic cycle.</p>
                     </div>
-                    <span className="text-[9px] font-mono bg-rose-50 text-rose-600 px-2.5 py-1 font-bold">Unsettled Debt Ledger</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const map: Record<string, { id: string; name: string; classId: string; totalOwed: number; phone: string; invoiceIds: string[] }> = {};
+                          fees.forEach(fee => {
+                            if (fee.status !== 'paid') {
+                              const student = students.find(s => s.id === fee.studentId);
+                              if (student) {
+                                if (!map[student.id]) {
+                                  map[student.id] = {
+                                    id: student.id,
+                                    name: student.name,
+                                    classId: student.classId,
+                                    totalOwed: 0,
+                                    phone: student.parentPhone || '0300-1112222',
+                                    invoiceIds: []
+                                  };
+                                }
+                                map[student.id].totalOwed += Number(fee.amount || 0);
+                                map[student.id].invoiceIds.push(fee.id);
+                              }
+                            }
+                          });
+                          const list = Object.values(map).sort((a, b) => b.totalOwed - a.totalOwed);
+                          handleGenerateReportAndAlert(list);
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-505 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-extrabold text-[10px] tracking-wider px-3.5 py-2 uppercase shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Bell size={13} className="animate-bounce" />
+                        Generate Summary Report & Alert Students
+                      </button>
+                      <span className="text-[9px] font-mono bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2.5 py-1.5 font-bold">Unsettled Debt Ledger</span>
+                    </div>
                   </div>
 
                   {(() => {
@@ -2793,6 +2917,194 @@ Thank you.`;
                 </div>
               </div>
             </div>
+
+            {/* CONSOLIDATED DEFAULTERS SUMMARY REPORT AUDIT MODAL */}
+            <AnimatePresence>
+              {showPendingFeeSummary && (
+                <>
+                  <div 
+                    className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-slate-900"
+                    onClick={() => setShowPendingFeeSummary(false)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white dark:bg-slate-900 border-2 border-slate-950 dark:border-slate-800 rounded-none w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl flex flex-col font-sans"
+                    >
+                      {/* Official Audit Document Header */}
+                      <div className="bg-slate-950 text-white p-6 border-b border-slate-800 space-y-2 flex flex-col justify-between items-start">
+                        <div className="flex justify-between items-center w-full">
+                          <span className="text-[9px] bg-amber-500 text-slate-950 px-2 py-0.5 font-black uppercase tracking-widest font-mono">
+                            Official Financial Statement
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => setShowPendingFeeSummary(false)}
+                            className="text-slate-400 hover:text-white transition-colors"
+                            title="Close"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+                        
+                        <div className="w-full">
+                          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                            💰 Pendency Audit & Notification Summary Report
+                          </h2>
+                          <p className="text-[10px] text-slate-350 tracking-wider">
+                            NSB1 ACADEMY OF EXCELLENCE • REGISTERED ACCOUNTS LEDGER OFFICE
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="p-6 space-y-6">
+                        
+                        {/* Stamp, date, system metrics inside audit document */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-950 p-4 border border-slate-200 dark:border-slate-800 rounded-none">
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Document State</span>
+                            <span className="text-xs font-black uppercase text-rose-600 dark:text-rose-450">PENDING AUDIT</span>
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Generation Date</span>
+                            <span className="text-xs font-mono font-bold text-slate-705 dark:text-slate-300">
+                              {new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Defaulters Count</span>
+                            <span className="text-xs font-black text-slate-800 dark:text-white">
+                              {(() => {
+                                const duesMap: Record<string, number> = {};
+                                fees.forEach(f => f.status !== 'paid' && (duesMap[f.studentId] = 1));
+                                return Object.keys(duesMap).length;
+                              })()} Affected
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Dispatched Alerts</span>
+                            <span className="text-xs font-black text-emerald-650 dark:text-emerald-450 flex items-center gap-1">
+                              🟢 Live Portals
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Big Aggregate Dues Summary */}
+                        {(() => {
+                          const studentDebtMap: Record<string, { id: string; name: string; classId: string; totalOwed: number; phone: string; invoiceIds: string[] }> = {};
+                          fees.forEach(fee => {
+                            if (fee.status !== 'paid') {
+                              const student = students.find(s => s.id === fee.studentId);
+                              if (student) {
+                                if (!studentDebtMap[student.id]) {
+                                  studentDebtMap[student.id] = {
+                                    id: student.id,
+                                    name: student.name,
+                                    classId: student.classId,
+                                    totalOwed: 0,
+                                    phone: student.parentPhone || 'N/A',
+                                    invoiceIds: []
+                                  };
+                                }
+                                studentDebtMap[student.id].totalOwed += Number(fee.amount || 0);
+                                studentDebtMap[student.id].invoiceIds.push(fee.id);
+                              }
+                            }
+                          });
+
+                          const list = Object.values(studentDebtMap).sort((a, b) => b.totalOwed - a.totalOwed);
+                          const totalArrearsSum = list.reduce((sum, current) => sum + current.totalOwed, 0);
+
+                          return (
+                            <div className="space-y-6">
+                              <div className="p-5 border border-amber-350 bg-amber-50/50 dark:bg-amber-950/10 dark:border-amber-900/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div className="space-y-1">
+                                  <span className="text-[9px] bg-amber-500 text-slate-950 px-2.5 py-0.5 font-bold uppercase tracking-wide">
+                                    AUDITED ACCOUNTS TOTAL RECEIVABLES
+                                  </span>
+                                  <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                                    Rs. {totalArrearsSum.toLocaleString()} PKR
+                                  </h3>
+                                  <p className="text-[11px] text-slate-650 dark:text-slate-400 leading-relaxed">
+                                    This reflects the combined total sum of all student bills currently flagged as 'Outstanding' inside primary ledgers.
+                                  </p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => window.print()}
+                                  className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white font-black text-[10px] px-4 py-2.5 uppercase tracking-widest border border-transparent shadow-md hover:shadow-lg transition-all"
+                                >
+                                  🖨️ Print Ledger Document
+                                </button>
+                              </div>
+
+                              {/* Student Defaulters Table Breakdown */}
+                              <div className="space-y-3">
+                                <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                  Defaulters Ledger Breakdown
+                                </h4>
+
+                                <div className="border border-slate-200 dark:border-slate-800 overflow-x-auto dark:bg-slate-900">
+                                  <table className="w-full text-left text-xs border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 uppercase font-mono text-[9px] font-bold">
+                                        <th className="p-3">#</th>
+                                        <th className="p-3">Student Name</th>
+                                        <th className="p-3">Class Name</th>
+                                        <th className="p-3">Contact</th>
+                                        <th className="p-3 text-right">Owed Amt (PKR)</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                      {list.map((st, index) => {
+                                        const cNameObj = classes.find(c => c.id === st.classId);
+                                        return (
+                                          <tr key={st.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 text-slate-800 dark:text-slate-200">
+                                            <td className="p-3 font-mono font-bold text-slate-400">{index + 1}</td>
+                                            <td className="p-3 font-black text-slate-950 dark:text-white uppercase text-[11px]">{st.name}</td>
+                                            <td className="p-3 font-bold text-indigo-700 dark:text-indigo-400">{cNameObj ? cNameObj.className : 'N/A'}</td>
+                                            <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{st.phone}</td>
+                                            <td className="p-3 text-right font-black font-mono text-rose-600 dark:text-rose-400">{st.totalOwed.toLocaleString()}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+
+                              {/* Broadcast Success Status Indicator */}
+                              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/25 border border-emerald-250 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 space-y-2">
+                                <div className="flex items-center gap-1.5 font-bold text-[11px] uppercase tracking-wider">
+                                  <span>🔔 Push Notification Broadcast Logs Active</span>
+                                </div>
+                                <p className="text-[10px] leading-relaxed">
+                                  A real-time portal push notification alert for school fee arrears has been dispatched successfully to each of the {list.length} student/parent profiles above. Reminders display within student notification broadcasters with premium visual alerts.
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                      </div>
+
+                      <div className="bg-slate-50 dark:bg-slate-950 p-6 border-t border-slate-200 dark:border-slate-850 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowPendingFeeSummary(false)}
+                          className="bg-slate-950 dark:bg-indigo-600 hover:bg-slate-800 text-white font-bold text-xs px-5 py-3 uppercase tracking-wider cursor-pointer"
+                        >
+                          Close Ledger Summary
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                </>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
@@ -2895,6 +3207,42 @@ Thank you.`;
                       <div className="w-10 h-5 bg-emerald-500 rounded-full flex items-center px-1">
                         <div className="w-3 h-3 bg-white rounded-full ml-auto"></div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Customization & Appearance */}
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-black uppercase text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      <Sun size={18} className="text-amber-500" />
+                      Appearance & Custom Display (Visual Theme)
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Toggle between Light and Dark visual mode templates across all students and teachers devices.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-900 p-5 border border-slate-200 dark:border-slate-800 space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] font-black uppercase text-slate-800 dark:text-white">Dark Theme / Dark Mode</p>
+                        <p className="text-[9px] text-slate-405">Enable an eye-friendly dark look for all management dashboards.</p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={handleToggleTheme}
+                        className={`w-12 h-6 rounded-full flex items-center px-1 transition-colors ${darkTheme ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        id="btn-toggle-dark-mode"
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white flex items-center justify-center transition-transform ${darkTheme ? 'translate-x-6' : 'translate-x-0'}`}>
+                          {darkTheme ? <Moon size={10} className="text-indigo-600" /> : <Sun size={10} className="text-amber-500" />}
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 text-[10px] text-indigo-800 dark:text-indigo-200 leading-relaxed rounded-none">
+                      <strong>✨ Note:</strong> Theme preference is synchronized in real-time. Changing this updates your portal view immediately and sets your persistent local workspace styling preference.
                     </div>
                   </div>
                 </div>

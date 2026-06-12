@@ -23,6 +23,29 @@ export default function App() {
     return saved ? true : false;
   });
 
+  // Theme support
+  const [darkTheme, setDarkTheme] = useState<boolean>(() => {
+    return localStorage.getItem('acadamis_dark_theme') === 'true';
+  });
+
+  useEffect(() => {
+    if (darkTheme) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('acadamis_dark_theme', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('acadamis_dark_theme', 'false');
+    }
+  }, [darkTheme]);
+
+  useEffect(() => {
+    const handleThemeToggle = () => {
+      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+    };
+    window.addEventListener('acadamis_toggle_theme', handleThemeToggle);
+    return () => window.removeEventListener('acadamis_toggle_theme', handleThemeToggle);
+  }, []);
+
   // --- STATE DEFAULTS & INITIALIZATION ---
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
     const saved = localStorage.getItem('acadamis_teachers');
@@ -114,7 +137,7 @@ export default function App() {
 
   // --- RENDER ROUTING ENGINE ---
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans antialiased selection:bg-blue-500 selection:text-white">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
       {!userSession ? (
         !viewPortal ? (
