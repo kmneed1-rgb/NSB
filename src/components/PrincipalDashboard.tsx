@@ -1124,16 +1124,36 @@ export default function PrincipalDashboard({
       {/* Main Panel */}
       <main className="flex-1 min-h-screen flex flex-col p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full font-sans text-slate-800">
         
+        {userSession.role === 'developer' && (
+          <div className="bg-amber-100 border border-amber-200 p-3 mb-6 flex items-center justify-between shadow-sm animate-pulse">
+            <div className="flex items-center gap-2 text-amber-800">
+              <ShieldAlert size={16} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Developer Mode Active: Tracking Principal Dashboard</span>
+            </div>
+            <div className="text-[9px] font-bold text-amber-600 uppercase">Superuser Access (KM)</div>
+          </div>
+        )}
+        
         {/* Active Tab View rendering */}
 
         {/* ========== DASHBOARD OVERVIEW TABLEAUX ========== */}
         {activeTab === 'dashboard' && (
           <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Greeting Header */}
-            <div>
-              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">{userSession.role === 'principal' ? 'Principal Console' : 'Coordinator Console'}</p>
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">{userSession.role === 'principal' ? 'Principal Dashboard' : 'Coordinator Dashboard'}</h1>
-              <p className="text-sm text-slate-500 mt-1">Real-time counts and summaries of state registers stored inside Acadamis.</p>
+            <div className="bg-indigo-600 p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-indigo-700/50">
+              <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1">
+                {userSession.role === 'principal' ? 'Principal Console' : 
+                 userSession.role === 'developer' ? 'Developer Terminal' : 
+                 'Coordinator Console'}
+              </p>
+              <h1 className="text-3xl font-black text-white tracking-tighter font-display uppercase leading-tight">
+                {userSession.role === 'developer' ? 'System Tracking Dashboard' : 'Academic Command Center'}
+              </h1>
+              <p className="text-xs text-indigo-100/70 mt-2 max-w-lg font-medium leading-relaxed">
+                {userSession.role === 'developer' ? 
+                  'Live monitoring of school infrastructure, financial registers, and academic rosters.' : 
+                  'Real-time overview of state registers, student rosters, and financial accounts stored inside Acadamis.'}
+              </p>
             </div>
 
             {/* Metrics cards bar - Elegant Minimalist */}
@@ -2389,11 +2409,15 @@ export default function PrincipalDashboard({
                 <button
                   type="button"
                   onClick={async () => {
-                    const confirm = window.confirm("DANGER: This will permanently DELETE ALL records from Firebase Cloud. Are you absolutely sure?");
+                    const pass = window.prompt("DANGER: This will permanently DELETE ALL records. Please enter Principal password to confirm:");
+                    if (pass === null) return;
+                    if (pass !== '111222') {
+                      toast.error("Incorrect password. Access denied.");
+                      return;
+                    }
+
+                    const confirm = window.confirm("Final Warning: This action cannot be undone. All student, teacher, and academic records in the cloud will be wiped. Proceed?");
                     if(!confirm) return;
-                    
-                    const confirm2 = window.confirm("Final Warning: This action cannot be undone. All student, teacher, and academic records in the cloud will be wiped. Proceed?");
-                    if(!confirm2) return;
 
                     toast.info("Nuking database...");
                     try {

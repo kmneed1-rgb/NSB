@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BookOpen, Users, Award, Shield, ArrowRight, CheckCircle2, 
-  MapPin, Phone, Mail, Clock, Calendar, Sparkles, Send, Info
+  MapPin, Phone, Mail, Clock, Calendar, Sparkles, Send, Info,
+  GraduationCap
 } from 'lucide-react';
 import { Teacher, Student, Class } from '../types';
 
@@ -42,11 +43,11 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
     <div className="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen flex flex-col">
       
       {/* ========== LANDING NAVIGATION HEADER ========== */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-lg border-b border-slate-200/50 px-6 md:px-12 py-5 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 md:px-12 py-3 flex items-center justify-between shadow-sm">
         <motion.div 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-4"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-3"
         >
           <img 
             src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
@@ -54,8 +55,9 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
             className="h-10 w-auto object-contain"
             referrerPolicy="no-referrer"
           />
-          <span className="font-black text-slate-900 text-sm tracking-tighter uppercase border-l border-slate-200 pl-4">
-            NSB1 <span className="text-indigo-600">Academy</span>
+          <div className="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+          <span className="font-black text-slate-900 text-lg tracking-tighter uppercase flex flex-col leading-none">
+            NSB1 <span className="text-[10px] tracking-[0.3em] font-bold text-indigo-600">Academy</span>
           </span>
         </motion.div>
 
@@ -68,46 +70,50 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         </nav>
 
         <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={onEnterPortal}
-          className="py-2.5 px-6 bg-slate-950 text-white font-bold text-[10px] uppercase tracking-widest transition-all cursor-pointer hover:bg-indigo-600"
+          className="py-2.5 px-8 bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer hover:shadow-lg hover:bg-indigo-700"
         >
-          Login
+          Portal Login
         </motion.button>
       </header>
 
-      {/* ========== HERO SECTION (MINIMALIST) ========== */}
-      <section id="hero" className="relative bg-white text-slate-900 pt-20 pb-20 px-6 md:px-12 overflow-hidden">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      {/* ========== HERO SECTION (POLISHED) ========== */}
+      <section id="hero" className="relative bg-white text-slate-900 pt-32 pb-32 px-6 md:px-12 overflow-hidden border-b border-slate-100">
+        {/* Background Mesh/Glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl -z-10 overflow-hidden pointer-events-none">
+          <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-50 rounded-full blur-[120px] opacity-60"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-50 rounded-full blur-[100px] opacity-40"></div>
+        </div>
+
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
           <motion.div 
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="space-y-8"
+            className="space-y-10 text-center lg:text-left"
           >
-            <h1 className="text-4xl md:text-6xl font-light tracking-tighter leading-[0.95] text-slate-950">
-              <motion.span
-                animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
-                transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
-                className="font-extrabold bg-clip-text text-transparent bg-[length:200%_200%] bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600"
-              >
-                NSB1
-              </motion.span> School & Academy<br/>
-              Education <span className="font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">Refined</span>. <br/>
-              Scholars <span className="text-indigo-600">Empowered</span>.
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-full">
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Excellence Redefined</span>
+            </div>
+
+            <h1 className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-[0.8] text-slate-950 uppercase italic">
+              Empowering<br/>
+              <span className="text-indigo-600 not-italic">Scholars.</span>
             </h1>
             
-            <p className="text-slate-500 text-sm md:text-lg max-w-lg leading-relaxed font-light">
-              Located at Sialkot Bypass, Punjab, Gujranwala. Integrating digital infrastructure with traditional excellence. A minimalist gateway to secondary education and competitive academic preparation.
+            <p className="text-slate-500 text-sm md:text-lg max-w-lg leading-relaxed font-medium mx-auto lg:mx-0">
+              NSB1 School & Academy delivers first-class academic excellence in Gujranwala. We combine digital portal efficiency with rigorous traditional standards to prepare the next generation.
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-6 pt-6">
+            <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center lg:justify-start">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={onEnterPortal}
-                className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-[0.3em] transition-all shadow-xl shadow-indigo-600/20"
+                className="px-12 py-4 bg-slate-950 hover:bg-indigo-600 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all shadow-2xl shadow-indigo-200"
               >
                 Access Portal
               </motion.button>
@@ -115,31 +121,39 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 href="#academics"
-                className="px-10 py-4 border border-slate-200 text-slate-900 hover:bg-slate-50 font-bold text-xs uppercase tracking-[0.3em] transition-all"
+                className="px-12 py-4 border-2 border-slate-950 text-slate-950 hover:bg-slate-50 font-black text-[11px] uppercase tracking-[0.4em] transition-all"
               >
-                Learn More
+                View Streams
               </motion.a>
             </div>
           </motion.div>
 
           <motion.div 
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 1, delay: 0.3 }}
-            className="relative mt-12 lg:mt-0"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1 }}
+            className="relative flex items-center justify-center p-8 bg-slate-50 border border-slate-100 rounded-3xl"
           >
-            <div className="relative aspect-[4/3] flex items-center justify-center">
-              <img 
-                src="/src/assets/images/student_reading_isolated_1781852835901.jpg" 
-                alt="Student reading book" 
-                className="max-w-full max-h-full object-contain mix-blend-multiply filter drop-shadow-2xl"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-            
-            {/* Decorative Elements */}
-            <div className="absolute -z-10 -bottom-8 -left-8 w-64 h-64 bg-indigo-100 rounded-full blur-3xl opacity-50"></div>
-            <div className="absolute -z-10 -top-8 -right-8 w-64 h-64 bg-slate-100 rounded-full blur-3xl opacity-50"></div>
+            <img 
+              src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
+              alt="NSB 1 ACADEMY LOGO" 
+              className="max-w-[280px] lg:max-w-[360px] w-full h-auto object-contain drop-shadow-2xl opacity-90"
+              referrerPolicy="no-referrer"
+            />
+            {/* Decorative Floating Card */}
+            <motion.div 
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              className="absolute -top-4 -right-4 bg-white p-4 shadow-xl border border-slate-100 rounded-xl hidden sm:block"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><CheckCircle2 size={20}/></div>
+                <div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Status</div>
+                  <div className="text-xs font-black text-slate-900 uppercase">Admissions Open</div>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         </div>
       </section>

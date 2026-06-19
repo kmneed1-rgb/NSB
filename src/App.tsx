@@ -642,7 +642,7 @@ export default function App() {
             onBackToLanding={() => setViewPortal(false)}
           />
         )
-      ) : (userSession.role === 'principal' || userSession.role === 'coordinator') ? (
+      ) : (userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') ? (
         <PrincipalDashboard
           userSession={userSession}
           teachers={teachers}

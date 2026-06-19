@@ -26,6 +26,9 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
     if (newRole === 'principal') {
       setEmail('ali');
       setPassword('111222');
+    } else if (newRole === 'developer') {
+      setEmail('KM');
+      setPassword('6016');
     } else if (newRole === 'coordinator') {
       setEmail('');
       setPassword('');
@@ -124,6 +127,18 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
         } else {
           setError(err.message || 'Invalid manual principal credentials.');
         }
+      }
+    } else if (role === 'developer') {
+      if (checkInput === 'km' && password === '6016') {
+        onLogin({
+          role: 'developer',
+          email: 'developer@nsb1.com',
+          username: 'KM',
+          name: 'System Developer',
+        });
+        toast.success("Developer Access Granted.");
+      } else {
+        setError("Invalid developer credentials.");
       }
     } else if (role === 'coordinator') {
       const foundCoordinator = coordinators.find(c => 
@@ -304,7 +319,8 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
              { role: 'principal', label: 'Principal', icon: Shield },
              { role: 'coordinator', label: 'Coord', icon: Shield },
              { role: 'teacher', label: 'Faculty', icon: Users },
-             { role: 'student', label: 'Student', icon: User }
+             { role: 'student', label: 'Student', icon: User },
+             { role: 'developer', label: 'Dev', icon: Shield }
            ].map(item => (
              <button
                key={item.role}
