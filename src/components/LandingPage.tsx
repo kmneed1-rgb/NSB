@@ -50,7 +50,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           className="flex items-center gap-3"
         >
           <img 
-            src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
+            src="/logo.png" 
             alt="NSB 1 ACADEMY" 
             className="h-10 w-auto object-contain"
             referrerPolicy="no-referrer"
@@ -135,7 +135,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
             className="relative flex items-center justify-center p-8 bg-slate-50 border border-slate-100 rounded-3xl"
           >
             <img 
-              src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
+              src="/logo.png" 
               alt="NSB 1 ACADEMY LOGO" 
               className="max-w-[280px] lg:max-w-[360px] w-full h-auto object-contain drop-shadow-2xl opacity-90"
               referrerPolicy="no-referrer"

@@ -1069,7 +1069,7 @@ export default function PrincipalDashboard({
           {/* Brand header - Minimalist */}
           <div className="p-8 pb-10 flex flex-col items-center border-b border-slate-50 mb-6">
             <img 
-              src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
+              src="/logo.png" 
               alt="NSB 1 ACADEMY" 
               className="h-16 w-auto object-contain mb-3"
               referrerPolicy="no-referrer"
@@ -1082,7 +1082,7 @@ export default function PrincipalDashboard({
           {/* Minimalist Nav */}
           <nav className="px-5 space-y-1">
             {[
-              { id: 'dashboard', label: 'Overview', icon: BarChart2 },
+              { id: 'dashboard', label: 'Desk', icon: BarChart2 },
               { id: 'management_hub', label: 'Management Hub', icon: Shield },
               { id: 'timetable', label: 'Schedules', icon: Calendar },
               { id: 'alerts', label: 'Alert Center', icon: AlertCircle, color: 'text-rose-600' },
@@ -1095,13 +1095,13 @@ export default function PrincipalDashboard({
                 <button
                   key={link.id}
                   onClick={() => { setActiveTab(link.id as any); setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl ${
                     isActive 
-                      ? 'text-indigo-600 bg-indigo-50/50' 
+                      ? 'text-white bg-emerald-600 shadow-lg shadow-emerald-200' 
                       : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  <Icon size={14} className={isActive ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-500'} />
+                  <Icon size={14} className={isActive ? 'text-white' : 'text-slate-300 group-hover:text-slate-500'} />
                   {link.label}
                 </button>
               );
@@ -1138,18 +1138,18 @@ export default function PrincipalDashboard({
 
         {/* ========== DASHBOARD OVERVIEW TABLEAUX ========== */}
         {activeTab === 'dashboard' && (
-          <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
+          <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner">
             {/* Greeting Header */}
-            <div className="bg-indigo-600 p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-indigo-700/50">
-              <p className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1">
+            <div className="bg-emerald-600 p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50">
+              <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mb-1">
                 {userSession.role === 'principal' ? 'Principal Console' : 
                  userSession.role === 'developer' ? 'Developer Terminal' : 
                  'Coordinator Console'}
               </p>
-              <h1 className="text-3xl font-black text-white tracking-tighter font-display uppercase leading-tight">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tighter font-display uppercase leading-[0.9]">
                 {userSession.role === 'developer' ? 'System Tracking Dashboard' : 'Academic Command Center'}
               </h1>
-              <p className="text-xs text-indigo-100/70 mt-2 max-w-lg font-medium leading-relaxed">
+              <p className="text-xs text-emerald-100/70 mt-2 max-w-lg font-medium leading-relaxed">
                 {userSession.role === 'developer' ? 
                   'Live monitoring of school infrastructure, financial registers, and academic rosters.' : 
                   'Real-time overview of state registers, student rosters, and financial accounts stored inside Acadamis.'}
@@ -3554,16 +3554,20 @@ export default function PrincipalDashboard({
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
       <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none">
         <div className="flex justify-around items-center h-14">
-          {userSession.role === 'principal' && (
+          {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
             <button
               id="mobile-nav-dashboard"
               onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-                activeTab === 'dashboard' ? 'text-blue-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+                activeTab === 'dashboard' 
+                  ? 'text-emerald-400 font-bold scale-105 bg-emerald-500/10 border-t-2 border-emerald-500' 
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               <BarChart2 size={16} />
-              <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Desk</span>
+              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">
+                Desk
+              </span>
             </button>
           )}
           

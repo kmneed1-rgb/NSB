@@ -642,7 +642,7 @@ export default function TeacherDashboard({
           <div className="p-8 border-b border-slate-50 flex flex-col items-center gap-3">
             <div className="flex items-center justify-between w-full">
               <img 
-                src="/src/assets/images/nsb1_logo_white_bg_1781098534962.png" 
+                src="/logo.png" 
                 alt="NSB 1 ACADEMY" 
                 className="h-12 w-auto object-contain"
                 referrerPolicy="no-referrer"
