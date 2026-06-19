@@ -1,5 +1,14 @@
 export type Role = 'principal' | 'teacher' | 'student' | 'coordinator';
 
+export interface Coordinator {
+  id: string;
+  name: string;
+  email: string;
+  username: string;
+  password: string;
+  phone: string;
+}
+
 export interface Teacher {
   id: string;
   name: string;
@@ -13,13 +22,22 @@ export interface Teacher {
 export interface Student {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   username: string; // Added for login
   password: string; // Added for login
   classId: string; // References Class.id
   rollNumber: string;
   parentPhone: string;
+  studentPhone?: string;
   baseFee?: number;
+  guardianName?: string;
+  category?: string;
+  academySubjects?: string[];
+}
+
+export interface ClassFeeConfig {
+  name: string;
+  amount: number;
 }
 
 export interface Class {
@@ -27,9 +45,11 @@ export interface Class {
   className: string; // e.g., "Grade 10", "Grade 11"
   section: string;   // e.g., "A", "B"
   classTeacherId: string; // References Teacher.id
+  subjects?: string[];
+  feeConfigs?: ClassFeeConfig[];
 }
 
-export type ExamType = 'Unit Test' | 'Half Yearly' | 'Final';
+export type ExamType = string;
 
 export interface Mark {
   id: string;

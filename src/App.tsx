@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Toaster } from 'sonner';
-import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord } from './types';
+import { useState, useEffect, useRef } from 'react';
+import { Toaster, toast } from 'sonner';
+import { db } from './firebase';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord } from './types';
 import { 
   INITIAL_TEACHERS, 
   INITIAL_CLASSES, 
@@ -49,37 +51,42 @@ export default function App() {
   // --- STATE DEFAULTS & INITIALIZATION ---
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
     const saved = localStorage.getItem('acadamis_teachers');
-    return saved ? JSON.parse(saved) : INITIAL_TEACHERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [classes, setClasses] = useState<Class[]>(() => {
     const saved = localStorage.getItem('acadamis_classes');
-    return saved ? JSON.parse(saved) : INITIAL_CLASSES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('acadamis_students');
-    return saved ? JSON.parse(saved) : INITIAL_STUDENTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [timetable, setTimetable] = useState<TimetableEntry[]>(() => {
     const saved = localStorage.getItem('acadamis_timetable');
-    return saved ? JSON.parse(saved) : INITIAL_TIMETABLE;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [attendance, setAttendance] = useState<Attendance[]>(() => {
     const saved = localStorage.getItem('acadamis_attendance');
-    return saved ? JSON.parse(saved) : INITIAL_ATTENDANCE;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [marks, setMarks] = useState<Mark[]>(() => {
     const saved = localStorage.getItem('acadamis_marks');
-    return saved ? JSON.parse(saved) : INITIAL_MARKS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [fees, setFees] = useState<FeeRecord[]>(() => {
     const saved = localStorage.getItem('acadamis_fees');
-    return saved ? JSON.parse(saved) : INITIAL_FEES;
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [coordinators, setCoordinators] = useState<Coordinator[]>(() => {
+    const saved = localStorage.getItem('acadamis_coordinators');
+    return saved ? JSON.parse(saved) : [];
   });
 
   // User session state
@@ -87,6 +94,456 @@ export default function App() {
     const saved = localStorage.getItem('acadamis_session');
     return saved ? JSON.parse(saved) : null;
   });
+
+  // --- FIRESTORE SYNCHRONIZATION SYSTEM ---
+  const [isSyncing, setIsSyncing] = useState<boolean>(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const isSyncComplete = useRef<boolean>(false);
+
+  const prevTeachers = useRef<string>('');
+  const prevClasses = useRef<string>('');
+  const prevStudents = useRef<string>('');
+  const prevTimetable = useRef<string>('');
+  const prevAttendance = useRef<string>('');
+  const prevMarks = useRef<string>('');
+  const prevFees = useRef<string>('');
+  const prevCoordinators = useRef<string>('');
+
+  useEffect(() => {
+    async function initFirebaseAndSync() {
+      try {
+        console.log("Checking Firestore collections state on mount...");
+        const teachersSnapshot = await getDocs(collection(db, "teachers"));
+        
+        // Detect if previously seeded fake/mock data is present in Firestore
+        const hasFakeData = !teachersSnapshot.empty && teachersSnapshot.docs.some(doc => ['t1', 't2', 't3'].includes(doc.id));
+        
+        if (hasFakeData) {
+          console.log("Detected seeded fake data in Firestore. Purging all collections...");
+          
+          const deleteCollectionDocs = async (collectionName: string) => {
+            const snapshot = await getDocs(collection(db, collectionName));
+            if (snapshot.empty) return;
+            const batch = writeBatch(db);
+            snapshot.docs.forEach(docSnap => {
+              batch.delete(doc(db, collectionName, docSnap.id));
+            });
+            await batch.commit();
+          };
+
+          await deleteCollectionDocs("teachers");
+          await deleteCollectionDocs("classes");
+          await deleteCollectionDocs("students");
+          await deleteCollectionDocs("timetable");
+          await deleteCollectionDocs("attendance");
+          await deleteCollectionDocs("marks");
+          await deleteCollectionDocs("fees");
+
+          // Clear local storage completely for school states
+          localStorage.removeItem('acadamis_teachers');
+          localStorage.removeItem('acadamis_classes');
+          localStorage.removeItem('acadamis_students');
+          localStorage.removeItem('acadamis_timetable');
+          localStorage.removeItem('acadamis_attendance');
+          localStorage.removeItem('acadamis_marks');
+          localStorage.removeItem('acadamis_fees');
+
+          // Reset school states to empty
+          setTeachers([]);
+          setClasses([]);
+          setStudents([]);
+          setTimetable([]);
+          setAttendance([]);
+          setMarks([]);
+          setFees([]);
+
+          prevTeachers.current = JSON.stringify([]);
+          prevClasses.current = JSON.stringify([]);
+          prevStudents.current = JSON.stringify([]);
+          prevTimetable.current = JSON.stringify([]);
+          prevAttendance.current = JSON.stringify([]);
+          prevMarks.current = JSON.stringify([]);
+          prevFees.current = JSON.stringify([]);
+
+          toast.success("ScholarSync cleared of all fake data! Ready for custom setup.");
+        } else if (teachersSnapshot.empty) {
+          console.log("Firestore database is empty. Ready for actual school setup.");
+          
+          setTeachers([]);
+          setClasses([]);
+          setStudents([]);
+          setTimetable([]);
+          setAttendance([]);
+          setMarks([]);
+          setFees([]);
+
+          prevTeachers.current = JSON.stringify([]);
+          prevClasses.current = JSON.stringify([]);
+          prevStudents.current = JSON.stringify([]);
+          prevTimetable.current = JSON.stringify([]);
+          prevAttendance.current = JSON.stringify([]);
+          prevMarks.current = JSON.stringify([]);
+          prevFees.current = JSON.stringify([]);
+          
+          toast.success("Connected with fresh, clean Cloud Firestore database!");
+        } else {
+          console.log("Loading datasets from active Cloud Firestore...");
+          
+          const classesSnapshot = await getDocs(collection(db, "classes"));
+          const studentsSnapshot = await getDocs(collection(db, "students"));
+          const timetableSnapshot = await getDocs(collection(db, "timetable"));
+          const attendanceSnapshot = await getDocs(collection(db, "attendance"));
+          const marksSnapshot = await getDocs(collection(db, "marks"));
+          const feesSnapshot = await getDocs(collection(db, "fees"));
+          const coordinatorsSnapshot = await getDocs(collection(db, "coordinators"));
+
+          const loadedTeachers: Teacher[] = [];
+          teachersSnapshot.forEach(docSnap => loadedTeachers.push(docSnap.data() as Teacher));
+
+          const loadedClasses: Class[] = [];
+          classesSnapshot.forEach(docSnap => loadedClasses.push(docSnap.data() as Class));
+
+          const loadedStudents: Student[] = [];
+          studentsSnapshot.forEach(docSnap => loadedStudents.push(docSnap.data() as Student));
+
+          const loadedTimetable: TimetableEntry[] = [];
+          timetableSnapshot.forEach(docSnap => loadedTimetable.push(docSnap.data() as TimetableEntry));
+
+          const loadedAttendance: Attendance[] = [];
+          attendanceSnapshot.forEach(docSnap => loadedAttendance.push(docSnap.data() as Attendance));
+
+          const loadedMarks: Mark[] = [];
+          marksSnapshot.forEach(docSnap => loadedMarks.push(docSnap.data() as Mark));
+
+          const loadedFees: FeeRecord[] = [];
+          feesSnapshot.forEach(docSnap => loadedFees.push(docSnap.data() as FeeRecord));
+
+          const loadedCoordinators: Coordinator[] = [];
+          coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
+
+          setTeachers(loadedTeachers);
+          setClasses(loadedClasses);
+          setStudents(loadedStudents);
+          setTimetable(loadedTimetable);
+          setAttendance(loadedAttendance);
+          setMarks(loadedMarks);
+          setFees(loadedFees);
+          setCoordinators(loadedCoordinators);
+
+          prevTeachers.current = JSON.stringify(loadedTeachers);
+          prevClasses.current = JSON.stringify(loadedClasses);
+          prevStudents.current = JSON.stringify(loadedStudents);
+          prevTimetable.current = JSON.stringify(loadedTimetable);
+          prevAttendance.current = JSON.stringify(loadedAttendance);
+          prevMarks.current = JSON.stringify(loadedMarks);
+          prevFees.current = JSON.stringify(loadedFees);
+          prevCoordinators.current = JSON.stringify(loadedCoordinators);
+
+          toast.success("ScholarSync connected with Cloud Firestore Ledger!");
+        }
+        isSyncComplete.current = true;
+        setIsSyncing(false);
+      } catch (err: any) {
+        console.error("Firebase synchronization failure, offline backup active:", err);
+        setSyncError(err.message || "Failed connection");
+        setIsSyncing(false);
+        // Fallback to offline compatibility
+        isSyncComplete.current = true;
+        toast.warning("Cloud database offline. Local safety mode active.");
+      }
+    }
+
+    initFirebaseAndSync();
+  }, []);
+
+  // --- REALTIME DIFFERENTIAL SYNC ACTIONS ---
+  
+  // Teachers Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(teachers);
+    if (currentStr === prevTeachers.current) return;
+
+    const current = teachers;
+    const prevArr: Teacher[] = prevTeachers.current ? JSON.parse(prevTeachers.current) : [];
+
+    current.forEach(async (t) => {
+      const matched = prevArr.find(v => v.id === t.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(t)) {
+        try {
+          await setDoc(doc(db, "teachers", t.id), sanitizeForFirestore(t));
+        } catch (e) {
+          console.error("Firestore Teacher Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (t) => {
+      if (!current.some(item => item.id === t.id)) {
+        try {
+          await deleteDoc(doc(db, "teachers", t.id));
+        } catch (e) {
+          console.error("Firestore Teacher Delete Error:", e);
+        }
+      }
+    });
+
+    prevTeachers.current = currentStr;
+  }, [teachers]);
+
+  // Coordinators Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(coordinators);
+    if (currentStr === prevCoordinators.current) return;
+
+    const current = coordinators;
+    const prevArr: Coordinator[] = prevCoordinators.current ? JSON.parse(prevCoordinators.current) : [];
+
+    current.forEach(async (c) => {
+      const matched = prevArr.find(v => v.id === c.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(c)) {
+        try {
+          await setDoc(doc(db, "coordinators", c.id), sanitizeForFirestore(c));
+        } catch (e) {
+          console.error("Firestore Coordinator Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (c) => {
+      if (!current.some(item => item.id === c.id)) {
+        try {
+          await deleteDoc(doc(db, "coordinators", c.id));
+        } catch (e) {
+          console.error("Firestore Coordinator Delete Error:", e);
+        }
+      }
+    });
+
+    prevCoordinators.current = currentStr;
+    localStorage.setItem('acadamis_coordinators', currentStr);
+  }, [coordinators]);
+
+  // --- UTILS ---
+  /**
+   * Firestore does not support 'undefined' values in documents.
+   * This utility recursively removes undefined fields or converts them to null 
+   * if they are optional in the type but missing in the instance.
+   */
+  const sanitizeForFirestore = (obj: any): any => {
+    if (Array.isArray(obj)) {
+      return obj.map(v => sanitizeForFirestore(v));
+    } else if (obj !== null && typeof obj === 'object') {
+      const newObj: any = {};
+      Object.keys(obj).forEach(key => {
+        const val = obj[key];
+        if (val !== undefined) {
+          newObj[key] = sanitizeForFirestore(val);
+        }
+      });
+      return newObj;
+    }
+    return obj;
+  };
+
+  // Classes Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(classes);
+    if (currentStr === prevClasses.current) return;
+
+    const current = classes;
+    const prevArr: Class[] = prevClasses.current ? JSON.parse(prevClasses.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "classes", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Class Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "classes", item.id));
+        } catch (e) {
+          console.error("Firestore Class Delete Error:", e);
+        }
+      }
+    });
+
+    prevClasses.current = currentStr;
+  }, [classes]);
+
+  // Students Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(students);
+    if (currentStr === prevStudents.current) return;
+
+    const current = students;
+    const prevArr: Student[] = prevStudents.current ? JSON.parse(prevStudents.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "students", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Student Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "students", item.id));
+        } catch (e) {
+          console.error("Firestore Student Delete Error:", e);
+        }
+      }
+    });
+
+    prevStudents.current = currentStr;
+  }, [students]);
+
+  // Timetable Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(timetable);
+    if (currentStr === prevTimetable.current) return;
+
+    const current = timetable;
+    const prevArr: TimetableEntry[] = prevTimetable.current ? JSON.parse(prevTimetable.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "timetable", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Timetable Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "timetable", item.id));
+        } catch (e) {
+          console.error("Firestore Timetable Delete Error:", e);
+        }
+      }
+    });
+
+    prevTimetable.current = currentStr;
+  }, [timetable]);
+
+  // Attendance Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(attendance);
+    if (currentStr === prevAttendance.current) return;
+
+    const current = attendance;
+    const prevArr: Attendance[] = prevAttendance.current ? JSON.parse(prevAttendance.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "attendance", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Attendance Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "attendance", item.id));
+        } catch (e) {
+          console.error("Firestore Attendance Delete Error:", e);
+        }
+      }
+    });
+
+    prevAttendance.current = currentStr;
+  }, [attendance]);
+
+  // Marks Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(marks);
+    if (currentStr === prevMarks.current) return;
+
+    const current = marks;
+    const prevArr: Mark[] = prevMarks.current ? JSON.parse(prevMarks.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "marks", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Marks Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "marks", item.id));
+        } catch (e) {
+          console.error("Firestore Marks Delete Error:", e);
+        }
+      }
+    });
+
+    prevMarks.current = currentStr;
+  }, [marks]);
+
+  // Fees Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(fees);
+    if (currentStr === prevFees.current) return;
+
+    const current = fees;
+    const prevArr: FeeRecord[] = prevFees.current ? JSON.parse(prevFees.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "fees", item.id), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Fees Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "fees", item.id));
+        } catch (e) {
+          console.error("Firestore Fees Delete Error:", e);
+        }
+      }
+    });
+
+    prevFees.current = currentStr;
+  }, [fees]);
 
   // --- LOCALSTORAGE CACHING EFFECTS ---
   useEffect(() => {
@@ -136,6 +593,35 @@ export default function App() {
   };
 
   // --- RENDER ROUTING ENGINE ---
+  if (isSyncing) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-center font-sans select-none">
+        <Toaster position="top-right" richColors />
+        <div className="space-y-6 max-w-sm w-full animate-fade-in">
+          {/* Animated Spinner with school academic icon */}
+          <div className="relative w-16 h-16 mx-auto">
+            <div className="absolute inset-0 rounded-full border-4 border-slate-900"></div>
+            <div className="absolute inset-x-0 inset-y-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+            <span className="absolute inset-0 flex items-center justify-center text-xl">🏫</span>
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-sm font-black uppercase tracking-widest text-slate-100">
+              ScholarSync Cloud Security
+            </h1>
+            <p className="text-[10px] text-slate-400 font-mono tracking-wider animate-pulse uppercase">
+              Establishing real-time ledger synchronization...
+            </p>
+          </div>
+
+          <p className="text-[10px] text-slate-500 leading-relaxed font-mono">
+            Scanning academic class structures, teachers rosters, dynamic timetables, and billing accounts from active Firestore cloud databases...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
@@ -151,6 +637,7 @@ export default function App() {
           <Login 
             teachers={teachers} 
             students={students} 
+            coordinators={coordinators}
             onLogin={handleLogin} 
             onBackToLanding={() => setViewPortal(false)}
           />
@@ -162,6 +649,8 @@ export default function App() {
           setTeachers={setTeachers}
           students={students}
           setStudents={setStudents}
+          coordinators={coordinators}
+          setCoordinators={setCoordinators}
           classes={classes}
           setClasses={setClasses}
           timetable={timetable}

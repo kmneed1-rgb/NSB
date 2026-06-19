@@ -1,17 +1,28 @@
+import { db } from '../firebase';
+import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { 
-  Users, BookOpen, Calendar, LogOut, Plus, Edit2, Trash2, Search, X, 
-  Menu, Shield, Phone, Mail, Award, AlertCircle, RefreshCw, BarChart2, PlusCircle, CreditCard,
-  TrendingUp, CheckCircle2, AlertTriangle, ArrowUpRight, Percent, CalendarDays,
-  ChevronDown, ChevronUp, Bell, User, Sun, Moon
-} from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord } from '../types';
-import CashPaymentEntry from './CashPaymentEntry';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord } from '../types';
+import { 
+  addPayment, 
+  getMonthlySummary, 
+  getYearlySummary, 
+  getTotalPending, 
+  getTotalCollected, 
+  addOtherFund, 
+  getTotalOtherFunds, 
+  getStudentFullAccount, 
+  getGlobalStats, 
+  loadFromLocalStorage, 
+  saveToLocalStorage, 
+  StudentFeeData, 
+  MONTHS 
+} from '../lib/feeEngine';
 
 interface PrincipalDashboardProps {
   userSession: UserSession;
@@ -19,6 +30,8 @@ interface PrincipalDashboardProps {
   setTeachers: React.Dispatch<React.SetStateAction<Teacher[]>>;
   students: Student[];
   setStudents: React.Dispatch<React.SetStateAction<Student[]>>;
+  coordinators: Coordinator[];
+  setCoordinators: React.Dispatch<React.SetStateAction<Coordinator[]>>;
   classes: Class[];
   setClasses: React.Dispatch<React.SetStateAction<Class[]>>;
   timetable: TimetableEntry[];
@@ -30,12 +43,20 @@ interface PrincipalDashboardProps {
 
 type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees';
 
+const STANDARD_SUBJECTS_LIST = [
+  'Mathematics', 'English', 'Urdu', 'Science', 'Physics', 'Chemistry', 'Biology', 
+  'Computer Science', 'Islamiyat', 'Pak Studies', 'Social Studies', 'Geography', 
+  'History', 'General Science', 'Art', 'Physical Education'
+];
+
 export default function PrincipalDashboard({
   userSession,
   teachers,
   setTeachers,
   students,
   setStudents,
+  coordinators,
+  setCoordinators,
   classes,
   setClasses,
   timetable,
@@ -45,7 +66,7 @@ export default function PrincipalDashboard({
   onLogout
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
-  const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes'>('teachers');
+  const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>('teachers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Theme support
@@ -73,38 +94,98 @@ export default function PrincipalDashboard({
   // Search/Filter States
   const [teacherSearch, setTeacherSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [coordinatorSearch, setCoordinatorSearch] = useState('');
   const [studentClassFilter, setStudentClassFilter] = useState('all');
   const [classSearch, setClassSearch] = useState('');
 
-  // PRINCIPAL FEE PORTAL STATE
-  const [feeSearch, setFeeSearch] = useState('');
-  const [feeStatusFilter, setFeeStatusFilter] = useState<'all' | 'paid' | 'unpaid' | 'pending'>('all');
-  const [feeListingClassFilter, setFeeListingClassFilter] = useState('all');
-  const [feeStudentId, setFeeStudentId] = useState('');
-  const [feeMonth, setFeeMonth] = useState('June 2026');
-  const [feeAmount, setFeeAmount] = useState('500');
-  const [feeDueDate, setFeeDueDate] = useState('2026-06-15');
-  const [feeFormOpen, setFeeFormOpen] = useState(false);
-  const [expandedFeeId, setExpandedFeeId] = useState<string | null>(null);
+  // PRINCIPAL FEE PORTAL STATE (NEW ENGINE)
+  const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>([]);
 
-  // Advanced Billing / Category States
-  const [feeCategory, setFeeCategory] = useState<'Tuition Fee' | 'Annual Fee' | 'Paper Fund' | 'Pending Balance' | 'Miscellaneous'>('Tuition Fee');
-  const [feeDescription, setFeeDescription] = useState('');
-  const [otherFeeAmount, setOtherFeeAmount] = useState('0');
-  const [applyToClass, setApplyToClass] = useState(false);
+  // Initialize and Sync Fee System
+  useEffect(() => {
+    const stored = loadFromLocalStorage();
+    
+    // Sync with existing students from props
+    const synced = students.map(s => {
+      const match = stored.find(fs => String(fs.id) === String(s.id));
+      if (match) {
+        return {
+          ...match,
+          name: s.name, // keep name/class updated from official list
+          class: classes.find(c => c.id === s.classId)?.className || match.class
+        };
+      }
+      return {
+        id: s.id,
+        name: s.name,
+        class: classes.find(c => c.id === s.classId)?.className || 'Default',
+        monthlyFee: s.baseFee || 1500,
+        payments: [],
+        otherFunds: []
+      };
+    });
+    
+    setFeeStudents(synced);
+  }, [students, classes]);
+
+  const [feeSearch, setFeeSearch] = useState('');
+  const [feeClassFilter, setFeeClassFilter] = useState('all');
+  const [selectedStudentForFee, setSelectedStudentForFee] = useState<string>('');
   const [isCashPayment, setIsCashPayment] = useState(true);
-  const [amountCollected, setAmountCollected] = useState('');
   const [selectedStudentForLedger, setSelectedStudentForLedger] = useState('');
-  const [showPendingFeeSummary, setShowPendingFeeSummary] = useState(false);
+  
+  const [feePaymentModal, setFeePaymentModal] = useState<{isOpen: boolean; studentId: string; month: string; pending: number; previousArrears: number; amount: string; year: number}>({ isOpen: false, studentId: '', month: '', pending: 0, previousArrears: 0, amount: '', year: 2026 });
+  
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean, type: string, id: string, message: string}>({ isOpen: false, type: '', id: '', message: '' });
+
+  // SATH HI Parent Notification Popup / Modal states
+  const [feeNotificationPopup, setFeeNotificationPopup] = useState<{
+    studentName: string;
+    parentPhone: string;
+    guardianName: string;
+    amount: number;
+    feeType: string;
+    month: string;
+    dueDate: string;
+    messageText: string;
+  } | null>(null);
+
+  // --- INTERACTIVE CLASS INSIGHTS STATE ---
+  const [selectedClassForDetails, setSelectedClassForDetails] = useState<Class | null>(null);
+  const [isClassDetailModalOpen, setIsClassDetailModalOpen] = useState(false);
+
+  // 2nd, 5th, 7th monthly notifications cockpit states
+  const [reminderSelectedDate, setReminderSelectedDate] = useState<'2' | '5' | '7'>('2');
+  const [reminderSendingProgress, setReminderSendingProgress] = useState<boolean>(false);
+  const [reminderReport, setReminderReport] = useState<Array<{
+    studentName: string;
+    parentPhone: string;
+    amount: number;
+    text: string;
+    status: string;
+  }> | null>(null);
+
+  // custom values for each category
+  const [paperFundVal, setPaperFundVal] = useState('150');
+  const [annualFeeVal, setAnnualFeeVal] = useState('500');
+  const [miscFeeVal, setMiscFeeVal] = useState('200');
 
   // WhatsApp Alert & Autopilot States
   const [whatsAppAutoFee, setWhatsAppAutoFee] = useState(true);
   const [whatsAppAutoAbsence, setWhatsAppAutoAbsence] = useState(true);
   const [whatsAppAutoResult, setWhatsAppAutoResult] = useState(false);
-  const [broadcastType, setBroadcastType] = useState<'fee' | 'absence' | 'result'>('fee');
-  const [broadcastStudentId, setBroadcastStudentId] = useState('');
-  const [broadcastClassId, setBroadcastClassId] = useState('');
-  const [broadcastCustomText, setBroadcastCustomText] = useState('');
+
+  // Customizable SMS / WhatsApp Templates
+  const [absentTemplate, setAbsentTemplate] = useState<string>(() => {
+    return localStorage.getItem('acadamis_custom_absent_template') || 
+      "ATTENTION: Your child {student_name} is marked ABSENT today ({date}). Kindly contact the school office. Principal.";
+  });
+
+  const [feeTemplate, setFeeTemplate] = useState<string>(() => {
+    return localStorage.getItem('acadamis_custom_fee_template') || 
+      "Greetings! 🌟\nNSB1 Principal Office Reminder:\nGuardian of {student_name} (Class: {class_name}).\nPending balance detected: Rs {total_pending} (Due for: {months}).\nKindly settle the dues today to avoid portal suspension.\nThank you.";
+  });
+
   const [broadcastLogs, setBroadcastLogs] = useState<Array<{
     id: string;
     recipient: string;
@@ -115,129 +196,12 @@ export default function PrincipalDashboard({
     status: 'Sent' | 'Failed' | 'Autopilot';
   }>>([
     { id: 'tx_1', recipient: 'Naveed (Parent of Mohammad)', phone: '+923001234567', type: 'Absent Alarm 🔔', text: 'ATTENTION: Your child Mohammad is absent from class today (09-06-2026). Kindly contact the principal\'s office.', timestamp: '2026-06-09 09:10 AM', status: 'Sent' },
-    { id: 'tx_2', recipient: 'Irfan (Parent of Ayesha)', phone: '+923219876543', type: 'Fee Reminder 💰', text: 'REMINDER: Ayesha\'s June 2026 Tuition Fee (500) is outstanding. Kindly clear the dues as soon as possible to avoid late surcharges.', timestamp: '2026-06-09 11:20 AM', status: 'Sent' }
+    { id: 'tx_2', recipient: 'Irfan (Parent of Ayesha)', phone: '+923219876543', type: 'Fee Reminder 💰', text: 'Reminder: Ayesha\'s fee (500) is outstanding. Please clear soon.', timestamp: '2026-06-09 11:20 AM', status: 'Sent' }
   ]);
-
-  const handleCreateInvoice = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!feeStudentId) {
-      toast.error("Please select a student profile for private statement generation.");
-      return;
-    }
-    const studentObj = students.find(s => s.id === feeStudentId);
-    if (!studentObj) return;
-
-    const studentsToBill = applyToClass && feeCategory === 'Paper Fund' 
-        ? students.filter(s => s.classId === studentObj.classId)
-        : [studentObj];
-
-    const newInvoices: FeeRecord[] = [];
-    let updatedFees = [...fees];
-
-    studentsToBill.forEach(student => {
-        const outstandingBalance = updatedFees
-            .filter(f => f.studentId === student.id && f.status === 'unpaid')
-            .reduce((sum, f) => sum + f.amount, 0);
-
-        const baseAmount = student.baseFee || 500;
-        const billTotal = baseAmount + outstandingBalance + Number(otherFeeAmount || 0);
-        
-        // Remove old unpaid invoices for this student
-        updatedFees = updatedFees.filter(f => !(f.studentId === student.id && f.status === 'unpaid'));
-
-        newInvoices.push({
-            id: 'fee_' + student.id + Date.now() + Math.random(),
-            studentId: student.id,
-            amount: billTotal,
-            month: feeMonth,
-            dueDate: feeDueDate,
-            status: 'unpaid',
-            feeType: feeCategory,
-            description: outstandingBalance > 0 
-                ? `${feeCategory} invoice (Incl. ${outstandingBalance} arrears + ${otherFeeAmount} extra)` 
-                : `${feeCategory} - ${feeDescription || 'Particulars'} (Incl. ${otherFeeAmount} extra)`
-        });
-    });
-
-    setFees([...newInvoices, ...updatedFees]);
-
-    setFeeStudentId('');
-    setFeeFormOpen(false);
-    setIsCashPayment(true);
-    setFeeDescription('');
-    setOtherFeeAmount('0');
-    setAmountCollected('');
-    toast.success(`${isCashPayment ? 'Cash Collection' : 'Ledger Invoice'} recorded for ${studentObj.name} successfully!`);
-
-    // Auto trigger warning
-    if (whatsAppAutoFee) {
-      const arrears = fees
-        .filter(f => f.studentId === studentObj.id && f.status === 'unpaid')
-        .reduce((sum, f) => sum + f.amount, 0);
-      const billTotalForStudent = (studentObj.baseFee || 500) + arrears + Number(otherFeeAmount || 0);
-
-      setBroadcastLogs(prev => [
-        {
-          id: 'auto_' + Date.now(),
-          recipient: `${studentObj.name}'s Guardian`,
-          phone: studentObj.parentPhone || '0300-XXXXXXX',
-          type: 'Private Auto Fee 💰',
-          text: `Greetings! Fee for student ${studentObj.name} (${billTotalForStudent}) for ${feeMonth} has been issued. (Incl. ${otherFeeAmount} extra fund). Due Date: ${feeDueDate}`,
-          timestamp: new Date().toLocaleString(),
-          status: 'Autopilot'
-        },
-        ...prev
-      ]);
-    }
-  };
-
-  const handleDeleteInvoice = (id: string) => {
-    setFees(prev => prev.filter(f => f.id !== id));
-    toast.success("Invoice successfully expunged from ledger records.");
-  };
-
-  const handleGenerateReportAndAlert = (outstandingStudents: Array<{ id: string; name: string; classId: string; totalOwed: number }>) => {
-    if (outstandingStudents.length === 0) {
-      toast.error("Excellent! No student has any outstanding dues. Perfect clearance!");
-      return;
-    }
-    
-    // Trigger notifications for outstanding students
-    let alertCount = 0;
-    outstandingStudents.forEach(st => {
-      addNotification({
-        type: 'fee_due',
-        title: '⚠️ Pending Fee Arrears Alert 💰',
-        message: `Dear ${st.name}, you have outstanding school fee dues totaling Rs. ${st.totalOwed}. Kindly settle the bill inside your fee portal as soon as possible to avoid inconvenience. Principal.`,
-        classId: st.classId,
-        role: 'student'
-      });
-      alertCount++;
-    });
-    
-    setShowPendingFeeSummary(true);
-    toast.success(`📋 Defaulters summary report generated! Sent portal alerts to all ${alertCount} students.`);
-  };
-
-  const handleToggleSettleFee = (id: string) => {
-    setFees(prev => prev.map(f => {
-      if (f.id === id) {
-        return {
-          ...f,
-          status: f.status === 'paid' ? 'unpaid' : 'paid',
-          paidDate: f.status === 'paid' ? undefined : new Date().toISOString().split('T')[0],
-          paymentMethod: f.status === 'paid' ? undefined : 'Principal Cash Registry'
-        };
-      }
-      return f;
-    }));
-    toast.info("Invoice transaction status has been updated.");
-  };
 
   // Modals / Form editing state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<'teacher' | 'student' | 'class' | 'timetable'>('teacher');
+  const [modalType, setModalType] = useState<'teacher' | 'student' | 'class' | 'timetable' | 'coordinator'>('teacher');
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [currentId, setCurrentId] = useState<string | null>(null);
 
@@ -250,7 +214,7 @@ export default function PrincipalDashboard({
   const [tEmail, setTEmail] = useState('');
   const [tSubject, setTSubject] = useState('');
   const [tPhone, setTPhone] = useState('');
-  const [tPassword, setTPassword] = useState('password123');
+  const [tPassword, setTPassword] = useState('nsb123');
   const [tUsername, setTUsername] = useState('');
 
   // Student
@@ -259,14 +223,20 @@ export default function PrincipalDashboard({
   const [sClassId, setSClassId] = useState('');
   const [sRoll, setSRoll] = useState('');
   const [sParentPhone, setSParentPhone] = useState('');
+  const [sStudentPhone, setSStudentPhone] = useState('');
   const [sBaseFee, setSBaseFee] = useState('500');
-  const [sPassword, setSPassword] = useState('password123');
+  const [sPassword, setSPassword] = useState('nsb123');
   const [sUsername, setSUsername] = useState('');
+  const [sIsAcademy, setSIsAcademy] = useState(false);
+  const [sAcademySubjects, setSAcademySubjects] = useState('');
 
   // Class
   const [cClassName, setCClassName] = useState('');
   const [cSection, setCSection] = useState('');
   const [cTeacherId, setCTeacherId] = useState('');
+  const [cSubjects, setCSubjects] = useState<string[]>([]);
+  const [showOtherSubjectInput, setShowOtherSubjectInput] = useState(false);
+  const [manualSubjectName, setManualSubjectName] = useState('');
 
   // Timetable Form
   const [ttClassId, setTtClassId] = useState('');
@@ -402,6 +372,44 @@ export default function PrincipalDashboard({
     p => !(deletedPeriods[selectedTimetableClass] || []).includes(p)
   );
 
+  const handleBackupDatabase = () => {
+    try {
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        appName: "AcadaMis - NSB1 School System",
+        data: {
+          teachers,
+          classes,
+          students,
+          coordinators,
+          timetable,
+          fees,
+          broadcastLogs,
+          extraPeriods,
+          deletedPeriods,
+          periodColors,
+          absentTemplate,
+          feeTemplate
+        }
+      };
+
+      const dataStr = JSON.stringify(backupData, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `acadamis_backup_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      
+      toast.success("Database backup generated and download started!");
+    } catch (error) {
+      console.error("Backup failed:", error);
+      toast.error("Failed to generate database backup.");
+    }
+  };
+
   const handleDeletePeriod = (periodToDelete: string, day: string) => {
     // We only need to check if we should block deletion based on total slots if really necessary,
     // but the user's request focused on *per-day* deletion.
@@ -423,9 +431,13 @@ export default function PrincipalDashboard({
   const [expandedTeachers, setExpandedTeachers] = useState<Record<string, boolean>>({});
   const [expandedStudents, setExpandedStudents] = useState<Record<string, boolean>>({});
   const [expandedClasses, setExpandedClasses] = useState<Record<string, boolean>>({});
+  const [expandedCoordinators, setExpandedCoordinators] = useState<Record<string, boolean>>({});
 
   const toggleTeacherExpanded = (id: string) => {
     setExpandedTeachers(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+  const toggleCoordinatorExpanded = (id: string) => {
+    setExpandedCoordinators(prev => ({ ...prev, [id]: !prev[id] }));
   };
   const toggleStudentExpanded = (id: string) => {
     setExpandedStudents(prev => ({ ...prev, [id]: !prev[id] }));
@@ -440,7 +452,7 @@ export default function PrincipalDashboard({
     setTEmail('');
     setTSubject('');
     setTPhone('');
-    setTPassword('password123');
+    setTPassword('nsb123');
     setTUsername('');
 
     setSName('');
@@ -448,13 +460,19 @@ export default function PrincipalDashboard({
     setSClassId(classes[0]?.id || '');
     setSRoll('');
     setSParentPhone('');
+    setSStudentPhone('');
     setSBaseFee('500');
-    setSPassword('password123');
+    setSPassword('nsb123');
     setSUsername('');
+    setSIsAcademy(false);
+    setSAcademySubjects('');
 
     setCClassName('');
     setCSection('');
     setCTeacherId(teachers[0]?.id || '');
+    setCSubjects([]);
+    setShowOtherSubjectInput(false);
+    setManualSubjectName('');
 
     setTtClassId(classes[0]?.id || selectedTimetableClass || '');
     setTtDay('Monday');
@@ -468,7 +486,7 @@ export default function PrincipalDashboard({
     setIsCustomPeriod(false);
   };
 
-  const openAddModal = (type: 'teacher' | 'student' | 'class' | 'timetable') => {
+  const openAddModal = (type: 'teacher' | 'student' | 'class' | 'timetable' | 'coordinator') => {
     setModalType(type);
     setModalMode('add');
     resetFormFields();
@@ -491,7 +509,7 @@ export default function PrincipalDashboard({
     setIsModalOpen(true);
   };
 
-  const openEditModal = (type: 'teacher' | 'student' | 'class' | 'timetable', id: string) => {
+  const openEditModal = (type: 'teacher' | 'student' | 'class' | 'timetable' | 'coordinator', id: string) => {
     setModalType(type);
     setModalMode('edit');
     setCurrentId(id);
@@ -504,7 +522,17 @@ export default function PrincipalDashboard({
         setTEmail(match.email);
         setTSubject(match.subject);
         setTPhone(match.phone);
-        setTPassword(match.password || 'password123');
+        setTPassword(match.password || 'nsb123');
+        setTUsername(match.username || '');
+      }
+    } else if (type === 'coordinator') {
+      const match = coordinators.find(c => c.id === id);
+      if (match) {
+        setTName(match.name);
+        setTEmail(match.email || '');
+        setTSubject('Academic Coordinator');
+        setTPhone(match.phone || '');
+        setTPassword(match.password || 'nsb123');
         setTUsername(match.username || '');
       }
     } else if (type === 'student') {
@@ -515,9 +543,12 @@ export default function PrincipalDashboard({
         setSClassId(match.classId);
         setSRoll(match.rollNumber);
         setSParentPhone(match.parentPhone);
+        setSStudentPhone(match.studentPhone || '');
         setSBaseFee(match.baseFee?.toString() || '500');
-        setSPassword(match.password || 'password123');
+        setSPassword(match.password || 'nsb123');
         setSUsername(match.username || '');
+        setSIsAcademy(match.category === 'Academy');
+        setSAcademySubjects(match.academySubjects?.join(', ') || '');
       }
     } else if (type === 'class') {
       const match = classes.find(c => c.id === id);
@@ -525,6 +556,7 @@ export default function PrincipalDashboard({
         setCClassName(match.className);
         setCSection(match.section);
         setCTeacherId(match.classTeacherId);
+        setCSubjects(match.subjects || []);
       }
     } else if (type === 'timetable') {
       const match = timetable.find(tt => tt.id === id);
@@ -549,26 +581,36 @@ export default function PrincipalDashboard({
 
     if (modalType === 'teacher') {
       if (!tName.trim()) errors.push('Name is required.');
-      if (!emailRegex.test(tEmail)) errors.push('A valid email is required.');
+      if (tEmail.trim() && !emailRegex.test(tEmail)) errors.push('A valid email is required if provided.');
       if (!tSubject.trim()) errors.push('Teaching subject is required.');
       if (!tPhone.trim()) errors.push('Phone is required.');
       if (!tPassword.trim()) errors.push('Password is required.');
 
       // Check unique email except current editing
-      const emailTaken = teachers.some(t => t.email?.toLowerCase() === tEmail.toLowerCase() && t.id !== currentId);
+      const emailTaken = tEmail.trim() && teachers.some(t => t.email?.toLowerCase() === tEmail.toLowerCase().trim() && t.id !== currentId);
       if (emailTaken) errors.push('This email is already taken by another teacher.');
+    } 
+    
+    else if (modalType === 'coordinator') {
+      if (!tName.trim()) errors.push('Name is required.');
+      if (tEmail.trim() && !emailRegex.test(tEmail)) errors.push('A valid email is required if provided.');
+      if (!tPassword.trim()) errors.push('Password is required.');
+
+      // Check unique email except current editing
+      const emailTaken = tEmail.trim() && coordinators.some(c => c.email?.toLowerCase() === tEmail.toLowerCase().trim() && c.id !== currentId);
+      if (emailTaken) errors.push('This email is already taken by another coordinator.');
     } 
     
     else if (modalType === 'student') {
       if (!sName.trim()) errors.push('Student name is required.');
-      if (!emailRegex.test(sEmail)) errors.push('A valid email is required.');
+      if (sEmail.trim() && !emailRegex.test(sEmail)) errors.push('A valid email is required if provided.');
       if (!sClassId) errors.push('Class must be selected.');
       if (!sRoll.trim()) errors.push('Roll number is required.');
       if (!sParentPhone.trim()) errors.push('Parent contact phone is required.');
       if (!sPassword.trim()) errors.push('Password is required.');
 
       // Check unique email
-      const emailTaken = students.some(s => s.email?.toLowerCase() === sEmail.toLowerCase() && s.id !== currentId);
+      const emailTaken = sEmail.trim() && students.some(s => s.email?.toLowerCase() === sEmail.toLowerCase().trim() && s.id !== currentId);
       if (emailTaken) errors.push('This email is already taken by another student.');
 
       // Check unique roll number within same class
@@ -639,12 +681,13 @@ export default function PrincipalDashboard({
           id,
           name: tName.trim(),
           email: tEmail.toLowerCase().trim(),
-          username: tUsername || ('teacher_' + id.slice(-4)), 
+          username: tUsername || tName.trim(), 
           password: tPassword,
           subject: tSubject.trim(),
           phone: tPhone.trim(),
         };
         setTeachers([...teachers, newTeacher]);
+        toast.success("Teacher profile added successfully!");
       } else {
         setTeachers(teachers.map(t => t.id === currentId ? {
           ...t,
@@ -655,6 +698,33 @@ export default function PrincipalDashboard({
           password: tPassword,
           username: tUsername,
         } : t));
+        toast.success("Teacher profile updated successfully!");
+      }
+    } 
+    
+    else if (modalType === 'coordinator') {
+      if (modalMode === 'add') {
+        const id = 'c_' + Date.now();
+        const newCoordinator: Coordinator = {
+          id,
+          name: tName.trim(),
+          email: tEmail.toLowerCase().trim(),
+          username: tUsername || tName.trim(), 
+          password: tPassword,
+          phone: tPhone.trim(),
+        };
+        setCoordinators([...coordinators, newCoordinator]);
+        toast.success("Coordinator profile added successfully!");
+      } else {
+        setCoordinators(coordinators.map(c => c.id === currentId ? {
+          ...c,
+          name: tName.trim(),
+          email: tEmail.toLowerCase().trim(),
+          phone: tPhone.trim(),
+          password: tPassword,
+          username: tUsername,
+        } : c));
+        toast.success("Coordinator profile updated successfully!");
       }
     } 
     
@@ -665,14 +735,18 @@ export default function PrincipalDashboard({
           id,
           name: sName.trim(),
           email: sEmail.toLowerCase().trim(),
-          username: sUsername || ('student_' + id.slice(-4)),
+          username: sUsername || sName.trim(),
           password: sPassword,
           classId: sClassId,
           rollNumber: sRoll.trim(),
           parentPhone: sParentPhone.trim(),
-          baseFee: Number(sBaseFee) || 500
+          studentPhone: sStudentPhone.trim(),
+          baseFee: Number(sBaseFee) || 500,
+          category: sIsAcademy ? 'Academy' : 'Regular',
+          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : []
         };
         setStudents([...students, newStudent]);
+        toast.success("Student profile added successfully!");
       } else {
         setStudents(students.map(s => s.id === currentId ? {
           ...s,
@@ -681,10 +755,14 @@ export default function PrincipalDashboard({
           classId: sClassId,
           rollNumber: sRoll.trim(),
           parentPhone: sParentPhone.trim(),
+          studentPhone: sStudentPhone.trim(),
           baseFee: Number(sBaseFee) || 500,
           password: sPassword,
           username: sUsername,
+          category: sIsAcademy ? 'Academy' : 'Regular',
+          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : []
         } : s));
+        toast.success("Student profile updated successfully!");
       }
     }     
     else if (modalType === 'class') {
@@ -693,7 +771,8 @@ export default function PrincipalDashboard({
           id: 'c_' + Date.now(),
           className: cClassName.trim(),
           section: cSection.toUpperCase().trim(),
-          classTeacherId: cTeacherId
+          classTeacherId: cTeacherId,
+          subjects: cSubjects
         };
         setClasses([...classes, newClass]);
         // Set view class for visual sanity if it was empty
@@ -705,7 +784,8 @@ export default function PrincipalDashboard({
           ...c,
           className: cClassName.trim(),
           section: cSection.toUpperCase().trim(),
-          classTeacherId: cTeacherId
+          classTeacherId: cTeacherId,
+          subjects: cSubjects
         } : c));
       }
     } 
@@ -832,62 +912,78 @@ export default function PrincipalDashboard({
   };
 
   // Delete Handlers
-  const handleDeleteTeacher = (id: string) => {
-    if (confirm('Are you sure you want to delete this teacher? This will vacate teachers from assigned classes and timetables.')) {
+  const confirmAction = () => {
+    const { type, id } = deleteConfirmModal;
+    if (type === 'teacher') {
       setTeachers(teachers.filter(t => t.id !== id));
-      // Reset vacated class teachers
       setClasses(classes.map(c => c.classTeacherId === id ? { ...c, classTeacherId: '' } : c));
-      // Delete timetable entries linked to teacher
       setTimetable(timetable.filter(tt => tt.teacherId !== id));
-    }
-  };
-
-  const handleDeleteStudent = (id: string) => {
-    if (confirm('Are you sure you want to delete this student profile?')) {
+      toast.success("Teacher deleted successfully.");
+    } else if (type === 'coordinator') {
+      setCoordinators(coordinators.filter(c => c.id !== id));
+      toast.success("Coordinator deleted successfully.");
+    } else if (type === 'student') {
       setStudents(students.filter(s => s.id !== id));
-    }
-  };
-
-  const handleDeleteClass = (id: string) => {
-    if (confirm('Are you sure you want to delete this class? This will dissociate linked students and delete associated timetables.')) {
+      toast.success("Student deleted successfully.");
+    } else if (type === 'class') {
       setClasses(classes.filter(c => c.id !== id));
-      // Dissociate students (unset their class relation)
       setStudents(students.map(s => s.classId === id ? { ...s, classId: '' } : s));
-      // Clear timetable items
       setTimetable(timetable.filter(tt => tt.classId !== id));
-      // Reset view active class
       if (selectedTimetableClass === id) {
         const remaining = classes.filter(c => c.id !== id);
         setSelectedTimetableClass(remaining[0]?.id || '');
       }
+      toast.success("Class deleted successfully.");
+    } else if (type === 'timetable') {
+      const entry = timetable.find(t => t.id === id);
+      if (entry) {
+        const matchClass = classes.find(c => c.id === entry.classId);
+        const classLabel = matchClass ? `${matchClass.className}-${matchClass.section}` : `Class ID ${entry.classId}`;
+        
+        addNotification({
+          type: 'timetable_deleted',
+          title: 'Lecture Cancelled ❌',
+          message: `${entry.period} (${entry.subject}) on ${entry.day} for Class ${classLabel} has been removed or cancelled.`,
+          teacherId: entry.teacherId,
+          classId: entry.classId,
+          role: 'all'
+        });
+        setTimetable(timetable.filter(t => t.id !== id));
+        toast.success("Timetable entry deleted successfully.");
+      }
     }
+    setDeleteConfirmModal({ isOpen: false, type: '', id: '', message: '' });
+  };
+
+  const handleDeleteTeacher = (id: string) => {
+    setDeleteConfirmModal({ isOpen: true, type: 'teacher', id, message: 'Are you sure you want to delete this teacher? This will vacate teachers from assigned classes and timetables.' });
+  };
+
+  const handleDeleteCoordinator = (id: string) => {
+    setDeleteConfirmModal({ isOpen: true, type: 'coordinator', id, message: 'Are you sure you want to delete this coordinator profile?' });
+  };
+
+  const handleDeleteStudent = (id: string) => {
+    setDeleteConfirmModal({ isOpen: true, type: 'student', id, message: 'Are you sure you want to delete this student profile?' });
+  };
+
+  const handleDeleteClass = (id: string) => {
+    setDeleteConfirmModal({ isOpen: true, type: 'class', id, message: 'Are you sure you want to delete this class? This will dissociate linked students and delete associated timetables.' });
   };
 
   const handleDeleteTimetableEntry = (id: string) => {
-    const entry = timetable.find(t => t.id === id);
-    if (entry && confirm('Delete this timetable session?')) {
-      const matchClass = classes.find(c => c.id === entry.classId);
-      const classLabel = matchClass ? `${matchClass.className}-${matchClass.section}` : `Class ID ${entry.classId}`;
-      const matchTeacher = teachers.find(t => t.id === entry.teacherId);
-      const teacherLabel = matchTeacher ? matchTeacher.name : 'Unassigned';
-
-      addNotification({
-        type: 'timetable_deleted',
-        title: 'Lecture Cancelled ❌',
-        message: `${entry.period} (${entry.subject}) on ${entry.day} for Class ${classLabel} has been removed or cancelled.`,
-        teacherId: entry.teacherId,
-        classId: entry.classId,
-        role: 'all'
-      });
-
-      setTimetable(timetable.filter(t => t.id !== id));
-    }
+    setDeleteConfirmModal({ isOpen: true, type: 'timetable', id, message: 'Delete this timetable session?' });
   };
 
   // Helpers for display resolution
   const getTeacherName = (tId: string) => {
     const t = teachers.find(item => item.id === tId);
     return t ? t.name : 'Unassigned';
+  };
+
+  const handleUpdateClassFeeConfigs = (classId: string, configs: any[]) => {
+    setClasses(prev => prev.map(c => c.id === classId ? { ...c, feeConfigs: configs } : c));
+    toast.success("Fee configurations updated successfully!");
   };
 
   const getClassName = (cId: string) => {
@@ -913,6 +1009,13 @@ export default function PrincipalDashboard({
   const filteredClasses = classes.filter(c => 
     (c.className?.toLowerCase() || '').includes(classSearch.toLowerCase()) ||
     (c.section?.toLowerCase() || '').includes(classSearch.toLowerCase())
+  );
+
+  const filteredCoordinators = coordinators.filter(c => 
+    (c.name?.toLowerCase() || '').includes(coordinatorSearch.toLowerCase()) ||
+    (c.email?.toLowerCase() || '').includes(coordinatorSearch.toLowerCase()) ||
+    (c.username?.toLowerCase() || '').includes(coordinatorSearch.toLowerCase()) ||
+    (c.id?.toLowerCase() || '').includes(coordinatorSearch.toLowerCase())
   );
 
   // Group Timetable elements neatly
@@ -1025,7 +1128,7 @@ export default function PrincipalDashboard({
 
         {/* ========== DASHBOARD OVERVIEW TABLEAUX ========== */}
         {activeTab === 'dashboard' && (
-          <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in">
+          <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Greeting Header */}
             <div>
               <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">{userSession.role === 'principal' ? 'Principal Console' : 'Coordinator Console'}</p>
@@ -1040,10 +1143,25 @@ export default function PrincipalDashboard({
               const totalPending = totalBilled - totalCollected;
 
               // Current Month Collection
-              const CURRENT_MONTH = feeMonth;
+              const CURRENT_MONTH = MONTHS[new Date().getMonth()];
               const currentMonthFees = fees.filter(f => f.month === CURRENT_MONTH);
               const totalCollectedCurrentMonth = currentMonthFees.filter(f => f.status === 'paid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
               const totalPendingCurrentMonth = currentMonthFees.filter(f => f.status === 'unpaid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
+
+              // Calculate student counts for granular overview without revealing revenue to coordinators
+              const studentIdsWithUnpaid = Array.from(new Set(
+                fees.filter(f => f.status === 'unpaid' || f.status === 'pending').map(f => f.studentId)
+              ));
+              const studentIdsWithOnlyPaid = Array.from(new Set(
+                fees.filter(f => f.status === 'paid').map(f => f.studentId)
+              )).filter(sid => !studentIdsWithUnpaid.includes(sid));
+
+              const currentMonthStudentIdsWithUnpaid = Array.from(new Set(
+                currentMonthFees.filter(f => f.status === 'unpaid' || f.status === 'pending').map(f => f.studentId)
+              ));
+              const currentMonthStudentIdsWithPaid = Array.from(new Set(
+                currentMonthFees.filter(f => f.status === 'paid').map(f => f.studentId)
+              )).filter(sid => !currentMonthStudentIdsWithUnpaid.includes(sid));
 
               return (
                 <div className="space-y-8">
@@ -1057,7 +1175,10 @@ export default function PrincipalDashboard({
                       ...(userSession.role === 'principal' ? [
                         { label: 'Collected Ledger', val: `${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Outstanding Dues', val: `${totalPending.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
-                      ] : [])
+                      ] : [
+                        { label: 'Paid Fee Students', val: studentIdsWithOnlyPaid.length, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: 'Pending Fee Students', val: studentIdsWithUnpaid.length, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                      ])
                     ].map(stat => (
                       <div key={stat.label} className={`group p-6 border border-transparent hover:border-slate-100 transition-all ${stat.bg}`}>
                         <span className={`block text-[9px] font-black uppercase tracking-[0.3em] mb-3 ${stat.color}`}>{stat.label}</span>
@@ -1068,18 +1189,37 @@ export default function PrincipalDashboard({
 
                   {/* Fee Summary Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-                      <div className="p-6 bg-violet-50/50 border border-violet-100">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Total {CURRENT_MONTH} Collection</span>
-                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
-                      </div>
-                      <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">{CURRENT_MONTH} Paid</span>
-                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
-                      </div>
-                      <div className="p-6 bg-rose-50/50 border border-rose-100">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">{CURRENT_MONTH} Pending</span>
-                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingCurrentMonth.toLocaleString()}</span>
-                      </div>
+                    {userSession.role === 'principal' ? (
+                      <>
+                        <div className="p-6 bg-violet-50/50 border border-violet-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Total {CURRENT_MONTH} Collection</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
+                        </div>
+                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">{CURRENT_MONTH} Paid</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
+                        </div>
+                        <div className="p-6 bg-rose-50/50 border border-rose-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">{CURRENT_MONTH} Pending</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingCurrentMonth.toLocaleString()}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="p-6 bg-violet-50/50 border border-violet-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Total Pupils Scheduled</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{students.length} Students</span>
+                        </div>
+                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">{CURRENT_MONTH} Paid Students</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{currentMonthStudentIdsWithPaid.length} Students</span>
+                        </div>
+                        <div className="p-6 bg-rose-50/50 border border-rose-100">
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">{CURRENT_MONTH} Pending Students</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{currentMonthStudentIdsWithUnpaid.length} Students</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1178,13 +1318,24 @@ export default function PrincipalDashboard({
                 <BookOpen size={14} />
                 Classes
               </button>
+              <button
+                onClick={() => setManagementSubTab('coordinators')}
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-[10px] uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                  managementSubTab === 'coordinators' 
+                    ? 'bg-slate-900 text-white shadow-lg' 
+                    : 'bg-white text-slate-400 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Shield size={14} />
+                Coordinators
+              </button>
             </div>
 
             {/* Hub Content Rendering */}
             <div>
               {/* TEACHERS SUB-VIEW */}
               {managementSubTab === 'teachers' && (
-                <div id="panel-principal-teachers" className="space-y-6 animate-fade-in">
+                <div id="panel-principal-teachers" className="space-y-6 animate-fade-in bg-cyan-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-cyan-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Faculty Register</h1>
@@ -1244,7 +1395,7 @@ export default function PrincipalDashboard({
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
                                   <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
-                                  <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{t.password || 'password123'}</span>
+                                  <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{t.password || 'nsb123'}</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 col-span-2 shadow-xs">
                                   <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Contact Details</span>
@@ -1279,7 +1430,7 @@ export default function PrincipalDashboard({
 
               {/* STUDENTS SUB-VIEW */}
               {managementSubTab === 'students' && (
-                <div id="panel-principal-students" className="space-y-6 animate-fade-in">
+                <div id="panel-principal-students" className="space-y-6 animate-fade-in bg-violet-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-violet-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Pupil Registry</h1>
@@ -1333,7 +1484,12 @@ export default function PrincipalDashboard({
                               </div>
                               <div className="min-w-0">
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate leading-none mb-1">{s.name}</h3>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">{getClassName(s.classId)}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">{getClassName(s.classId)}</p>
+                                  {s.category === 'Academy' && (
+                                    <span className="text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Academy</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             <ChevronDown className={`text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} size={16} />
@@ -1356,6 +1512,19 @@ export default function PrincipalDashboard({
                                   </p>
                                 </div>
                               </div>
+
+                              {s.category === 'Academy' && s.academySubjects && s.academySubjects.length > 0 && (
+                                <div className="p-3 bg-indigo-50/50 border border-indigo-100 shadow-xs">
+                                  <span className="text-[8px] font-black text-indigo-400 uppercase block mb-1.5">Academy Subjects Focus</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {s.academySubjects.map((sub, idx) => (
+                                      <span key={idx} className="bg-white border border-indigo-200 text-indigo-700 text-[9px] font-bold px-2 py-0.5 uppercase italic">
+                                        {sub}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
 
                               <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-2">
                                 <div className="flex gap-2">
@@ -1380,7 +1549,7 @@ export default function PrincipalDashboard({
 
               {/* CLASSES SUB-VIEW */}
               {managementSubTab === 'classes' && (
-                <div id="panel-principal-classes" className="space-y-6 animate-fade-in">
+                <div id="panel-principal-classes" className="space-y-6 animate-fade-in bg-fuchsia-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-fuchsia-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Classroom Directory</h1>
@@ -1403,7 +1572,13 @@ export default function PrincipalDashboard({
                         <div key={c.id} className="bg-white border border-slate-200 p-6 flex flex-col items-start gap-5 hover:shadow-xl transition-all font-sans relative overflow-hidden group">
                           <div className="absolute top-0 right-0 w-16 h-16 bg-slate-50 -mr-8 -mt-8 rotate-45 group-hover:bg-indigo-50 transition-colors"></div>
                           
-                          <div className="flex items-center gap-5 relative z-10 w-full">
+                          <div 
+                            onClick={() => {
+                              setSelectedClassForDetails(c);
+                              setIsClassDetailModalOpen(true);
+                            }}
+                            className="flex items-center gap-5 relative z-10 w-full cursor-pointer"
+                          >
                             <div className="w-16 h-16 bg-slate-950 text-white flex flex-col items-center justify-center border-l-4 border-indigo-600 shrink-0">
                               <span className="text-lg font-black italic">{c.className}</span>
                               <span className="text-[8px] font-bold uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{c.section}</span>
@@ -1416,6 +1591,20 @@ export default function PrincipalDashboard({
                                   <Users size={10}/> {studentCount} Enrolled
                                 </span>
                               </div>
+                              {c.subjects && c.subjects.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {c.subjects.slice(0, 3).map(sub => (
+                                    <span key={sub} className="text-[7px] font-bold text-slate-400 border border-slate-100 px-1.5 py-0.5 uppercase tracking-tighter">
+                                      {sub}
+                                    </span>
+                                  ))}
+                                  {c.subjects.length > 3 && (
+                                    <span className="text-[7px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 uppercase tracking-tighter">
+                                      +{c.subjects.length - 3} More
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -1439,13 +1628,119 @@ export default function PrincipalDashboard({
                   </div>
                 </div>
               )}
+
+              {/* COORDINATORS SUB-VIEW */}
+              {managementSubTab === 'coordinators' && (
+                <div id="panel-principal-coordinators" className="space-y-6 animate-fade-in bg-teal-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-teal-100 shadow-inner">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Coordinator Directory</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">Manage administrative roles, passwords, email log-ins, and IDs.</p>
+                    </div>
+                    <button
+                      onClick={() => openAddModal('coordinator')}
+                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-900 hover:bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
+                    >
+                      <Plus size={14} />
+                      Register New Coordinator
+                    </button>
+                  </div>
+
+                  {/* Search filter bar */}
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-gray-400">
+                      <Search size={16} />
+                    </span>
+                    <input
+                      type="text"
+                      value={coordinatorSearch}
+                      onChange={(e) => setCoordinatorSearch(e.target.value)}
+                      placeholder="Search coordinators by name, username, or email..."
+                      className="w-full pl-10 pr-4 py-3.5 bg-white border border-slate-200 focus:outline-none focus:border-indigo-600 transition-all text-xs font-bold"
+                    />
+                  </div>
+
+                  {/* Coordinators Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredCoordinators.map(c => {
+                      const isExpanded = !!expandedCoordinators[c.id];
+                      return (
+                        <div key={c.id} className="bg-white border border-slate-200 overflow-hidden hover:border-indigo-300 transition-all shadow-xs group">
+                          <div 
+                            onClick={() => toggleCoordinatorExpanded(c.id)}
+                            className="p-5 flex items-center justify-between cursor-pointer group-hover:bg-slate-50/50"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-indigo-600 text-white flex items-center justify-center font-black italic text-lg border border-indigo-700">
+                                {c.name.charAt(0)}
+                              </div>
+                              <div>
+                                <h3 className="font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5">{c.name}</h3>
+                                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none">Academic Coordinator</p>
+                              </div>
+                            </div>
+                            <ChevronDown className={`text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+
+                          {isExpanded && (
+                            <div className="px-5 pb-5 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in font-sans">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-white border border-slate-200 shadow-xs">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Coordinator ID</span>
+                                  <span className="font-mono text-xs font-bold text-slate-900">{c.id}</span>
+                                </div>
+                                <div className="p-3 bg-white border border-slate-200 shadow-xs">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
+                                  <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{c.password || 'nsb123'}</span>
+                                </div>
+                                <div className="p-3 bg-white border border-slate-200 col-span-2 shadow-xs">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Email / Username</span>
+                                  <div className="space-y-1.5">
+                                    <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                      <Mail size={12} className="text-slate-400" /> {c.email}
+                                    </p>
+                                    {c.username && (
+                                      <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                        <User size={12} className="text-slate-400" /> Username: {c.username}
+                                      </p>
+                                    )}
+                                    {c.phone && (
+                                      <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                        <Phone size={12} className="text-slate-400" /> Phone: {c.phone}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 mt-2">
+                                <button
+                                  onClick={() => openEditModal('coordinator', c.id)}
+                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 font-black text-[9px] uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-xs"
+                                >
+                                  Edit Info
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteCoordinator(c.id)}
+                                  className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 font-black text-[9px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-xs"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* ========== TIMETABLE TABLEAUX ========== */}
         {activeTab === 'timetable' && (
-          <div id="panel-principal-timetable" className="space-y-6 animate-fade-in">
+          <div id="panel-principal-timetable" className="space-y-6 animate-fade-in bg-amber-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-amber-100 shadow-inner">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Interactive Class Timetable</h1>
@@ -1516,8 +1811,24 @@ export default function PrincipalDashboard({
             {selectedTimetableClass ? (
               <div className="space-y-4">
                  {DAYS.map(day => (
-                   <div key={day} className="space-y-2">
-                     <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 pl-2">{day} Schedule</h3>
+                   <div key={day} className="space-y-3">
+                     <div className="flex items-center justify-between px-2 pt-2 border-l-2 border-slate-200">
+                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">{day} Schedule</h3>
+                        <button 
+                          onClick={() => {
+                            setTtDay(day);
+                            setTtClassId(selectedTimetableClass);
+                            // Set a sensible default period if possible
+                            const existingCount = timetable.filter(tt => tt.classId === selectedTimetableClass && tt.day === day).length;
+                            setTtPeriod(`Period ${existingCount + 1}`);
+                            openAddModal('timetable');
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded text-[9px] font-black uppercase tracking-widest transition-all shadow-sm group"
+                        >
+                          <Plus size={12} className="group-hover:rotate-90 transition-transform" />
+                          <span>Append Period</span>
+                        </button>
+                     </div>
                      <div className="grid grid-cols-5 sm:grid-cols-5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 sm:gap-2">
                         {allPeriods.map(p => {
                            const entry = timetable.find(
@@ -1629,47 +1940,35 @@ export default function PrincipalDashboard({
 
         {activeTab === 'alerts' && (
           <div id="notification-center" className="space-y-6 animate-fade-in font-sans pb-20">
-            <div className="bg-white p-6 md:p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-lg shadow-rose-200">
-                  <Bell size={24} />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase italic">Notification Center</h1>
-                  <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Defaulter Tracking & Communication Intelligence</p>
-                </div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-6 mb-8">
+              <div>
+                <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight italic">Notification Hub</h1>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Manage and Dispatch Pendency Alerts</p>
               </div>
-              <div className="flex bg-slate-900 rounded-2xl p-4 text-white items-center gap-6 shadow-xl">
-                <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Alerts</p>
-                  <p className="text-xl font-black text-rose-500">{fees.filter(f => f.status === 'unpaid').length}</p>
+              <div className="flex items-center gap-2">
+                <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-lg text-rose-600">
+                  <span className="text-[9px] font-black uppercase block leading-none">High Priority</span>
+                  <span className="text-lg font-black leading-none">{fees.filter(f => f.status === 'unpaid').length}</span>
                 </div>
-                <div className="w-px h-8 bg-slate-800"></div>
-                <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Sent Today</p>
-                  <p className="text-xl font-black text-emerald-400">
-                    {broadcastLogs.filter(l => l.timestamp.includes(new Date().toLocaleDateString()) || true).length}
-                  </p>
+                <div className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
+                  <span className="text-[9px] font-black uppercase block leading-none">History Logs</span>
+                  <span className="text-lg font-black leading-none">{broadcastLogs.length}</span>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 px-1">
+            <div className="grid grid-cols-1 gap-2">
               {(() => {
                 const unpaidFees = fees.filter(f => f.status === 'unpaid');
                 if (unpaidFees.length === 0) {
                   return (
-                    <div className="bg-white border border-slate-200 p-20 text-center shadow-sm rounded-3xl">
-                      <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <CheckCircle2 size={40} />
-                      </div>
-                      <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">System All Clear</h2>
-                      <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest italic">All student accounts are currently in good standing.</p>
+                    <div className="py-20 text-center border-2 border-dashed border-slate-100 rounded-xl">
+                      <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-4 opacity-20" />
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">System Ledger Clear</p>
                     </div>
                   );
                 }
 
-                // Group by student to avoid spamming multiple notifications for same student
                 const studentDefaultersMap: Record<string, { student: Student; fees: FeeRecord[] }> = {};
                 unpaidFees.forEach(f => {
                   const s = students.find(st => st.id === f.studentId);
@@ -1686,77 +1985,59 @@ export default function PrincipalDashboard({
                   const totalPending = sFees.reduce((acc, curr) => acc + curr.amount, 0);
                   const months = sFees.map(f => f.month).join(', ');
                   
-                  // Draft Modern Message
-                  const waMessage = `Greetings! 🌟
-NSB1 Principal Office Reminder:
-Guardian of ${student.name} (Class: ${classObj?.className}-${classObj?.section}).
-Pending balance detected: ${totalPending} (Due for: ${months}).
-Kindly settle the dues today to avoid portal suspension.
-Thank you.`;
+                  const waMessage = feeTemplate
+                    .replace(/{student_name}/g, student.name)
+                    .replace(/{class_name}/g, classObj ? `${classObj.className}-${classObj.section}` : '')
+                    .replace(/{total_pending}/g, totalPending.toString())
+                    .replace(/{months}/g, months || 'Current Month')
+                    .replace(/{date}/g, new Date().toISOString().split('T')[0]);
                   
                   const waUrl = `https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '') || '923001234567'}&text=${encodeURIComponent(waMessage)}`;
 
                   return (
                     <motion.div 
                       key={student.id}
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="bg-white border border-slate-200 rounded-3xl overflow-hidden hover:shadow-xl transition-all group flex flex-col md:flex-row"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white border border-slate-100 p-4 flex flex-col md:flex-row items-center justify-between hover:bg-slate-50/50 transition-all rounded-lg gap-4"
                     >
-                      {/* Status Strip */}
-                      <div className="w-2 bg-rose-500 h-full"></div>
-                      
-                      <div className="flex-1 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                        <div className="flex items-start gap-4">
-                          <div className="w-14 h-14 bg-slate-100 text-slate-900 rounded-2xl flex items-center justify-center font-black text-xl flex-shrink-0 group-hover:bg-rose-600 group-hover:text-white transition-colors border border-slate-200">
-                            {(student.name?.[0] || 'S').toUpperCase()}
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-black text-slate-900 uppercase text-lg tracking-tight">{student.name}</h3>
-                              <span className="bg-amber-100 text-amber-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">
-                                Defaulter
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
-                              {classObj?.className}-{classObj?.section} • Roll #{student.rollNumber}
-                            </p>
-                            <div className="mt-3 bg-slate-50 rounded-2xl p-4 border border-slate-100 text-xs text-slate-600 relative">
-                              <div className="absolute -top-1.5 left-4 bg-slate-900 text-white text-[8px] font-black px-2 py-0.5 rounded-full uppercase">Draft Alert</div>
-                              <p className="italic leading-relaxed whitespace-pre-wrap font-medium">"{waMessage}"</p>
-                            </div>
-                          </div>
+                      <div className="flex items-center gap-4 w-full md:w-auto">
+                        <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs uppercase italic">
+                           {student.name.charAt(0)}
                         </div>
+                        <div className="text-left">
+                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name}</h3>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                            {classObj?.className}-{classObj?.section} • Rs. {totalPending}
+                          </p>
+                        </div>
+                      </div>
 
-                        <div className="flex flex-col items-center md:items-end gap-4 w-full md:w-auto">
-                          <div className="text-center md:text-right">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Outstanding Total</p>
-                            <p className="text-3xl font-black text-rose-600 font-mono tracking-tighter leading-none mt-1">{totalPending}</p>
-                            <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase leading-none">{sFees.length} UNPAID VOUCHERS</p>
-                          </div>
-                          
-                          <a 
-                            href={waUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => {
-                              setBroadcastLogs(prev => [{
-                                id: 'notif_' + Date.now(),
-                                recipient: `${student.name}'s Parent`,
-                                phone: student.parentPhone || '',
-                                type: 'WA Alert 🚀',
-                                text: `Sent consolidated alert for ${totalPending}`,
-                                timestamp: new Date().toLocaleString(),
-                                status: 'Sent'
-                              }, ...prev]);
-                              toast.success(`Consolidated alert dispatched for ${student.name}!`);
-                            }}
-                            className="w-full md:w-auto flex items-center justify-center gap-3 bg-emerald-600 hover:bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-emerald-200 active:scale-95"
-                          >
-                            <Phone size={18} fill="currentColor" />
-                            Send WA Alert
-                          </a>
+                      <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="hidden lg:block text-[9px] text-slate-400 italic max-w-[200px] truncate overflow-hidden bg-slate-50 px-2 py-1 rounded">
+                          "{waMessage}"
                         </div>
+                        <a 
+                          href={waUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            setBroadcastLogs(prev => [{
+                              id: 'notif_' + Date.now(),
+                              recipient: `${student.name}'s Parent`,
+                              phone: student.parentPhone || '',
+                              type: 'WhatsApp',
+                              text: `Sent consolidated alert for Rs. ${totalPending}`,
+                              timestamp: new Date().toLocaleString(),
+                              status: 'Sent'
+                            }, ...prev]);
+                            toast.success(`Alert dispatched for ${student.name}`);
+                          }}
+                          className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-slate-900 text-white px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
+                        >
+                          <Phone size={14} fill="currentColor" />
+                          Send Alert
+                        </a>
                       </div>
                     </motion.div>
                   );
@@ -1766,1351 +2047,466 @@ Thank you.`;
           </div>
         )}
 
-        {/* ========== PRINCIPAL FEES & WHATSAPP COCKPIT SYSTEM ========== */}
+        {/* ========== NEW SCHOOL FEE MANAGEMENT MODULE ========== */}
         {activeTab === 'fees' && (
-          <div id="panel-principal-fees" className="space-y-8 animate-fade-in font-sans pb-20">
-            
-            {/* New Compact Functional Header */}
-            <div className="bg-white p-6 md:p-10 border rounded-3xl border-slate-100 shadow-xl shadow-slate-100/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex items-center gap-5">
-                <div className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg">
-                  <CreditCard size={28} />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase italic">Cash Registry</h1>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em] mt-1 italic leading-none">Live Collection & Ledger Management (Cash Registry)</p>
-                </div>
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-3">
-                <button 
-                  onClick={() => setFeeFormOpen(!feeFormOpen)}
-                  className={`px-8 py-3.5 text-xs font-black uppercase tracking-widest flex items-center gap-2 transform transition-all active:scale-95 shadow-xl rounded-2xl ${
-                    feeFormOpen ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'
-                  }`}
-                >
-                  {feeFormOpen ? <X size={16} /> : <PlusCircle size={16} />}
-                  {feeFormOpen ? 'Cancel' : 'Collect Fee'}
-                </button>
-                <button 
-                  onClick={() => {
-                    const pendingFees = fees.filter(f => f.status === 'unpaid');
-                    if (pendingFees.length === 0) {
-                      toast.info("No pending fees to notify.");
-                      return;
-                    }
-                    
-                    // Simulate WhatsApp broadcast
-                    const pendingStudents = Array.from(new Set(pendingFees.map(f => f.studentId)));
-                    const newLogs = pendingStudents.map(studentId => {
-                        const student = students.find(s => s.id === studentId);
-                        return {
-                            id: 'whatsapp_' + Date.now() + studentId,
-                            recipient: `${student?.name || 'Unknown Student'}'s Guardian`,
-                            phone: student?.parentPhone || '0300-XXXXXXX',
-                            type: 'WhatsApp Fee Reminder 📱',
-                            text: `Greetings! Your child ${student?.name} has outstanding fees. Please settle to avoid hassle.`,
-                            timestamp: new Date().toLocaleString(),
-                            status: 'Sent (WhatsApp)'
-                        };
-                    });
-                    setBroadcastLogs(prev => [...newLogs, ...prev]);
-                    toast.success(`Sent WhatsApp reminders to ${pendingStudents.length} students/parents.`);
-                  }}
-                  className="px-8 py-3.5 text-xs font-black uppercase tracking-widest flex items-center gap-2 transform transition-all active:scale-95 shadow-xl rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700"
-                >
-                  <Bell size={16} />
-                  Notify
-                </button>
-              </div>
-            </div>
-
-            {/* EXPANDED BILLING CREATOR INVOICE FORM */}
-            {feeFormOpen && (
-              <div id="fee-generation-section" className="bg-white border-2 border-slate-100 p-8 shadow-2xl animate-fade-in font-sans">
-                <form onSubmit={handleCreateInvoice} className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Mass Billing (Class Action)</label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (feeListingClassFilter === 'all') {
-                            toast.error("Please select a specific class to generate.");
-                            return;
-                          }
-                          const classStudents = students.filter(s => s.classId === feeListingClassFilter);
-                          const newFees: FeeRecord[] = classStudents.map(student => ({
-                            id: 'fee_' + Date.now() + Math.random(),
-                            studentId: student.id,
-                            amount: student.baseFee || 500,
-                            month: feeMonth,
-                            dueDate: feeDueDate,
-                            status: 'unpaid',
-                            feeType: 'Tuition Fee',
-                            description: `Automated ${feeMonth} invoice`
-                          }));
-                          setFees(prev => [...newFees, ...prev]);
-                          toast.success(`Generated ${newFees.length} invoices for the class.`);
-                        }}
-                        className="w-full text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 p-4 transition-all shadow-md"
-                      >
-                        Generate Monthly Invoices
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Filter by Class</label>
-                      <select
-                        value={feeListingClassFilter}
-                        onChange={(e) => {
-                          setFeeListingClassFilter(e.target.value);
-                          setFeeStudentId('');
-                        }}
-                        className="w-full text-base font-black text-slate-800 bg-slate-50 border border-slate-200 p-4 outline-none transition-all shadow-inner"
-                      >
-                         <option value="all">All Classes</option>
-                         {classes.map(c => <option key={c.id} value={c.id}>{c.className} ({c.section})</option>)}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Select Student</label>
-                      <select
-                        value={feeStudentId}
-                        onChange={(e) => {
-                          const sid = e.target.value;
-                          setFeeStudentId(sid);
-                          if (sid) {
-                            const student = students.find(s => s.id === sid);
-                            const arrears = fees
-                              .filter(f => f.studentId === sid && f.status === 'unpaid')
-                              .reduce((sum, f) => sum + f.amount, 0);
-                            const base = student?.baseFee || 500;
-                            setFeeAmount((base + arrears).toString());
-                            setAmountCollected((base + arrears).toString());
-                            setIsCashPayment(true);
-                          }
-                        }}
-                        className="w-full text-base font-black text-slate-800 bg-slate-50 border border-slate-200 p-4 outline-none focus:border-indigo-600 focus:bg-white transition-all shadow-inner"
-                        required
-                      >
-                        <option value="">-- Choose Pupil Ledger --</option>
-                        {students
-                          .filter(s => feeListingClassFilter === 'all' || s.classId === feeListingClassFilter)
-                          .sort((a,b) => a.name.localeCompare(b.name))
-                          .map(s => {
-                            const c = classes.find(cl => cl.id === s.classId);
-                            return <option key={s.id} value={s.id}>{s.name} (Roll: {s.rollNumber} - {c?.className})</option>;
-                          })}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Billing Period</label>
-                        <select
-                          value={feeMonth}
-                          onChange={(e) => setFeeMonth(e.target.value)}
-                          className="w-full text-sm font-bold bg-slate-50 border border-slate-200 p-4 outline-none focus:border-indigo-600"
-                        >
-                          {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(m => (
-                            <option key={m} value={`${m} 2026`}>{m} 2026</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Category</label>
-                        <select
-                          value={feeCategory}
-                          onChange={(e) => setFeeCategory(e.target.value as any)}
-                          className="w-full text-sm font-bold bg-slate-50 border border-slate-200 p-4 outline-none focus:border-indigo-600"
-                        >
-                          <option value="Tuition Fee">Tuition Fee</option>
-                          <option value="Annual Fee">Annual Fund</option>
-                          <option value="Pending Balance">Arrears</option>
-                          <option value="Paper Fund">Paper Fund</option>
-                          <option value="Miscellaneous">Misc</option>
-                        </select>
-                      </div>
-                    </div>
-
-                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Other Fee (e.g., Paper Fund)</label>
-                      <input
-                        type="number"
-                        value={otherFeeAmount}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setOtherFeeAmount(val);
-                          // Recalculate total: base + arrears + otherFee
-                          const base = students.find(s => s.id === feeStudentId)?.baseFee || 500;
-                          const arrears = fees
-                            .filter(f => f.studentId === feeStudentId && f.status === 'unpaid')
-                            .reduce((sum, f) => sum + f.amount, 0);
-                          setFeeAmount((base + arrears + Number(val || 0)).toString());
-                        }}
-                        placeholder="Add extra fee..."
-                        className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 p-4 outline-none focus:border-indigo-600"
-                      />
-                      {feeCategory === 'Paper Fund' && (
-                         <div className="flex items-center gap-2 mt-2 bg-slate-100 p-2">
-                             <input type="checkbox" checked={applyToClass} onChange={(e) => setApplyToClass(e.target.checked)} />
-                             <label className="text-[9px] font-black uppercase tracking-widest text-slate-800">Apply to all students in this class</label>
-                         </div>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Notes/Remarks</label>
-                      <input
-                        type="text"
-                        value={feeDescription}
-                        onChange={(e) => setFeeDescription(e.target.value)}
-                        placeholder="Optional particulars..."
-                        className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 p-4 outline-none focus:border-indigo-600"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div className="bg-slate-900 p-8 flex flex-col items-center text-center shadow-xl">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4">Invoice Net Total</label>
-                      <input
-                        type="number"
-                        value={feeAmount}
-                        onChange={(e) => setFeeAmount(e.target.value)}
-                        className="bg-transparent text-5xl font-black text-white w-full text-center outline-none border-b-2 border-slate-800 focus:border-indigo-500 transition-all tabular-nums"
-                      />
-                      <div className="flex gap-2 mt-6 flex-wrap justify-center">
-                        {[500, 1000, 1500].map(amt => (
-                          <button
-                            key={amt}
-                            type="button"
-                            onClick={() => setFeeAmount(amt.toString())}
-                            className={`px-3 py-1.5 text-[8px] font-black border transition-all ${
-                              feeAmount === amt.toString() ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-transparent border-slate-700 text-slate-500 hover:text-white hover:border-slate-500'
-                            }`}
-                          >
-                            {amt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="p-6 border-2 border-dashed border-emerald-200 bg-emerald-50/20">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isCashPayment}
-                          onChange={(e) => {
-                             setIsCashPayment(e.target.checked);
-                             if(e.target.checked) setAmountCollected(feeAmount);
-                             else setAmountCollected('');
-                          }}
-                          className="w-5 h-5 rounded-none border-emerald-300 text-emerald-600 focus:ring-0 cursor-pointer"
-                        />
-                        <div className="flex-1">
-                          <span className="text-xs font-black text-emerald-800 uppercase tracking-widest block leading-none">Record as Cash Collection</span>
-                          <span className="text-[9px] font-bold text-emerald-600 mt-0.5 block">Update ledger as 'Paid' immediately.</span>
-                        </div>
-                      </label>
-                      
-                      {isCashPayment && (
-                        <div className="mt-4 pt-4 border-t border-emerald-100 animate-fade-in">
-                          <label className="text-[9px] font-black uppercase text-emerald-600 block mb-2">Collected Amount</label>
-                          <input
-                            type="number"
-                            value={amountCollected}
-                            onChange={(e) => setAmountCollected(e.target.value)}
-                            className="w-full text-lg font-black text-emerald-900 bg-white border border-emerald-200 p-3 outline-none focus:border-emerald-500 tabular-nums"
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full py-5 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-4 active:scale-95"
-                    >
-                      Process Transaction &rarr;
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {/* TWO-COLUMN COCKPIT GRID: EXPENDITURE MATRIX & WHATSAPP SETTINGS */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              
-              {/* STUDENT ACCORDION REGISTER & KHATA SUMMARY (Ledger History) */}
-              <div className="lg:col-span-12 bg-white border border-slate-200 p-6 flex flex-col justify-between shadow-sm">
-                <div className="space-y-6">
-                  <div className="border-b pb-3 flex flex-col gap-2">
-                    <div>
-                      <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-800 font-display">Live Ledger Entries & Full Audit View</h3>
-                    </div>
-                    {/* Add Search, Class and Student filter */}
-                    <div className="flex gap-2 w-full">
-                      <select
-                        value={feeListingClassFilter}
-                        onChange={(e) => {
-                          setFeeListingClassFilter(e.target.value);
-                          setSelectedStudentForLedger('');
-                        }}
-                        className="text-[10px] p-1.5 border border-slate-200 bg-white font-bold outline-none uppercase"
-                      >
-                        <option value="all">EVERCLASS</option>
-                        {classes.map(c => (
-                          <option key={c.id} value={c.id}>{c.className}-{c.section}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={selectedStudentForLedger}
-                        onChange={(e) => setSelectedStudentForLedger(e.target.value)}
-                        className="text-[10px] p-1.5 border border-slate-200 bg-white font-bold outline-none uppercase"
-                      >
-                        <option value="">-- ALL STUDENTS --</option>
-                        {students
-                          .filter(s => feeListingClassFilter === 'all' || s.classId === feeListingClassFilter)
-                          .sort((a,b) => a.name.localeCompare(b.name))
-                          .map(s => (
-                            <option key={s.id} value={s.id}>{s.name} (Roll: {s.rollNumber})</option>
-                         ))}
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="Search Pupil ledger..."
-                        value={feeSearch}
-                        onChange={(e) => setFeeSearch(e.target.value)}
-                        className="text-xs p-1.5 border border-slate-200 hover:border-slate-400 focus:border-indigo-600 outline-none w-full sm:w-36"
-                      />
-                    </div>
-                  </div>
-
-                  {/* HIGH FIDELITY SINGLE STUDENT LEDGER (Complete "Khata" View) */}
-                  {(() => {
-                    // Let the user pick a student to view an entire financial summary. By default select first student in the searched query
-                    const queryFilter = (feeSearch || '').toLowerCase();
-                    const filteredStudentsList = students.filter(s => {
-                      const matchesSearch = (s.name || '').toLowerCase().includes(queryFilter);
-                      const matchesClass = feeListingClassFilter === 'all' || s.classId === feeListingClassFilter;
-                      return matchesSearch && matchesClass;
-                    });
-                    const selectedLedgerStudent = (selectedStudentForLedger && students.find(s => s.id === selectedStudentForLedger)) || filteredStudentsList[0] || students[0];
-
-                    if (!selectedLedgerStudent) return <p className="text-xs text-slate-400 italic py-8 text-center">No student record detected.</p>;
-
-                    const studentsClassObj = classes.find(c => c.id === selectedLedgerStudent.classId);
-                    const studentLedgerFees = fees.filter(f => f.studentId === selectedLedgerStudent.id);
-                    
-                    const ledgerUnpaid = studentLedgerFees.filter(f => f.status === 'unpaid');
-                    const ledgerPaid = studentLedgerFees.filter(f => f.status === 'paid');
-                    
-                    const totalBilledVal = studentLedgerFees.reduce((sum, f) => sum + f.amount, 0);
-                    const totalPaidVal = ledgerPaid.reduce((sum, f) => sum + f.amount, 0);
-                    const totalOutstandingVal = ledgerUnpaid.reduce((sum, f) => sum + f.amount, 0);
-
-                    return (
-                      <div className="space-y-4">
-                        {/* Selected Student profile sub header */}
-                        <div className="p-4 bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
-                          <div className="space-y-0.5">
-                            <span className="text-[9px] font-black uppercase text-amber-800 bg-amber-100 py-0.5 px-1.5 font-mono">INSIDE ACTIVE STATEMENT LEDGER</span>
-                            <h4 className="text-base font-black text-slate-900 font-display">{selectedLedgerStudent.name}</h4>
-                            <p className="text-xs text-slate-500">Roll No: #{selectedLedgerStudent.rollNumber} | {studentsClassObj?.className} - {studentsClassObj?.section} | Parent Phone: <strong className="font-mono text-slate-700">{selectedLedgerStudent.parentPhone || '0300-XXXXXXX'}</strong></p>
-                          </div>
-
-                          {/* Quick manual WhatsApp overdue ping for the student */}
-                          <div className="shrink-0 flex flex-col gap-1.5">
-                            {totalOutstandingVal > 0 ? (
-                              <a
-                                href={`https://api.whatsapp.com/send?phone=${selectedLedgerStudent.parentPhone}&text=${encodeURIComponent(`Dear Guardian! ScholarSync Dues Alert for student ${selectedLedgerStudent.name} (Roll: ${selectedLedgerStudent.rollNumber}). Total Pending Arrears is ${totalOutstandingVal}. Please pay dues to Allied Bank.`)}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => {
-                                  setBroadcastLogs(prev => [{
-                                    id: 'tx_ar_' + Date.now(),
-                                    recipient: `${selectedLedgerStudent.name}'s parent`,
-                                    phone: selectedLedgerStudent.parentPhone || '0300-0000000',
-                                    type: 'Fee Alert 💰',
-                                    text: `AUTOPING: Dues Notice: ${totalOutstandingVal} outstanding for ${selectedLedgerStudent.name}.`,
-                                    timestamp: new Date().toLocaleString(),
-                                    status: 'Sent'
-                                  }, ...prev]);
-                                }}
-                                className="bg-amber-600 hover:bg-slate-900 text-white font-extrabold text-[10px] px-3 py-1.5 text-center uppercase tracking-wider block"
-                              >
-                                🔔 Ping Overdue On WhatsApp
-                              </a>
-                            ) : (
-                              <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 text-center font-bold font-sans uppercase">★ DUES EXEMPTED</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Financial Ledger numbers */}
-                        <div className="grid grid-cols-3 gap-4 text-center">
-                          <div className="bg-slate-50 p-2.5 border border-slate-200">
-                            <span className="text-[9px] font-bold text-slate-500 block uppercase">Kul Billed Dues</span>
-                            <span className="text-base font-black text-slate-950 font-mono">{totalBilledVal}</span>
-                          </div>
-                          <div className="bg-emerald-50 p-2.5 border border-emerald-200 text-emerald-950">
-                            <span className="text-[9px] font-extrabold text-emerald-800 block uppercase">Kul Received</span>
-                            <span className="text-base font-black font-mono text-emerald-900">{totalPaidVal}</span>
-                          </div>
-                          <div className="bg-rose-50 p-2.5 border border-rose-200 text-rose-950">
-                            <span className="text-[9px] font-extrabold text-rose-800 block uppercase">Balance Arrears</span>
-                            <span className="text-base font-black font-mono text-rose-900 animate-pulse">{totalOutstandingVal}</span>
-                          </div>
-                        </div>
-
-                        {/* PAYMENT HISTORY SECTION */}
-                        <div className="mt-6 border-t pt-6">
-                            <div className="flex items-center gap-2 mb-4">
-                              <h5 className="text-[10px] font-black uppercase text-emerald-700 tracking-widest bg-emerald-50 px-2 py-0.5 border border-emerald-100">Historical Payment Logs</h5>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              {ledgerPaid.length === 0 ? (
-                                <p className="text-[10px] text-slate-400 italic">No cash recovery history recorded.</p>
-                              ) : (
-                                ledgerPaid.map(fee => (
-                                  <div key={fee.id + '_paid'} className="p-3 bg-white border border-slate-100 flex items-center justify-between hover:border-emerald-300 transition-all">
-                                    <div className="flex gap-3 items-center">
-                                      <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-black italic text-xs border border-emerald-100">
-                                        Rs.
-                                      </div>
-                                      <div>
-                                        <p className="text-[10px] font-black text-slate-900 uppercase italic leading-none">{fee.amount} Received</p>
-                                        <p className="text-[8px] font-bold text-slate-400 mt-1 uppercase">{fee.month} / {fee.paidDate}</p>
-                                      </div>
-                                    </div>
-                                    <CheckCircle2 size={14} className="text-emerald-500" />
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                        </div>
-
-                        {/* Minimalist Cards for Ledger entries */}
-                        <div className="space-y-2 mt-8">
-                           <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Recent Statement Entries</h5>
-                           <div className="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
-                          {studentLedgerFees.length > 0 ? (
-                            studentLedgerFees.map(fee => (
-                              <div key={fee.id} className="bg-white border border-slate-100 p-3 hover:border-blue-200 transition-all flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-2 h-8 ${
-                                    (fee.feeType || 'Tuition Fee') === 'Tuition Fee' ? 'bg-blue-600' :
-                                    fee.feeType === 'Annual Fee' ? 'bg-amber-600' :
-                                    fee.feeType === 'Paper Fund' ? 'bg-purple-600' :
-                                    'bg-rose-600'
-                                  }`}></div>
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                       <h4 className="font-black text-[10px] uppercase text-slate-900 italic tracking-tight">{fee.month}</h4>
-                                       <span className={`text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest ${fee.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{fee.status}</span>
-                                    </div>
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{fee.feeType || 'Tuition Fee'} • Due {fee.dueDate}</p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="font-black font-mono text-xs text-slate-900">{fee.amount}</span>
-                                  <div className="flex gap-1 border-l border-slate-100 pl-3">
-                                    <button 
-                                      type="button" 
-                                      onClick={() => {
-                                        setFees(prev => prev.map(f => f.id === fee.id ? { ...f, status: 'paid', paymentMethod: 'Cash', paidDate: new Date().toISOString().split('T')[0] } : f));
-                                        toast.success(`Cash settlement recorded for ${fee.month}.`);
-                                      }}
-                                      className={`p-1.5 transition-all ${fee.status === 'paid' ? 'hidden' : 'text-amber-500 hover:text-amber-700'}`}
-                                      title="Settle as Cash"
-                                    >
-                                      <CreditCard size={14} />
-                                    </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleToggleSettleFee(fee.id)}
-                                      className={`p-1.5 transition-all ${fee.status === 'paid' ? 'text-rose-400 hover:text-rose-600' : 'text-emerald-400 hover:text-emerald-600'}`}
-                                      title={fee.status === 'paid' ? 'Mark Unpaid' : 'Mark Bank Paid'}
-                                    >
-                                      {fee.status === 'paid' ? <X size={14} /> : <CheckCircle2 size={14} />}
-                                    </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleDeleteInvoice(fee.id)}
-                                      className="p-1.5 text-slate-300 hover:text-red-500 transition-all"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="py-8 border border-dashed border-slate-100 text-center text-slate-300 font-bold text-[9px] uppercase tracking-[0.2em]">
-                              No ledger items found.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-
-            <div className="bg-white border border-slate-200 p-6 shadow-sm">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b mb-4 gap-4">
-                <div>
-                  <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-800 font-display">System Consolidated Tuition Invoices Register</h3>
-                  <p className="text-[10px] text-gray-500">Double click state checkbox to mark transaction paid or dispatch localized WhatsApp warning notices.</p>
-                </div>
-
-                {/* Filter and search */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <select
-                    value={feeListingClassFilter}
-                    onChange={(e) => setFeeListingClassFilter(e.target.value)}
-                    className="p-1 px-2.5 border text-xs font-semibold bg-white outline-none"
-                  >
-                    <option value="all">All Classrooms</option>
-                    {classes.map(c => (
-                      <option key={c.id} value={c.id}>{c.className}-{c.section}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={feeStatusFilter}
-                    onChange={(e) => setFeeStatusFilter(e.target.value as any)}
-                    className="p-1 px-2.5 border text-xs font-semibold bg-white outline-none"
-                  >
-                    <option value="all">-- All Status --</option>
-                    <option value="paid">Settled (Paid)</option>
-                    <option value="unpaid">Due / Arrears (Unpaid)</option>
-                    <option value="pending">Awaiting Verification</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {(() => {
-                  const finalFilteredFees = fees.filter(fee => {
-                    const studentObj = students.find(s => s.id === fee.studentId);
-                    if (!studentObj) return false;
-
-                    // Class filter
-                    if (feeListingClassFilter !== 'all' && studentObj.classId !== feeListingClassFilter) return false;
-
-                    // Search filter
-                    if (feeSearch) {
-                      const matchesName = (studentObj.name?.toLowerCase() || '').includes(feeSearch.toLowerCase());
-                      if (!matchesName) return false;
-                    }
-
-                    // Status filter
-                    if (feeStatusFilter !== 'all' && fee.status !== feeStatusFilter) return false;
-
-                    return true;
-                  });
-
-                  if (finalFilteredFees.length === 0) {
-                    return (
-                      <div className="p-12 text-center text-slate-400 font-bold text-[10px] uppercase tracking-widest border border-dashed border-slate-200">
-                        No consolidated tuition records found in active registries.
-                      </div>
-                    );
-                  }
-
-                  return finalFilteredFees.map(fee => {
-                    const studentObj = students.find(s => s.id === fee.studentId);
-                    const classObj = classes.find(c => c.id === studentObj?.classId);
-                    const isExpanded = expandedFeeId === fee.id;
-
-                    return (
-                      <div key={fee.id} className="bg-white border border-slate-100 transition-all hover:border-slate-300 shadow-sm overflow-hidden">
-                        {/* Minimal Header - Primary Request: Just Name and Status */}
-                        <div 
-                          onClick={() => setExpandedFeeId(isExpanded ? null : fee.id)}
-                          className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className={`w-2 h-2 rounded-full ${
-                              fee.status === 'paid' ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'
-                            }`}></div>
-                            <h4 className="font-extrabold text-sm uppercase text-slate-900 tracking-tight">{studentObj?.name}</h4>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-none border ${
-                              fee.status === 'paid' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-rose-100 bg-rose-50 text-rose-700'
-                            }`}>
-                              {fee.status === 'paid' ? 'Paid' : 'Pending'}
-                            </span>
-                            {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-                          </div>
-                        </div>
-
-                        {/* Expanded Detail View */}
-                        {isExpanded && (
-                          <div className="p-5 border-t border-slate-50 bg-slate-50/30 animate-fade-in space-y-5">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Entry ID</p>
-                                <p className="text-[10px] font-mono font-bold text-slate-500">#{fee.id.slice(-6)}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Roll Number</p>
-                                <p className="text-xs font-bold text-slate-700">{studentObj?.rollNumber}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Class Register</p>
-                                <p className="text-xs font-bold text-slate-700">{classObj ? `${classObj.className} (${classObj.section})` : 'N/A'}</p>
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Billing Cycle</p>
-                                <p className="text-xs font-bold text-slate-700">{fee.month}</p>
-                              </div>
-                            </div>
-
-                            {fee.description && (
-                              <div className="p-2.5 bg-white border border-slate-100 rounded-sm">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Notes / Particulars</p>
-                                <p className="text-[11px] text-slate-600 italic">"{fee.description}"</p>
-                              </div>
-                            )}
-
-                            {fee.status === 'paid' && (
-                              <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 w-fit px-2 py-1 uppercase tracking-tight">
-                                <CheckCircle2 size={12} />
-                                Settled via {fee.paymentMethod || 'Primary Registry'} on {fee.paidDate}
-                              </div>
-                            )}
-
-                            <div className="flex items-center justify-between pt-3 border-t border-slate-200 mt-2">
-                              <div className="flex gap-2">
-                                {fee.status !== 'paid' && (
-                                  <a
-                                    href={`https://api.whatsapp.com/send?phone=${studentObj?.parentPhone}&text=${encodeURIComponent(`Aasalam-o-ALAIKUM! ScholarSync Alert: Fee for student ${studentObj?.name} of ${fee.amount} is Arrears. Please pay at school or Allied bank.`)}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5 shadow-sm"
-                                  >
-                                    <Phone size={12} />
-                                    WA Reminder
-                                  </a>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteInvoice(fee.id)}
-                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all"
-                                >
-                                  <Trash2 size={12} />
-                                  Delete
-                                </button>
-                              </div>
-
-                              <div className="flex gap-2">
-                                {fee.status !== 'paid' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setFees(prev => prev.map(f => f.id === fee.id ? { ...f, status: 'paid', paymentMethod: 'Cash', paidDate: new Date().toISOString().split('T')[0] } : f));
-                                      toast.success(`Cash payment collected for ${studentObj?.name}!`);
-                                    }}
-                                    className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5 shadow-sm"
-                                  >
-                                    <CreditCard size={12} />
-                                    Settle as Cash
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSettleFee(fee.id)}
-                                  className={`px-4 py-1.5 font-black text-[10px] uppercase tracking-widest flex items-center gap-1.5 transition-all shadow-sm ${
-                                    fee.status === 'paid' ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-indigo-600 hover:bg-slate-900 text-white'
-                                  }`}
-                                >
-                                  {fee.status === 'paid' ? <X size={12} /> : <CheckCircle2 size={12} />}
-                                  {fee.status === 'paid' ? 'Void Settlement' : 'Mark Settled (Bank)'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {activeTab === 'fee_reports' && (
-          <div id="panel-fee-reports" className="space-y-8 animate-fade-in font-sans">
-            
-            {/* Header Banner */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 shadow-md border-b-4 border-amber-500">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <span className="text-[10px] bg-amber-500 text-slate-950 px-2 py-0.5 rounded-none font-black uppercase tracking-widest font-mono">Consolidated Ledger Intelligence</span>
-                  <h1 className="text-2xl font-black uppercase font-display tracking-tight mt-1 flex items-center gap-2">
-                    <BarChart2 size={24} className="text-amber-400 animate-pulse" />
-                    Accounts Analytics & Fee Reports
-                  </h1>
-                  <p className="text-xs text-indigo-100/80 mt-0.5">Automated accounting registers. Read dynamic charts tracing monthly revenue targets, unpaid liabilities, and parental broadcast response models.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('fees')}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-2.5 px-4 uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer"
-                  >
-                    <CreditCard size={16} />
-                    Back to Registrar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast.success("Accounting logs recalibrated with direct cash book ledgers.");
-                    }}
-                    className="bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs py-2.5 px-4 uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <RefreshCw size={14} className="animate-spin-slow" />
-                    Recalibrate Cash Flow
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* KPI METRIC CARDS GRID */}
+          <div id="panel-principal-fees" className="space-y-6 animate-fade-in font-sans pb-20 bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner">
+            {/* 1. Global Dashboard Stats Row */}
             {(() => {
-              const totalBilled = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalCollected = fees.filter(f => f.status === 'paid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalPending = totalBilled - totalCollected;
-              const collectionRate = totalBilled > 0 ? ((totalCollected / totalBilled) * 100).toFixed(1) : '0';
-
+              const stats = getGlobalStats(feeStudents);
               return (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  {/* Card 1: Total Revenue Billed */}
-                  <div className="bg-white border-l-4 border-blue-500 p-5 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Total Invoiced</p>
-                        <h3 className="text-2xl font-black text-slate-900 mt-1">{totalBilled.toLocaleString()}</h3>
-                      </div>
-                      <div className="p-2 bg-blue-50 text-blue-600">
-                        <CreditCard size={20} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-                        <div className="bg-blue-500 h-full w-full"></div>
-                      </div>
-                      <p className="text-[9px] text-gray-400 mt-1 font-mono font-semibold">Dynamic cash registry aggregates</p>
-                    </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Students</p>
+                    <p className="text-xl font-black text-slate-900">{stats.totalStudents}</p>
                   </div>
-
-                  {/* Card 2: Total Revenue Collected */}
-                  <div className="bg-white border-l-4 border-emerald-500 p-5 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Collected Assets</p>
-                        <h3 className="text-2xl font-black text-slate-900 mt-1">{totalCollected.toLocaleString()}</h3>
-                      </div>
-                      <div className="p-2 bg-emerald-50 text-emerald-600">
-                        <CheckCircle2 size={20} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-                        <div className="bg-emerald-500 h-full" style={{ width: `${collectionRate}%` }}></div>
-                      </div>
-                      <p className="text-[9px] text-emerald-600 mt-1 font-mono font-semibold flex items-center gap-1">
-                        <TrendingUp size={10} />
-                        Settle target hit beautifully ({collectionRate}%)
-                      </p>
-                    </div>
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Collected</p>
+                    <p className="text-xl font-black text-emerald-700">Rs. {stats.totalCollected.toLocaleString()}</p>
                   </div>
-
-                  {/* Card 3: Outstandings/Pending */}
-                  <div className="bg-white border-l-4 border-rose-500 p-5 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Pending Liabilities</p>
-                        <h3 className="text-2xl font-black text-rose-600 mt-1">{totalPending.toLocaleString()}</h3>
-                      </div>
-                      <div className="p-2 bg-rose-50 text-rose-600">
-                        <AlertTriangle size={20} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-                        <div className="bg-rose-500 h-full" style={{ width: `${100 - Number(collectionRate)}%` }}></div>
-                      </div>
-                      <p className="text-[9px] text-rose-500 mt-1 font-mono font-semibold">
-                        ⚠️ Requires manual WhatsApp followups
-                      </p>
-                    </div>
+                  <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 shadow-sm">
+                    <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Total Pending</p>
+                    <p className="text-xl font-black text-rose-700">Rs. {stats.totalPending.toLocaleString()}</p>
                   </div>
-
-                  {/* Card 4: Settle Rate */}
-                  <div className="bg-white border-l-4 border-amber-500 p-5 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Collection Ratio</p>
-                        <h3 className="text-2xl font-black text-amber-600 mt-1">{collectionRate}%</h3>
-                      </div>
-                      <div className="p-2 bg-amber-50 text-amber-600">
-                        <Percent size={20} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-                        <div className="bg-amber-500 h-full" style={{ width: `${collectionRate}%` }}></div>
-                      </div>
-                      <p className="text-[9px] text-slate-500 mt-1 font-mono font-semibold">
-                        Target benchmark: <span className="font-bold text-slate-700">90.0% Settle Rate</span>
-                      </p>
-                    </div>
+                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 shadow-sm">
+                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Other Funds</p>
+                    <p className="text-xl font-black text-amber-700">Rs. {stats.totalOther.toLocaleString()}</p>
                   </div>
                 </div>
               );
             })()}
 
-            {/* DOUBLE RECHARTS BAR CHARTS GRID */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              
-              {/* Chart A: Monthly Fee Distribution (Stacked Bar chart) */}
-              <div className="bg-white p-6 shadow-sm border border-slate-100 space-y-4">
-                <div className="border-b pb-3 flex justify-between items-center">
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                      💰 Monthly Invoice & Settlement Patterns
-                    </h3>
-                    <p className="text-[11px] text-slate-500">Gross revenue invoiced, comparing realized settlements vs. non-paid outstandings.</p>
+            {/* 2. Main Interface Header & Student Matcher */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div className="flex-1">
+                <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <CreditCard size={24} className="text-indigo-600" />
+                  School Fee Ledger (2026)
+                </h1>
+                <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Search student by name or ID..." 
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                      value={feeSearch}
+                      onChange={(e) => setFeeSearch(e.target.value)}
+                    />
                   </div>
-                  <span className="text-[9px] font-mono bg-blue-50 text-blue-600 px-2 py-0.5 uppercase font-bold">Historical Stack</span>
-                </div>
-
-                {(() => {
-                  const monthsMap: Record<string, { month: string; Collected: number; Pending: number; Total?: number }> = {};
-                  fees.forEach(fee => {
-                    const m = fee.month || 'Other';
-                    if (!monthsMap[m]) {
-                      monthsMap[m] = { month: m, Collected: 0, Pending: 0, Total: 0 };
-                    }
-                    if (fee.status === 'paid') {
-                      monthsMap[m].Collected += Number(fee.amount || 0);
-                    } else {
-                      monthsMap[m].Pending += Number(fee.amount || 0);
-                    }
-                    if (monthsMap[m].Total !== undefined) {
-                      monthsMap[m].Total += Number(fee.amount || 0);
-                    }
-                  });
-
-                  // Sort order preference or natural keys
-                  const chartData = Object.values(monthsMap);
-
-                  if (chartData.length === 0) {
-                    return (
-                      <div className="h-72 flex items-center justify-center text-xs text-gray-400 border border-dashed rounded-lg">
-                        Add invoices in the ledger to map Monthly Revenue plots.
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="h-80 w-full pt-4">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={chartData}
-                          margin={{ top: 10, right: 10, left: -10, bottom: 5 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                          <XAxis 
-                            dataKey="month" 
-                            stroke="#64748b" 
-                            fontSize={10} 
-                            tickLine={false}
-                          />
-                          <YAxis 
-                            stroke="#64748b" 
-                            fontSize={10} 
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(v) => `${v}`}
-                          />
-                          <Tooltip 
-                            formatter={(value) => [`${value}`, undefined]}
-                            contentStyle={{ fontSize: '11px', fontFamily: 'monospace', borderRadius: '4px' }}
-                          />
-                          <Legend 
-                            wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }} 
-                          />
-                          <Bar dataKey="Collected" name="Collected Fee" fill="#10b981" stackId="revenue" radius={[0, 0, 0, 0]} />
-                          <Bar dataKey="Pending" name="Unpaid Balance" fill="#f43f5e" stackId="revenue" radius={[2, 2, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Chart B: Revenue Categoric Streams */}
-              <div className="bg-white p-6 shadow-sm border border-slate-100 space-y-4">
-                <div className="border-b pb-3 flex justify-between items-center">
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                      📂 Revenue Category Slices
-                    </h3>
-                    <p className="text-[11px] text-slate-500">Breakdown of collectable targets across Tuition Fees, Annual Fund, and general balances.</p>
-                  </div>
-                  <span className="text-[9px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 uppercase font-bold">Grouped Streams</span>
-                </div>
-
-                {(() => {
-                  const categories = ['Tuition Fee', 'Annual Fee', 'Paper Fund', 'Pending Balance', 'Miscellaneous'];
-                  const recordsMap = categories.reduce((acc, cat) => {
-                    acc[cat] = { category: cat, Collected: 0, Pending: 0 };
-                    return acc;
-                  }, {} as Record<string, { category: string; Collected: number; Pending: number }>);
-
-                  fees.forEach(fee => {
-                    const type = fee.feeType || 'Tuition Fee';
-                    const key = recordsMap[type] ? type : 'Miscellaneous';
-                    if (fee.status === 'paid') {
-                      recordsMap[key].Collected += Number(fee.amount || 0);
-                    } else {
-                      recordsMap[key].Pending += Number(fee.amount || 0);
-                    }
-                  });
-
-                  const chartData = Object.values(recordsMap);
-
-                  return (
-                    <div className="h-80 w-full pt-4">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={chartData}
-                          margin={{ top: 10, right: 10, left: -10, bottom: 5 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                          <XAxis 
-                            dataKey="category" 
-                            stroke="#64748b" 
-                            fontSize={9} 
-                            tickLine={false}
-                          />
-                          <YAxis 
-                            stroke="#64748b" 
-                            fontSize={10} 
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(v) => `${v}`}
-                          />
-                          <Tooltip 
-                            formatter={(value) => [`${value}`, undefined]}
-                            contentStyle={{ fontSize: '11px', fontFamily: 'monospace', borderRadius: '4px' }}
-                          />
-                          <Legend 
-                            wrapperStyle={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }} 
-                          />
-                          <Bar dataKey="Collected" name="Collected" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                          <Bar dataKey="Pending" name="Unpaid" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  );
-                })()}
-              </div>
-
-            </div>
-
-            {/* ANNUAL LEDGER DETAIL SEARCH */}
-            <div className="bg-white p-6 shadow-sm border border-slate-100 border-t-4 border-t-indigo-600">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 mb-6">
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
-                    📑 Individual Student Annual Ledger
-                  </h3>
-                  <p className="text-[11px] text-slate-500">Search and audit the entire academic year transactions for a specific student profile.</p>
-                </div>
-                <div className="mt-3 md:mt-0 flex gap-2">
-                  <select 
-                    value={selectedStudentForLedger}
-                    onChange={(e) => setSelectedStudentForLedger(e.target.value)}
-                    className="text-[10px] font-black uppercase tracking-widest bg-slate-50 border border-slate-200 px-3 py-2 outline-none focus:border-indigo-600"
+                  <select
+                    className="px-4 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={feeClassFilter}
+                    onChange={(e) => setFeeClassFilter(e.target.value)}
                   >
-                    <option value="">-- SELECT STUDENT FOR LEDGER --</option>
-                    {students.sort((a,b) => a.name.localeCompare(b.name)).map(s => {
-                      const classObj = classes.find(c => c.id === s.classId);
-                      return (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({classObj?.className})
-                        </option>
-                      );
-                    })}
+                    <option value="all">All Classes</option>
+                    {Array.from(new Set(feeStudents.map(s => s.class))).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
-                  {selectedStudentForLedger && (
-                    <button 
-                      onClick={() => setSelectedStudentForLedger('')}
-                      className="p-2 bg-slate-900 text-white hover:bg-rose-600 transition-all"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
+                  <select
+                    className="px-4 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl cursor-pointer hover:bg-indigo-700 transition-colors"
+                    value={selectedStudentForFee}
+                    onChange={(e) => setSelectedStudentForFee(e.target.value)}
+                  >
+                    <option value="">Select Student...</option>
+                    {feeStudents
+                      .filter(s => {
+                        const matchesSearch = s.name.toLowerCase().includes(feeSearch.toLowerCase()) || String(s.id).includes(feeSearch);
+                        const matchesClass = feeClassFilter === 'all' ? true : s.class === feeClassFilter;
+                        return matchesSearch && matchesClass;
+                      })
+                      .map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.class})</option>
+                      ))
+                    }
+                  </select>
                 </div>
               </div>
-
-              {selectedStudentForLedger ? (
-                <div className="animate-fade-in-up">
-                  <CashPaymentEntry 
-                    studentId={selectedStudentForLedger} 
-                    fees={fees} 
-                    setFees={setFees}
-                    studentName={students.find(s => s.id === selectedStudentForLedger)?.name} 
-                  />
-                </div>
-              ) : (
-                <div className="py-12 border-2 border-dashed border-slate-100 flex flex-col items-center justify-center text-slate-300">
-                  <User size={48} className="mb-2 opacity-20" />
-                  <p className="text-xs font-black uppercase tracking-widest italic opacity-50">Please select a student above to generate annual statement</p>
-                </div>
-              )}
             </div>
 
-            {/* THREE COLUMN GRID: LEADERBOARD OF UNPAID DUES + RECALL AUTOPILOT */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* Outstandling Dues List */}
-              <div className="bg-white p-6 shadow-sm border border-slate-100 space-y-4 lg:col-span-3 flex flex-col justify-between">
-                <div>
-                  <div className="border-b pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                        🚨 Outstanding Dues Ledger (List of Arrears)
+            {(() => {
+              const student = feeStudents.find(s => String(s.id) === selectedStudentForFee);
+              if (!student) {
+                return (
+                  <div className="p-20 text-center bg-slate-50 border border-dashed border-slate-300 rounded-3xl">
+                    <Users size={48} className="mx-auto text-slate-300 mb-4" />
+                    <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">
+                      Please select a student to manage their fee account
+                    </p>
+                  </div>
+                );
+              }
+
+              const account = getStudentFullAccount(student, 2026);
+
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  
+                  {/* Left Column: Recording & Quick Actions */}
+                  <div className="lg:col-span-4 space-y-6">
+                    {/* Add Other Funds Form */}
+                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4 text-white">
+                      <h3 className="text-xs font-black uppercase text-amber-500 tracking-widest flex items-center gap-2">
+                        <ArrowUpRight size={16} /> Other Funds / Fines
                       </h3>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">List of students with accrued unpaid balances for current academic cycle.</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase">Description</label>
+                        <input id="otherDesc" type="text" placeholder="e.g. Exam Fund, Fine..." className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-white outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase">Amount (Rs.)</label>
+                        <input id="otherAmt" type="number" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-black text-white outline-none" placeholder="0" />
+                      </div>
+                      <button 
                         onClick={() => {
-                          const map: Record<string, { id: string; name: string; classId: string; totalOwed: number; phone: string; invoiceIds: string[] }> = {};
-                          fees.forEach(fee => {
-                            if (fee.status !== 'paid') {
-                              const student = students.find(s => s.id === fee.studentId);
-                              if (student) {
-                                if (!map[student.id]) {
-                                  map[student.id] = {
-                                    id: student.id,
-                                    name: student.name,
-                                    classId: student.classId,
-                                    totalOwed: 0,
-                                    phone: student.parentPhone || '0300-1112222',
-                                    invoiceIds: []
-                                  };
-                                }
-                                map[student.id].totalOwed += Number(fee.amount || 0);
-                                map[student.id].invoiceIds.push(fee.id);
-                              }
-                            }
-                          });
-                          const list = Object.values(map).sort((a, b) => b.totalOwed - a.totalOwed);
-                          handleGenerateReportAndAlert(list);
+                          const desc = (document.getElementById('otherDesc') as HTMLInputElement).value;
+                          const amt = Number((document.getElementById('otherAmt') as HTMLInputElement).value);
+                          if (!desc || amt <= 0) { toast.error("Enter valid details"); return; }
+                          
+                          setFeeStudents(prev => addOtherFund(prev, student.id, desc, amt));
+                          (document.getElementById('otherDesc') as HTMLInputElement).value = '';
+                          (document.getElementById('otherAmt') as HTMLInputElement).value = '';
+                          toast.success("Other fund entry added!");
                         }}
-                        className="bg-indigo-600 hover:bg-indigo-505 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-extrabold text-[10px] tracking-wider px-3.5 py-2 uppercase shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                        className="w-full py-3 bg-white text-slate-900 hover:bg-amber-400 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95"
                       >
-                        <Bell size={13} className="animate-bounce" />
-                        Generate Summary Report & Alert Students
+                        Add Entry
                       </button>
-                      <span className="text-[9px] font-mono bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 px-2.5 py-1.5 font-bold">Unsettled Debt Ledger</span>
                     </div>
                   </div>
 
-                  {(() => {
-                    const studentDebtMap: Record<string, { id: string; name: string; classId: string; totalOwed: number; phone: string; invoiceIds: string[] }> = {};
+                  {/* Right Column: Complete Yearly Account & History */}
+                  <div className="lg:col-span-8 space-y-6">
                     
-                    fees.forEach(fee => {
-                      if (fee.status !== 'paid') {
-                        const student = students.find(s => s.id === fee.studentId);
-                        if (student) {
-                          if (!studentDebtMap[student.id]) {
-                            studentDebtMap[student.id] = {
-                              id: student.id,
-                              name: student.name,
-                              classId: student.classId,
-                              totalOwed: 0,
-                              phone: student.parentPhone || '0300-1112222',
-                              invoiceIds: []
-                            };
-                          }
-                          studentDebtMap[student.id].totalOwed += Number(fee.amount || 0);
-                          studentDebtMap[student.id].invoiceIds.push(fee.id);
-                        }
-                      }
-                    });
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Due</span>
+                        <span className="text-xl font-black text-slate-900">Rs. {account.totalDue}</span>
+                      </div>
+                      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Paid</span>
+                        <span className="text-xl font-black text-emerald-600">Rs. {account.totalPaid}</span>
+                      </div>
+                      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Other Funds</span>
+                        <span className="text-xl font-black text-amber-500">Rs. {account.otherFundsTotal}</span>
+                      </div>
+                      <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 shadow-xl flex flex-col justify-center text-white">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Grand Pending</span>
+                        <span className="text-xl font-black text-rose-500">Rs. {account.grandTotalPending}</span>
+                      </div>
+                    </div>
 
-                    const topUnpaid = Object.values(studentDebtMap)
-                      .sort((a, b) => b.totalOwed - a.totalOwed);
-
-                    if (topUnpaid.length === 0) {
-                      return (
-                        <div className="py-12 text-center text-xs text-slate-400">
-                          ★ Perfect Clearance Record! No student currently owes school balances.
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          {topUnpaid.map((st, i) => {
-                            const classNameStr = classes.find(c => c.id === st.classId)?.className || 'General Class';
-
-                            return (
-                              <div key={st.id} className="bg-slate-50/70 border border-slate-100 p-3.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center font-black">
-                                      {i + 1}
-                                    </span>
-                                    <h4 className="text-xs font-black uppercase text-slate-800">{st.name}</h4>
-                                    <span className="text-[9px] bg-indigo-50 text-indigo-600 px-2 py-0.5 font-bold">{classNameStr}</span>
-                                  </div>
-                                  <p className="text-[9px] text-gray-400 font-mono">Parents Contact: <span className="text-slate-700 font-bold">{st.phone}</span></p>
-                                </div>
-
-                                <div className="flex items-center gap-2.5 self-end md:self-auto">
-                                  <div className="text-right">
-                                    <span className="text-xs font-black text-rose-600 font-mono block">{st.totalOwed}</span>
-                                    <span className="text-[8px] text-gray-400 uppercase font-bold tracking-wider font-mono">{st.invoiceIds.length} unpaid billings</span>
-                                  </div>
-                                  
-                                  <div className="h-8 border-r border-slate-200"></div>
-
-                                  <div className="flex gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        // settle all invoices of this student
-                                        st.invoiceIds.forEach(invId => handleToggleSettleFee(invId));
-                                        toast.success(`All invoices associated with student ${st.name} settled successfully!`);
-                                      }}
-                                      className="bg-white hover:bg-slate-100 text-slate-800 font-extrabold text-[9px] tracking-wider px-2.5 py-1.5 uppercase border border-slate-200 transition-all cursor-pointer"
-                                    >
-                                      ✓ Settle Entire Balance
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                    {/* Yearly Breakdown Grid */}
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Yearly Ledger (Jan-Dec 2026)</h3>
+                        <div className="flex gap-4 text-[10px] font-black uppercase">
+                          <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div> Paid</span>
+                          <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div> Pending</span>
                         </div>
                       </div>
-                    );
-                  })()}
-                </div>
-
-                <div className="text-right pt-4 border-t border-dashed border-slate-200">
-                  <span className="text-[9px] text-gray-400 font-mono">Ledger data reflects current outstanding receivables stored in system cache.</span>
-                </div>
-              </div>
-            </div>
-
-            {/* CONSOLIDATED DEFAULTERS SUMMARY REPORT AUDIT MODAL */}
-            <AnimatePresence>
-              {showPendingFeeSummary && (
-                <>
-                  <div 
-                    className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-slate-900"
-                    onClick={() => setShowPendingFeeSummary(false)}
-                  >
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-white dark:bg-slate-900 border-2 border-slate-950 dark:border-slate-800 rounded-none w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl flex flex-col font-sans"
-                    >
-                      {/* Official Audit Document Header */}
-                      <div className="bg-slate-950 text-white p-6 border-b border-slate-800 space-y-2 flex flex-col justify-between items-start">
-                        <div className="flex justify-between items-center w-full">
-                          <span className="text-[9px] bg-amber-500 text-slate-950 px-2 py-0.5 font-black uppercase tracking-widest font-mono">
-                            Official Financial Statement
-                          </span>
-                          <button 
-                            type="button"
-                            onClick={() => setShowPendingFeeSummary(false)}
-                            className="text-slate-400 hover:text-white transition-colors"
-                            title="Close"
-                          >
-                            <X size={20} />
-                          </button>
-                        </div>
-                        
-                        <div className="w-full">
-                          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
-                            💰 Pendency Audit & Notification Summary Report
-                          </h2>
-                          <p className="text-[10px] text-slate-350 tracking-wider">
-                            NSB1 ACADEMY OF EXCELLENCE • REGISTERED ACCOUNTS LEDGER OFFICE
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="p-6 space-y-6">
-                        
-                        {/* Stamp, date, system metrics inside audit document */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-950 p-4 border border-slate-200 dark:border-slate-800 rounded-none">
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Document State</span>
-                            <span className="text-xs font-black uppercase text-rose-600 dark:text-rose-450">PENDING AUDIT</span>
-                          </div>
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Generation Date</span>
-                            <span className="text-xs font-mono font-bold text-slate-705 dark:text-slate-300">
-                              {new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </span>
-                          </div>
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Defaulters Count</span>
-                            <span className="text-xs font-black text-slate-800 dark:text-white">
-                              {(() => {
-                                const duesMap: Record<string, number> = {};
-                                fees.forEach(f => f.status !== 'paid' && (duesMap[f.studentId] = 1));
-                                return Object.keys(duesMap).length;
-                              })()} Affected
-                            </span>
-                          </div>
-                          <div className="space-y-0.5">
-                            <span className="text-[8px] text-slate-450 dark:text-slate-500 uppercase font-bold block">Dispatched Alerts</span>
-                            <span className="text-xs font-black text-emerald-650 dark:text-emerald-450 flex items-center gap-1">
-                              🟢 Live Portals
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Big Aggregate Dues Summary */}
-                        {(() => {
-                          const studentDebtMap: Record<string, { id: string; name: string; classId: string; totalOwed: number; phone: string; invoiceIds: string[] }> = {};
-                          fees.forEach(fee => {
-                            if (fee.status !== 'paid') {
-                              const student = students.find(s => s.id === fee.studentId);
-                              if (student) {
-                                if (!studentDebtMap[student.id]) {
-                                  studentDebtMap[student.id] = {
-                                    id: student.id,
-                                    name: student.name,
-                                    classId: student.classId,
-                                    totalOwed: 0,
-                                    phone: student.parentPhone || 'N/A',
-                                    invoiceIds: []
-                                  };
-                                }
-                                studentDebtMap[student.id].totalOwed += Number(fee.amount || 0);
-                                studentDebtMap[student.id].invoiceIds.push(fee.id);
+                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-4 p-2 sm:p-4 bg-slate-50/50">
+                        {account.yearlyBreakdown.map(m => (
+                          <div 
+                            key={m.month} 
+                            onClick={() => {
+                              if (m.isFutureMonth) {
+                                toast.info(`Fee for ${m.month} is not yet due.`);
+                                return;
                               }
-                            }
-                          });
+                              
+                              const allPending = account.yearlyBreakdown.reduce((sum, curr) => sum + curr.pending, 0);
+                              const previousArrears = allPending - m.pending;
 
-                          const list = Object.values(studentDebtMap).sort((a, b) => b.totalOwed - a.totalOwed);
-                          const totalArrearsSum = list.reduce((sum, current) => sum + current.totalOwed, 0);
-
-                          return (
-                            <div className="space-y-6">
-                              <div className="p-5 border border-amber-350 bg-amber-50/50 dark:bg-amber-950/10 dark:border-amber-900/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                                <div className="space-y-1">
-                                  <span className="text-[9px] bg-amber-500 text-slate-950 px-2.5 py-0.5 font-bold uppercase tracking-wide">
-                                    AUDITED ACCOUNTS TOTAL RECEIVABLES
-                                  </span>
-                                  <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                                    Rs. {totalArrearsSum.toLocaleString()} PKR
-                                  </h3>
-                                  <p className="text-[11px] text-slate-650 dark:text-slate-400 leading-relaxed">
-                                    This reflects the combined total sum of all student bills currently flagged as 'Outstanding' inside primary ledgers.
-                                  </p>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => window.print()}
-                                  className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white font-black text-[10px] px-4 py-2.5 uppercase tracking-widest border border-transparent shadow-md hover:shadow-lg transition-all"
-                                >
-                                  🖨️ Print Ledger Document
-                                </button>
+                              setFeePaymentModal({
+                                isOpen: true,
+                                studentId: String(student.id),
+                                month: m.month,
+                                pending: m.pending,
+                                previousArrears: previousArrears,
+                                amount: (m.pending + previousArrears).toString(),
+                                year: 2026
+                              });
+                            }}
+                            className="bg-white p-2 sm:p-3 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 group cursor-pointer transition-all active:scale-95 flex flex-col justify-between"
+                            title={`Click to record payment for ${m.month}`}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-[10px] sm:text-xs font-black text-slate-900 uppercase truncate pr-1">{m.month}</span>
+                              {m.isFutureMonth ? (
+                                <span className="text-[8px] font-black uppercase text-slate-300">Upcoming</span>
+                              ) : m.isComplete ? (
+                                <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+                              ) : (
+                                <AlertCircle size={14} className="text-rose-500 animate-pulse group-hover:text-indigo-600 shrink-0" />
+                              )}
+                            </div>
+                            <div className="space-y-1 mb-2">
+                              <div className="flex flex-col text-[9px] sm:text-[10px] font-bold">
+                                <span className="text-slate-400">Paid:</span>
+                                <span className={m.paid > 0 ? "text-emerald-600" : "text-slate-300"}>Rs. {m.paid}</span>
                               </div>
-
-                              {/* Student Defaulters Table Breakdown */}
-                              <div className="space-y-3">
-                                <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                                  Defaulters Ledger Breakdown
-                                </h4>
-
-                                <div className="border border-slate-200 dark:border-slate-800 overflow-x-auto dark:bg-slate-900">
-                                  <table className="w-full text-left text-xs border-collapse">
-                                    <thead>
-                                      <tr className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 uppercase font-mono text-[9px] font-bold">
-                                        <th className="p-3">#</th>
-                                        <th className="p-3">Student Name</th>
-                                        <th className="p-3">Class Name</th>
-                                        <th className="p-3">Contact</th>
-                                        <th className="p-3 text-right">Owed Amt (PKR)</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                      {list.map((st, index) => {
-                                        const cNameObj = classes.find(c => c.id === st.classId);
-                                        return (
-                                          <tr key={st.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 text-slate-800 dark:text-slate-200">
-                                            <td className="p-3 font-mono font-bold text-slate-400">{index + 1}</td>
-                                            <td className="p-3 font-black text-slate-950 dark:text-white uppercase text-[11px]">{st.name}</td>
-                                            <td className="p-3 font-bold text-indigo-700 dark:text-indigo-400">{cNameObj ? cNameObj.className : 'N/A'}</td>
-                                            <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{st.phone}</td>
-                                            <td className="p-3 text-right font-black font-mono text-rose-600 dark:text-rose-400">{st.totalOwed.toLocaleString()}</td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-
-                              {/* Broadcast Success Status Indicator */}
-                              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/25 border border-emerald-250 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 space-y-2">
-                                <div className="flex items-center gap-1.5 font-bold text-[11px] uppercase tracking-wider">
-                                  <span>🔔 Push Notification Broadcast Logs Active</span>
-                                </div>
-                                <p className="text-[10px] leading-relaxed">
-                                  A real-time portal push notification alert for school fee arrears has been dispatched successfully to each of the {list.length} student/parent profiles above. Reminders display within student notification broadcasters with premium visual alerts.
-                                </p>
+                              <div className="flex flex-col text-[9px] sm:text-[10px] font-black">
+                                <span className="text-slate-400 uppercase">Pend:</span>
+                                <span className={m.pending > 0 ? "text-rose-600" : "text-slate-300"}>Rs. {m.pending}</span>
                               </div>
                             </div>
-                          );
-                        })()}
+                            <div className="mt-auto w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div className={`h-full transition-all duration-500 ${m.isFutureMonth ? 'bg-slate-200' : m.isComplete ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${m.isFutureMonth ? 100 : (m.paid / Math.max(1, m.due)) * 100}%` }}></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Summary Totals */}
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2">Account Summary</h3>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-500">Total Yearly Due:</span>
+                            <span className="text-sm font-black text-slate-900">Rs. {account.totalDue.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-500">Total Yearly Paid:</span>
+                            <span className="text-sm font-black text-emerald-600">Rs. {account.totalPaid.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center pb-2">
+                            <span className="text-xs font-bold text-slate-500">Other Funds (Fine/Dues):</span>
+                            <span className="text-sm font-black text-amber-600">Rs. {account.otherFundsTotal.toLocaleString()}</span>
+                          </div>
+                          <div className="pt-3 border-t border-slate-200 flex flex-col gap-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-black text-rose-600 uppercase">Grand Total Pending:</span>
+                              <span className="text-lg font-black text-rose-700">Rs. {account.grandTotalPending.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="bg-slate-50 dark:bg-slate-950 p-6 border-t border-slate-200 dark:border-slate-850 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowPendingFeeSummary(false)}
-                          className="bg-slate-950 dark:bg-indigo-600 hover:bg-slate-800 text-white font-bold text-xs px-5 py-3 uppercase tracking-wider cursor-pointer"
-                        >
-                          Close Ledger Summary
-                        </button>
+                      {/* Other Funds History */}
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2">Other Funds Entries</h3>
+                        <div className="h-40 overflow-y-auto custom-scrollbar space-y-2">
+                          {account.otherFunds.length > 0 ? account.otherFunds.map((f, i) => (
+                            <div key={i} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
+                              <div>
+                                <p className="text-xs font-black text-slate-800 capitalize">{f.desc}</p>
+                                <p className="text-[9px] text-slate-400 font-bold">{f.date}</p>
+                              </div>
+                              <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                            </div>
+                          )) : (
+                            <div className="h-full flex items-center justify-center text-[10px] text-slate-300 font-bold italic uppercase">No extra entries found</div>
+                          )}
+                        </div>
                       </div>
-                    </motion.div>
+                    </div>
                   </div>
-                </>
-              )}
-            </AnimatePresence>
+                </div>
+              );
+            })()}
           </div>
         )}
-
         {/* ========== SETTINGS & CONFIGURATION PORTAL ========== */}
         {activeTab === 'settings' && (
-          <div id="panel-principal-settings" className="space-y-8 animate-fade-in font-sans">
+          <div id="panel-principal-settings" className="space-y-8 animate-fade-in font-sans bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
+            
+            {/* ========== MANUAL FIREBASE DATA SYNC ========== */}
+            <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-emerald-600 mt-8 mb-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-emerald-50 rounded-none border border-emerald-100">
+                  <Database size={24} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold font-sans text-slate-800">Cloud Data Synchronization</h3>
+                  <p className="text-sm text-slate-500">Manually push or pull all academic records to/from Firebase</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const confirm = window.confirm("Are you sure you want to download all data from Firebase? This will overwrite your local unsaved data.");
+                    if(!confirm) return;
+                    
+                    toast.info("Downloading data from Cloud...");
+                    try {
+                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
+                      for (const col of collections) {
+                        const snapshot = await getDocs(collection(db, col));
+                        const items = [];
+                        snapshot.forEach(docSnap => items.push(docSnap.data()));
+                        localStorage.setItem('acadamis_' + col, JSON.stringify(items));
+                      }
+                      toast.success("Successfully downloaded all data from cloud!");
+                      setTimeout(() => window.location.reload(), 1500);
+                    } catch (error: any) {
+                      toast.error("Error downloading data: " + error.message);
+                    }
+                  }}
+                  className="bg-sky-600 hover:bg-sky-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                >
+                  <DownloadCloud size={18} />
+                  Download from Firebase
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const confirm = window.confirm("Are you sure you want to upload all local data to Firebase? This will overwrite current Cloud data.");
+                    if(!confirm) return;
+
+                    toast.info("Uploading data to Cloud...");
+                    try {
+                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
+                      for (const col of collections) {
+                        const localData = localStorage.getItem('acadamis_' + col);
+                        if (localData) {
+                          const items = JSON.parse(localData);
+                          for (const item of items) {
+                            if(item.id) {
+                              await setDoc(doc(db, col, item.id), item);
+                            }
+                          }
+                        }
+                      }
+                      toast.success("Successfully uploaded all local data to cloud!");
+                    } catch (error: any) {
+                      toast.error("Error uploading data: " + error.message);
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                >
+                  <UploadCloud size={18} />
+                  Upload to Firebase
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const confirm = window.confirm("DANGER: This will permanently DELETE ALL records from Firebase Cloud. Are you absolutely sure?");
+                    if(!confirm) return;
+                    
+                    const confirm2 = window.confirm("Final Warning: This action cannot be undone. All student, teacher, and academic records in the cloud will be wiped. Proceed?");
+                    if(!confirm2) return;
+
+                    toast.info("Nuking database...");
+                    try {
+                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
+                      for (const col of collections) {
+                        const snapshot = await getDocs(collection(db, col));
+                        for (const d of snapshot.docs) {
+                            await deleteDoc(doc(db, col, d.id));
+                        }
+                      }
+                      toast.success("All cloud records successfully deleted.");
+                    } catch (error: any) {
+                      toast.error("Error nuking database: " + error.message);
+                    }
+                  }}
+                  className="bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  Clear Cloud Data
+                </button>
+              </div>
+            </div>
+
+            {/* Coordinator/Principal Profile Settings (Change Password) */}
+            <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-indigo-50 rounded-none border border-indigo-100">
+                  <Sparkles size={24} className="text-indigo-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Security & Profile Credentials</h2>
+                  <p className="text-xs text-slate-500">Update your administrative login identity and master password below.</p>
+                </div>
+              </div>
+
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.target as HTMLFormElement;
+                  const newID = (form.elements.namedItem('username') as HTMLInputElement).value;
+                  const newPass = (form.elements.namedItem('password') as HTMLInputElement).value;
+                  const confirmPass = (form.elements.namedItem('confirm_password') as HTMLInputElement).value;
+
+                  if (!newID.trim() || !newPass.trim()) {
+                    toast.error("ID and Password cannot be empty.");
+                    return;
+                  }
+
+                  if (newPass !== confirmPass) {
+                    toast.error("Passwords do not match.");
+                    return;
+                  }
+
+                  if (userSession.role === 'coordinator') {
+                    // Update coordinator record
+                    const updatedCoords = coordinators.map(c => 
+                      c.id === userSession.id ? { ...c, username: newID, password: newPass } : c
+                    );
+                    setCoordinators(updatedCoords);
+                    toast.success("Coordinator credentials updated successfully!");
+                  } else {
+                    // Principal just changes in session or we might have a principal record
+                    // For now, let's assume we update the session and maybe a local setting
+                    toast.warning("Central Principal override updated in local session context.");
+                  }
+                }}
+                className="max-w-md space-y-6"
+              >
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Administrative Login ID</label>
+                    <input 
+                      name="username"
+                      type="text" 
+                      defaultValue={userSession.username || ''}
+                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
+                      placeholder="Enter new admin ID"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">New Master Password</label>
+                    <input 
+                      name="password"
+                      type="password" 
+                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
+                      placeholder="Enter new password"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Confirm Master Password</label>
+                    <input 
+                      name="confirm_password"
+                      type="password" 
+                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
+                      placeholder="Confirm new password"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest text-xs transition-all shadow-lg flex items-center gap-2"
+                >
+                  <Save size={16} />
+                  Update My Credentials
+                </button>
+              </form>
+            </div>
             <div className="bg-white p-8 border border-slate-200 shadow-sm border-t-4 border-t-slate-900">
               <div className="flex items-center gap-4 mb-8 border-b pb-4">
                 <div className="p-3 bg-slate-100 rounded-none border border-slate-200">
@@ -3345,6 +2741,176 @@ Thank you.`;
                 </div>
               </div>
 
+              {/* CUSTOM SHORTCODE/PLACEHOLDER TEMPLATES SECTION */}
+              <div className="mt-10 pt-10 border-t border-slate-200 space-y-6">
+                <div className="space-y-2">
+                  <h3 className="text-sm font-black uppercase text-slate-800 flex items-center gap-2 font-display">
+                    <MessageSquare size={18} className="text-indigo-600" />
+                    SMS & WhatsApp Message Templates Settings
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Personalize default automated template copies dispatched on pupil absences or fee issuance incidents. Use the shortcut system tags dynamically replaced on dispatch.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50 p-6 border border-slate-200">
+                  {/* Absentee Template custom box */}
+                  <div className="space-y-3 bg-white p-5 border border-slate-200">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Absent Alarm Template</span>
+                      <span className="text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold px-2 py-0.5 rounded-full uppercase">Absent Alert</span>
+                    </div>
+                    
+                    <textarea 
+                      rows={4}
+                      value={absentTemplate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAbsentTemplate(val);
+                        localStorage.setItem('acadamis_custom_absent_template', val);
+                      }}
+                      placeholder="Insert your custom absent template copy..."
+                      className="w-full bg-slate-50 text-xs border border-slate-200 p-3 italic font-medium focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    />
+                    
+                    <div className="space-y-1 bg-slate-50 p-3 text-[9px] text-slate-500 font-mono">
+                      <p className="font-bold uppercase text-[8px] text-indigo-700">Available Tags (Auto Replaced):</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li><code className="text-rose-600 font-bold">{`{student_name}`}</code> - Name of the absentee</li>
+                        <li><code className="text-rose-600 font-bold">{`{roll_number}`}</code> - Roll registry number</li>
+                        <li><code className="text-rose-600 font-bold">{`{date}`}</code> - Scheduled attendance date pointer</li>
+                      </ul>
+                    </div>
+
+                    <div className="pt-2 border-t text-[9.5px]">
+                      <span className="font-bold text-slate-500 block uppercase">Draft Sample Live Preview:</span>
+                      <p className="text-slate-700 font-medium italic mt-1 bg-slate-100 p-2 border leading-normal">
+                        "{absentTemplate
+                          .replace(/{student_name}/g, "Zain")
+                          .replace(/{roll_number}/g, "12")
+                          .replace(/{date}/g, new Date().toLocaleDateString())}"
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Fee Reminder Template custom box */}
+                  <div className="space-y-3 bg-white p-5 border border-slate-200">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Dues & Fee Reminder Template</span>
+                      <div className="flex gap-2">
+                        <select 
+                          className="text-[9px] bg-white border border-slate-200 font-bold px-2 py-0.5 rounded uppercase focus:ring-1 focus:ring-emerald-500 outline-none"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            let newTpl = "";
+                            if (val === "short") newTpl = "Reminder: Rs. {total_pending} outstanding for {student_name}. Please settle soon. - Principal.";
+                            else if (val === "standard") newTpl = "Greetings! NSB1 Reminder: Guardian of {student_name}. Pending balance: Rs {total_pending}. Kindly settle today. Thank you.";
+                            else if (val === "urgent") newTpl = "🚨 URGENT: Rs. {total_pending} outstanding for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
+                            
+                            if (newTpl) {
+                              setFeeTemplate(newTpl);
+                              localStorage.setItem('acadamis_custom_fee_template', newTpl);
+                            }
+                          }}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Select Preset...</option>
+                          <option value="short">Short (Quick)</option>
+                          <option value="standard">Standard (Polite)</option>
+                          <option value="urgent">Urgent (Warning)</option>
+                        </select>
+                        <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold px-2 py-0.5 rounded-full uppercase">Fee Dues</span>
+                      </div>
+                    </div>
+                    
+                    <textarea 
+                      rows={4}
+                      value={feeTemplate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFeeTemplate(val);
+                        localStorage.setItem('acadamis_custom_fee_template', val);
+                      }}
+                      placeholder="Insert your custom outstanding fee template copy..."
+                      className="w-full bg-slate-50 text-xs border border-slate-200 p-3 italic font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                    
+                    <div className="space-y-1 bg-slate-50 p-3 text-[9px] text-slate-500 font-mono">
+                      <p className="font-bold uppercase text-[8px] text-emerald-700">Available Tags (Auto Replaced):</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li><code className="text-rose-600 font-bold">{`{student_name}`}</code> - Name of the student debtor</li>
+                        <li><code className="text-rose-600 font-bold">{`{class_name}`}</code> - Enrolled classroom handle</li>
+                        <li><code className="text-rose-600 font-bold">{`{total_pending}`}</code> - Total unpaid ledger sum</li>
+                        <li><code className="text-rose-600 font-bold">{`{months}`}</code> - Months list needing settlement</li>
+                        <li><code className="text-rose-600 font-bold">{`{date}`}</code> - Issue / settlement deadline date</li>
+                      </ul>
+                    </div>
+
+                    <div className="pt-2 border-t text-[9.5px]">
+                      <span className="font-bold text-slate-500 block uppercase">Draft Sample Live Preview:</span>
+                      <p className="text-slate-700 font-medium italic mt-1 bg-slate-100 p-2 border leading-normal whitespace-pre-wrap">
+                        "{feeTemplate
+                          .replace(/{student_name}/g, "Zain")
+                          .replace(/{class_name}/g, "Class-A")
+                          .replace(/{total_pending}/g, "1500")
+                          .replace(/{months}/g, "June, July")
+                          .replace(/{date}/g, new Date().toLocaleDateString())}"
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 flex justify-between items-center bg-white p-3.5 border border-slate-200">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                      ✨ Status: Personalized template patterns are instantly autosaved to regional memory.
+                    </p>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        localStorage.setItem('acadamis_custom_absent_template', absentTemplate);
+                        localStorage.setItem('acadamis_custom_fee_template', feeTemplate);
+                        toast.success("All customizable message templates saved successfully!");
+                      }}
+                      className="bg-slate-900 hover:bg-slate-850 text-white font-black text-[10px] uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
+                    >
+                      Save Templates
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Safety & Backups Section */}
+              <div className="mt-10 pt-10 border-t border-slate-200 space-y-6">
+                <div className="space-y-2">
+                  <h3 className="text-sm font-black uppercase text-slate-800 flex items-center gap-2">
+                    <Database size={18} className="text-red-500" />
+                    Data Governance & Local Backups
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Download a complete snapshot of your school portal data as a JSON file for your local safety records. This is a manual safety measure.
+                  </p>
+                </div>
+
+                <div className="bg-red-50 p-6 border border-red-100 space-y-4">
+                  <div className="flex items-start gap-3 bg-white p-4 border border-red-100">
+                    <ShieldAlert size={20} className="text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-black text-slate-900 uppercase">Principal Local Backup Protocol</p>
+                      <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                        This backup contains all user profiles, fee records, and timetables. Store this file in a secure vault on your local machine.
+                      </p>
+                    </div>
+                  </div>
+                  
+                    <button 
+                      onClick={handleBackupDatabase}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-[0.2em] py-4 px-6 transition-all shadow-lg flex items-center justify-center gap-3"
+                    >
+                      <Download size={16} />
+                      Export Database to JSON (Safety Measure)
+                    </button>
+                </div>
+              </div>
+
               <div className="mt-12 pt-8 border-t border-dashed border-slate-200">
                 <div className="bg-amber-50 p-6 border border-amber-100 flex items-start gap-4">
                   <AlertCircle className="text-amber-600 shrink-0" size={20} />
@@ -3420,11 +2986,11 @@ Thank you.`;
                         required
                         value={tUsername}
                         onChange={(e) => setTUsername(e.target.value)}
-                        placeholder="teacher_123"
+                        placeholder="Login ID / Username"
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                        disabled={modalMode === 'add'}
+                        
                       />
-                      {modalMode === 'add' && <p className="text-[9px] text-gray-400 italic">Auto-generated on save</p>}
+                      
                     </div>
 
                     <div className="space-y-1">
@@ -3434,17 +3000,16 @@ Thank you.`;
                         required
                         value={tPassword}
                         onChange={(e) => setTPassword(e.target.value)}
-                        placeholder="password123"
+                        placeholder="nsb123"
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   </div>
                   
                   <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address (Optional)</label>
                     <input
                       type="email"
-                      required
                       value={tEmail}
                       onChange={(e) => setTEmail(e.target.value)}
                       placeholder="e.g. jmiller@school.com"
@@ -3478,6 +3043,75 @@ Thank you.`;
                 </div>
               )}
 
+              {/* ============ COORDINATOR FORM FIELDS ============ */}
+              {modalType === 'coordinator' && (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Coordinator Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={tName}
+                      onChange={(e) => setTName(e.target.value)}
+                      placeholder="e.g. Sarah Connor"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Username</label>
+                      <input
+                        type="text"
+                        required
+                        value={tUsername}
+                        onChange={(e) => setTUsername(e.target.value)}
+                        placeholder="Login ID / Username"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                        
+                      />
+                      
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
+                      <input
+                        type="text"
+                        required
+                        value={tPassword}
+                        onChange={(e) => setTPassword(e.target.value)}
+                        placeholder="nsb123"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={tEmail}
+                      onChange={(e) => setTEmail(e.target.value)}
+                      placeholder="e.g. sconnor@school.com"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Phone number</label>
+                    <input
+                      type="text"
+                      required
+                      value={tPhone}
+                      onChange={(e) => setTPhone(e.target.value)}
+                      placeholder="e.g. +1-555-4321"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* ============ STUDENT FORM FIELDS ============ */}
               {modalType === 'student' && (
                 <div className="space-y-4">
@@ -3501,11 +3135,11 @@ Thank you.`;
                         required
                         value={sUsername}
                         onChange={(e) => setSUsername(e.target.value)}
-                        placeholder="student_123"
+                        placeholder="Login ID / Username"
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                        disabled={modalMode === 'add'}
+                        
                       />
-                      {modalMode === 'add' && <p className="text-[9px] text-gray-400 italic">Auto-generated on save</p>}
+                      
                     </div>
 
                     <div className="space-y-1">
@@ -3515,17 +3149,16 @@ Thank you.`;
                         required
                         value={sPassword}
                         onChange={(e) => setSPassword(e.target.value)}
-                        placeholder="password123"
+                        placeholder="nsb123"
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Email</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Email (Optional)</label>
                     <input
                       type="email"
-                      required
                       value={sEmail}
                       onChange={(e) => setSEmail(e.target.value)}
                       placeholder="e.g. billy.d@school.com"
@@ -3547,7 +3180,6 @@ Thank you.`;
                         ))}
                       </select>
                     </div>
-
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Roll Number</label>
                       <input
@@ -3563,6 +3195,16 @@ Thank you.`;
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Contact (Mobile)</label>
+                      <input
+                        type="text"
+                        value={sStudentPhone}
+                        onChange={(e) => setSStudentPhone(e.target.value)}
+                        placeholder="e.g. +1-555-0000"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Parent Phone Contact</label>
                       <input
                         type="text"
@@ -3573,17 +3215,49 @@ Thank you.`;
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                       />
                     </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Monthly Fee</label>
-                      <input
-                        type="number"
-                        required
-                        value={sBaseFee}
-                        onChange={(e) => setSBaseFee(e.target.value)}
-                        placeholder="e.g. 500"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Monthly Fee</label>
+                    <input
+                      type="number"
+                      required
+                      value={sBaseFee}
+                      onChange={(e) => setSBaseFee(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  {/* Academy Student Toggle & Subject Management */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <label className="block text-xs font-black text-slate-800 uppercase tracking-tight">Academy Enrollment</label>
+                        <p className="text-[10px] text-slate-500">Enable if student is part of the specialized tutorial academy.</p>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => setSIsAcademy(!sIsAcademy)}
+                        className={`w-12 h-6 rounded-full flex items-center px-1 transition-colors ${sIsAcademy ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                      >
+                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${sIsAcademy ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                      </button>
                     </div>
+
+                    {sIsAcademy && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Academy Subjects</label>
+                        <input
+                          type="text"
+                          value={sAcademySubjects}
+                          onChange={(e) => setSAcademySubjects(e.target.value)}
+                          placeholder="e.g. Mathematics, Physics, Chemistry"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-indigo-500"
+                        />
+                        <p className="text-[9px] text-slate-400 italic">Separate multiple subjects with commas.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -3629,6 +3303,82 @@ Thank you.`;
                         <option key={t.id} value={t.id}>{t.name} ({t.subject})</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="space-y-3 p-4 bg-slate-50 border border-slate-200">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Manage Class Subjects</label>
+                    
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <select 
+                          className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-xs focus:outline-none focus:border-indigo-500"
+                          onChange={(e) => {
+                            const sub = e.target.value;
+                            if (sub === 'OTHER_MANUAL') {
+                              setShowOtherSubjectInput(true);
+                            } else if (sub && !cSubjects.includes(sub)) {
+                              setCSubjects([...cSubjects, sub]);
+                              setShowOtherSubjectInput(false);
+                            }
+                            e.target.value = '';
+                          }}
+                        >
+                          <option value="">Select subject to add...</option>
+                          {STANDARD_SUBJECTS_LIST.filter(s => !cSubjects.includes(s)).map(s => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                          <option value="OTHER_MANUAL" className="font-bold text-indigo-600">+ Other (Manual Entry)</option>
+                        </select>
+                      </div>
+
+                      {showOtherSubjectInput && (
+                        <div className="flex gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                          <input 
+                            type="text"
+                            placeholder="Enter custom subject name..."
+                            value={manualSubjectName}
+                            onChange={(e) => setManualSubjectName(e.target.value)}
+                            className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-xs focus:outline-none focus:border-indigo-500 font-bold uppercase"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const trimmed = manualSubjectName.trim();
+                              if (trimmed && !cSubjects.includes(trimmed)) {
+                                setCSubjects([...cSubjects, trimmed]);
+                                setManualSubjectName('');
+                                setShowOtherSubjectInput(false);
+                              } else if (!trimmed) {
+                                setShowOtherSubjectInput(false);
+                              } else {
+                                toast.error("Subject already exists in list.");
+                              }
+                            }}
+                            className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-md"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {cSubjects.map(sub => (
+                        <span key={sub} className="flex items-center gap-1.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-indigo-200">
+                          {sub}
+                          <button 
+                            type="button"
+                            onClick={() => setCSubjects(cSubjects.filter(s => s !== sub))}
+                            className="hover:text-indigo-900"
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      ))}
+                      {cSubjects.length === 0 && (
+                        <p className="text-[10px] text-slate-400 italic">No subjects added yet. Pick from the dropdown above.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3780,16 +3530,18 @@ Thank you.`;
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
       <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none">
         <div className="flex justify-around items-center h-14">
-          <button
-            id="mobile-nav-dashboard"
-            onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'dashboard' ? 'text-blue-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <BarChart2 size={16} />
-            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Desk</span>
-          </button>
+          {userSession.role === 'principal' && (
+            <button
+              id="mobile-nav-dashboard"
+              onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
+                activeTab === 'dashboard' ? 'text-blue-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <BarChart2 size={16} />
+              <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Desk</span>
+            </button>
+          )}
           
           <button
             id="mobile-nav-management"
@@ -3803,7 +3555,7 @@ Thank you.`;
           </button>
 
           {/* EYE-CATCHING AND ACCESSIBLE FEE REGISTRAR NAV */}
-          {userSession.role === 'principal' && (
+          {(userSession.role === 'principal' || userSession.role === 'coordinator') && (
             <>
               <button
                 id="mobile-nav-fees"
@@ -3830,6 +3582,165 @@ Thank you.`;
           )}
         </div>
       </div>
+
+      {/* ========== INTERACTIVE CLASS INSIGHTS MODAL ========== */}
+      {isClassDetailModalOpen && selectedClassForDetails && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[100] backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-none w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-up border-t-8 border-t-indigo-600">
+            {/* Modal Header */}
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-slate-950 text-white flex flex-col items-center justify-center font-black italic border-l-4 border-indigo-600">
+                  <span className="text-xl">{selectedClassForDetails.className}</span>
+                  <span className="text-[9px] uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{selectedClassForDetails.section}</span>
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Interactive Class Insights</h2>
+                  <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Timetable & Student Roster Overview</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsClassDetailModalOpen(false)}
+                className="p-2 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-900 transition-all border border-slate-200 shadow-sm"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
+              {/* Section 0: Academic Scope / Subjects */}
+              {selectedClassForDetails.subjects && selectedClassForDetails.subjects.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <BookOpen size={18} className="text-blue-600" />
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Academic Curriculum / Subjects</h3>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {selectedClassForDetails.subjects.map(sub => (
+                      <div key={sub} className="bg-slate-50 border border-slate-200 px-4 py-2 flex items-center gap-2 shadow-sm">
+                        <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                        <span className="text-xs font-black text-slate-700 uppercase italic">{sub}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Section 1: Timetable */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <Calendar size={18} className="text-indigo-600" />
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Period Schedule (Weekly)</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  {DAYS.map(day => (
+                    <div key={day} className="space-y-2">
+                      <div className="bg-slate-900 text-white text-[9px] font-black uppercase py-1.5 px-3 tracking-widest flex items-center justify-between shadow-md">
+                        <span>{day}</span>
+                        <button 
+                          onClick={() => {
+                            setIsClassDetailModalOpen(false);
+                            if (selectedClassForDetails) {
+                              setSelectedTimetableClass(selectedClassForDetails.id);
+                              setTtClassId(selectedClassForDetails.id);
+                              setTtDay(day);
+                              const existingCount = timetable.filter(tt => tt.classId === selectedClassForDetails.id && tt.day === day).length;
+                              setTtPeriod(`Period ${existingCount + 1}`);
+                              setActiveTab('timetable');
+                              openAddModal('timetable');
+                            }
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-500 p-1 rounded transition-colors"
+                          title="Add entry to this day"
+                        >
+                          <Plus size={8} />
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 min-h-[100px] bg-slate-50/50 p-2 border border-slate-100">
+                        {timetable
+                          .filter(tt => tt.classId === selectedClassForDetails.id && tt.day === day)
+                          .sort((a,b) => a.period.localeCompare(b.period))
+                          .map(entry => (
+                            <div key={entry.id} className="p-2 bg-white border border-slate-200 shadow-xs border-l-2 border-l-indigo-500">
+                              <p className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter leading-none mb-1">{entry.period}</p>
+                              <p className="text-[10px] font-extrabold text-slate-900 uppercase italic truncate leading-none mb-0.5">{entry.subject}</p>
+                              <p className="text-[8px] text-slate-400 font-bold uppercase truncate">{getTeacherName(entry.teacherId)}</p>
+                            </div>
+                          ))}
+                        {timetable.filter(tt => tt.classId === selectedClassForDetails.id && tt.day === day).length === 0 && (
+                          <div className="h-full flex items-center justify-center py-8">
+                             <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest text-center italic">No Lectures</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 2: Students Dropdown/List */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Users size={18} className="text-emerald-600" />
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Enrolled Student Roster</h3>
+                  </div>
+                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-emerald-100">
+                    {students.filter(s => s.classId === selectedClassForDetails.id).length} Active Pupils
+                  </span>
+                </div>
+
+                <div className="relative group">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Jump to Student Profile:</label>
+                  <select 
+                    id="class-modal-student-jump"
+                    className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-600 outline-none font-bold text-xs uppercase tracking-wider"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                         toast.info(`Reviewing profile for Student Registry #${e.target.value}...`);
+                      }
+                    }}
+                  >
+                    <option value="">Select a student from this class...</option>
+                    {students
+                      .filter(s => s.classId === selectedClassForDetails.id)
+                      .map(s => (
+                        <option key={s.id} value={s.id}>
+                          Roll #{s.rollNumber} - {s.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {students.filter(s => s.classId === selectedClassForDetails.id).map(s => (
+                    <div key={s.id} className="p-4 bg-white border border-slate-100 shadow-sm flex items-center gap-3">
+                      <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs border border-slate-800">
+                        {s.name.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight truncate leading-none mb-0.5">{s.name}</p>
+                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Roll #{s.rollNumber}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
+               <button
+                 onClick={() => setIsClassDetailModalOpen(false)}
+                 className="px-8 py-3 bg-slate-900 hover:bg-indigo-600 text-white font-black text-xs uppercase tracking-[0.2em] transition-all shadow-lg shadow-slate-200"
+               >
+                 Close Insights
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========== CUSTOM PERIOD DELETION CONFIRMATION MODAL ========== */}
       {periodToDeletePending && (
@@ -3863,8 +3774,106 @@ Thank you.`;
                 }}
                 className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-250"
               >
-                <Trash2 size={12} /> Yes, Delete Subject
+                Yes, Remove Slot
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========== GENERAL DELETION CONFIRMATION MODAL ========== */}
+      {deleteConfirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto animate-fade-in animate-duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 border border-slate-150 animate-scale-up">
+            <div className="flex items-center gap-3 text-red-600 mb-4 bg-red-50 p-3.5 rounded-xl border border-red-100">
+              <AlertCircle size={24} className="shrink-0" />
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-red-950">Confirm Deletion</h3>
+                <p className="text-[10px] text-red-800 font-bold uppercase tracking-widest mt-0.5">Destructive action override</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed mb-6 font-medium">
+              {deleteConfirmModal.message}
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmModal({ isOpen: false, type: '', id: '', message: '' })}
+                className="px-4 py-2 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmAction}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-250"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {feePaymentModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative animate-scale-up">
+            <button 
+              onClick={() => setFeePaymentModal({ ...feePaymentModal, isOpen: false })} 
+              className="absolute top-4 right-4 text-slate-400 hover:text-rose-500 bg-slate-100 p-2 rounded-full transition-colors"
+            >
+              <X size={16} />
+            </button>
+            <div className="p-6 space-y-6">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 bg-indigo-100 flex items-center justify-center rounded-2xl mx-auto mb-4 text-indigo-600">
+                  <CreditCard size={24} />
+                </div>
+                <h3 className="text-lg font-black text-slate-900 uppercase">Fee Payment</h3>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{feePaymentModal.month} 2026</p>
+                <div className="flex flex-col gap-1 items-center mt-2 border-t border-slate-100 pt-3">
+                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Previous Arrears: Rs. {feePaymentModal.previousArrears}</span>
+                   <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Current Fee: Rs. {feePaymentModal.pending}</span>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 p-4 rounded-xl flex justify-between items-center text-white border border-slate-800 shadow-xl">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Total Pending Dues</span>
+                <span className="text-xl font-black text-rose-500">Rs. {feePaymentModal.pending + feePaymentModal.previousArrears}</span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount to Pay (Rs.)</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm">Rs.</span>
+                    <input 
+                      type="number"
+                      value={feePaymentModal.amount}
+                      onChange={(e) => setFeePaymentModal({ ...feePaymentModal, amount: e.target.value })}
+                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xl font-black text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 transition-colors outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => {
+                    const amt = Number(feePaymentModal.amount);
+                    if (amt !== 0) {
+                      setFeeStudents(prev => addPayment(prev, feePaymentModal.studentId, feePaymentModal.month, feePaymentModal.year, amt));
+                      setFeePaymentModal({ ...feePaymentModal, isOpen: false });
+                      toast.success(`Payment transaction of Rs. ${amt} recorded for ${feePaymentModal.month}`);
+                    } else {
+                      toast.error("Enter a valid non-zero amount");
+                    }
+                  }}
+                  className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2"
+                >
+                  Confirm Payment
+                </button>
+              </div>
             </div>
           </div>
         </div>

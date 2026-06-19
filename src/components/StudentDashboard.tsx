@@ -9,7 +9,7 @@ import { getNotifications, saveNotifications, addNotification, PortalNotificatio
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord } from '../types';
-import CashPaymentEntry from './CashPaymentEntry';
+import { loadFromLocalStorage, getStudentFullAccount, StudentFeeData } from '../lib/feeEngine';
 import AttendanceSwipeOverlay from './AttendanceSwipeOverlay';
 
 interface StudentDashboardProps {
@@ -45,6 +45,7 @@ export default function StudentDashboard({
 }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => loadFromLocalStorage());
 
   // Find student's personal profile card
   const studentProfile = students.find(s => s.id === userSession.id);
@@ -186,7 +187,7 @@ export default function StudentDashboard({
     uniqueSubjects.forEach(sub => {
       const match = myMarks.find(m => m.examType === exam && m.subject === sub);
       if (match) {
-        entry[sub] = Math.round((match.marksObtained / match.maxMarks) * 100);
+        entry[sub] = Math.round((match.marksObtained / Math.max(1, match.maxMarks)) * 100);
         hasValue = true;
       } else {
         entry[sub] = null;
@@ -554,7 +555,7 @@ export default function StudentDashboard({
         
         {/* ========== STUDENT DASHBOARD HOME ========== */}
         {activeTab === 'dashboard' && (
-          <div id="panel-student-home" className="space-y-8 animate-fade-in">
+          <div id="panel-student-home" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Greeting Header */}
             <div className="bg-white rounded-none p-6 md:p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
               <div>
@@ -673,6 +674,95 @@ export default function StudentDashboard({
 
             </div>
 
+            {/* ========== ACADEMIC SUBJECT PROGRESS SUMMARY ========== */}
+            <div id="academic-progress-summary-card" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-sm border-t-4 border-t-emerald-500 rounded-none animate-fade-in">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-display flex items-center gap-2">
+                    <BookOpen className="text-emerald-500" size={18} />
+                    Academic Mastery & Subject Progress
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Analyzing cumulative score percentages across all logged examinations and curriculum blocks.
+                  </p>
+                </div>
+                <div className="text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850 border border-slate-150 dark:border-slate-800 px-2.5 py-1">
+                  Overall Academic Weightage
+                </div>
+              </div>
+
+              {uniqueSubjects.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 italic text-xs font-medium">
+                  📚 No subject-wise statistics can be generated yet because your teachers have not uploaded any exam marks.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                  {uniqueSubjects.map(subject => {
+                    const subjectMarks = myMarks.filter(m => m.subject === subject);
+                    const totalObtained = subjectMarks.reduce((sum, m) => sum + m.marksObtained, 0);
+                    const totalMax = subjectMarks.reduce((sum, m) => sum + m.maxMarks, 0);
+                    const percentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+                    
+                    // Progress bar color based on score tier
+                    let barColor = 'bg-rose-500';
+                    let textColor = 'text-rose-600 dark:text-rose-400';
+                    let bgColor = 'bg-rose-50 dark:bg-rose-950/20';
+                    let label = 'Needs Focus ⚠️';
+                    
+                    if (percentage >= 85) {
+                      barColor = 'bg-emerald-500';
+                      textColor = 'text-emerald-600 dark:text-emerald-400';
+                      bgColor = 'bg-emerald-50 dark:bg-emerald-950/20';
+                      label = 'Excellent 🌟';
+                    } else if (percentage >= 70) {
+                      barColor = 'bg-blue-500';
+                      textColor = 'text-blue-600 dark:text-blue-400';
+                      bgColor = 'bg-blue-50 dark:bg-blue-950/20';
+                      label = 'Capable 👍';
+                    } else if (percentage >= 50) {
+                      barColor = 'bg-amber-500';
+                      textColor = 'text-amber-600 dark:text-amber-400';
+                      bgColor = 'bg-amber-50 dark:bg-amber-950/20';
+                      label = 'Average 📈';
+                    }
+
+                    return (
+                      <div key={subject} className="space-y-2 border-b border-slate-100 dark:border-slate-850 pb-4 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-extrabold text-slate-950 dark:text-white uppercase tracking-wider">{subject}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-none font-mono ${bgColor} ${textColor}`}>
+                              {label}
+                            </span>
+                            <span className="font-mono font-black text-slate-900 dark:text-slate-100">{percentage}%</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar Container */}
+                        <div className="h-2.5 w-full bg-slate-100 dark:bg-slate-800 rounded-none overflow-hidden border border-slate-200 dark:border-slate-700">
+                          <motion.div 
+                            className={`h-full rounded-none ${barColor}`}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percentage}%` }}
+                            transition={{ duration: 1, ease: 'easeOut' }}
+                          />
+                        </div>
+
+                        {/* Micro exam data logs inside progress breakdown */}
+                        <div className="flex flex-wrap gap-1.5 mt-1 text-[9px] text-slate-400 font-medium">
+                          {subjectMarks.map((m) => (
+                            <span key={m.id} className="bg-slate-50 dark:bg-slate-950/45 px-1.5 py-0.5 border border-slate-100 dark:border-slate-850/50">
+                              {m.examType}: <strong className="text-slate-700 dark:text-slate-300 font-bold">{m.marksObtained}/{m.maxMarks}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* ========== ACADEMIC PERFORMANCE TREND CHART ========== */}
             <div id="academic-performance-trend-block" className="bg-white border border-slate-200 p-6 shadow-sm border-t-4 border-t-indigo-600">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -770,7 +860,7 @@ export default function StudentDashboard({
 
         {/* ========== ATTENDANCE LOG BOOK ========== */}
         {activeTab === 'attendance' && (
-          <div id="panel-student-attendance" className="space-y-6 animate-fade-in">
+          <div id="panel-student-attendance" className="space-y-6 animate-fade-in bg-rose-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-rose-100 shadow-inner">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Attendance Log History</h1>
               <p className="text-xs text-gray-500 mt-0.5">Evaluate cumulative presence, date stamps, and verify teacher registers.</p>
@@ -848,7 +938,7 @@ export default function StudentDashboard({
 
         {/* ========== REPORT CARD MARKS VIEW ========== */}
         {activeTab === 'marks' && (
-          <div id="panel-student-marks" className="space-y-6 animate-fade-in">
+          <div id="panel-student-marks" className="space-y-6 animate-fade-in bg-indigo-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-indigo-100 shadow-inner">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Academic Score Sheets</h1>
               <p className="text-xs text-gray-500 mt-0.5">Review scores, max markings, automated letter grades, and subject distributions.</p>
@@ -951,7 +1041,7 @@ export default function StudentDashboard({
                       <tbody className="divide-y divide-gray-100 text-sm">
                         {examMarks.map(item => {
                           const grade = calculateGrade(item.marksObtained, item.maxMarks);
-                          const pct = Math.round((item.marksObtained / item.maxMarks) * 100);
+                          const pct = Math.round((item.marksObtained / Math.max(1, item.maxMarks)) * 100);
                           return (
                             <tr key={item.id} className="hover:bg-gray-55/20">
                               <td className="px-6 py-4 font-bold text-slate-900">{item.subject}</td>
@@ -986,7 +1076,7 @@ export default function StudentDashboard({
 
         {/* ========== STUDENT PORTAL TIMETABLE GRID ========== */}
         {activeTab === 'timetable' && (
-          <div id="panel-student-timetable" className="space-y-6 animate-fade-in">
+          <div id="panel-student-timetable" className="space-y-6 animate-fade-in bg-amber-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-amber-100 shadow-inner">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Weekly Subject Schedule</h1>
               <p className="text-xs text-gray-500 mt-0.5">Inspect weekly blocks, periods, assigned subject sessions, and faculty teachers.</p>
@@ -1085,17 +1175,155 @@ export default function StudentDashboard({
         )}
 
         {/* ========== TUITION FEES DESK ========== */}
-        {activeTab === 'fees' && (
-          <div id="panel-student-fees" className="space-y-6 animate-fade-in font-sans font-medium">
-            <div>
-              <h1 className="text-2xl font-black text-slate-900 uppercase font-display tracking-tight">Student Account Ledger</h1>
-            </div>
+        {activeTab === 'fees' && (() => {
+          const fStudent = feeStudents.find(
+            s => String(s.id) === String(studentId) || 
+                 s.name.toLowerCase() === studentProfile?.name?.toLowerCase() 
+          ) || {
+            id: studentId || `stu_${Date.now()}`,
+            name: studentProfile?.name || userSession.name,
+            class: assignedClass ? `${assignedClass.className}-${assignedClass.section}` : 'N/A',
+            monthlyFee: studentProfile?.baseFee || 1500,
+            payments: [],
+            otherFunds: []
+          };
 
-            <div className="animate-fade-in-up">
-              <CashPaymentEntry studentId={studentId} fees={fees} setFees={setFees} studentName={userSession.name} />
+          const account = getStudentFullAccount(fStudent, 2026);
+
+          return (
+            <div id="panel-student-fees" className={`space-y-8 animate-fade-in font-sans font-medium bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner ${darkTheme ? 'text-slate-100 bg-emerald-950/20 border-emerald-900' : 'text-slate-800'}`}>
+              <div>
+                <span className={`text-[10px] px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-indigo-950 text-indigo-400 border border-indigo-900' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                  Academic Fee Passbook
+                </span>
+                <h1 className={`text-2xl font-black uppercase font-display tracking-tight mt-1 flex items-center gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>
+                  <CreditCard size={24} className="text-indigo-500" />
+                  Your Account Ledger (2026)
+                </h1>
+                <p className={`text-xs mt-1 leading-relaxed ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Real-time ledger entries displaying school tuition, other funds, fine accruals, and transaction receipts.
+                </p>
+              </div>
+
+              {/* KPI CARDS */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Billed</p>
+                  <p className={`text-xl font-black mt-1 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>Rs. {account.totalDue.toLocaleString()}</p>
+                  <p className="text-[9px] text-slate-400 font-mono mt-2">12 Months Core Tuition</p>
+                </div>
+                <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100'}`}>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Total Settled</p>
+                  <p className="text-xl font-black text-emerald-650 mt-1">Rs. {account.totalPaid.toLocaleString()}</p>
+                  <p className="text-[9px] text-emerald-500 font-mono mt-2">Paid ledger transactions</p>
+                </div>
+                <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-rose-950/20 border-rose-900' : 'bg-rose-50 border-rose-100'}`}>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-600">Pending Tuition</p>
+                  <p className="text-xl font-black text-rose-600 mt-1">Rs. {account.totalPending.toLocaleString()}</p>
+                  <p className="text-[9px] text-rose-500 font-mono mt-2">Outstanding installments</p>
+                </div>
+                <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${
+                  account.grandTotalPending === 0
+                    ? (darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100')
+                    : (darkTheme ? 'bg-amber-950/20 border-amber-900' : 'bg-amber-50 border-amber-100')
+                }`}>
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Grand Payable</p>
+                  <p className={`text-xl font-black mt-1 ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Rs. {account.grandTotalPending.toLocaleString()}</p>
+                  <span className={`text-[9px] font-bold uppercase mt-2 block ${account.grandTotalPending === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                    {account.grandTotalPending === 0 ? '✓ perfect standing' : '⚠️ Settle soon'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                
+                {/* Monthly Ledger breakdown list */}
+                <div className="lg:col-span-8 space-y-4">
+                  <div className={`p-6 border shadow-sm rounded-3xl overflow-hidden ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className={`text-xs font-black uppercase tracking-widest mb-4 border-b pb-2 ${darkTheme ? 'text-slate-200 border-slate-800' : 'text-slate-900 border-slate-100'}`}>
+                      Monthly Tuition Installments
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {account.yearlyBreakdown.map(m => (
+                        <div key={m.month} className={`p-4 border rounded-2xl group transition-all duration-200 ${
+                          darkTheme 
+                            ? 'bg-slate-950/50 border-slate-800 hover:border-indigo-900 hover:bg-slate-900' 
+                            : 'bg-slate-50 border-slate-150 hover:border-indigo-150 hover:bg-white'
+                        }`}>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className={`text-xs font-black uppercase ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{m.month} 2026</span>
+                            {m.isComplete ? (
+                              <span className="bg-emerald-500 text-white rounded-full p-0.5"><CheckCircle2 size={10} /></span>
+                            ) : (
+                              <span className="bg-rose-500 text-white rounded-full p-0.5 animate-pulse"><AlertCircle size={10} /></span>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-1 text-[10px]">
+                            <div className="flex justify-between font-bold text-slate-400">
+                              <span>Due installment:</span>
+                              <span className={darkTheme ? 'text-slate-200' : 'text-slate-700'}>Rs. {m.due}</span>
+                            </div>
+                            <div className="flex justify-between font-bold">
+                              <span className="text-slate-400">Paid:</span>
+                              <span className="text-emerald-500 font-bold">Rs. {m.paid}</span>
+                            </div>
+                            <div className="flex justify-between font-black">
+                              <span className="text-slate-400 font-bold">Pending Balance:</span>
+                              <span className={m.pending > 0 ? "text-rose-500" : "text-slate-400"}>Rs. {m.pending}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Other Funds & Bank/Cash Instructions */}
+                <div className="lg:col-span-4 space-y-6">
+                  {/* Other Funds list */}
+                  <div className={`p-6 border shadow-sm rounded-3xl ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className={`text-xs font-black uppercase tracking-widest mb-4 border-b pb-2 ${darkTheme ? 'text-slate-200 border-slate-800' : 'text-slate-900 border-slate-100'}`}>
+                      Other Funds & Fines
+                    </h3>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                      {account.otherFunds.length > 0 ? (
+                        account.otherFunds.map((fund, index) => (
+                          <div key={index} className={`p-3 border rounded-xl flex justify-between items-center ${
+                            darkTheme ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-150'
+                          }`}>
+                            <div className="text-left">
+                              <p className={`text-xs font-black uppercase ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{fund.desc}</p>
+                              <p className="text-[8px] text-slate-400 font-mono mt-0.5">{fund.date}</p>
+                            </div>
+                            <span className="text-xs font-black text-rose-500 font-mono">Rs. {fund.amount}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-[10px] text-slate-400 uppercase tracking-widest italic font-bold">
+                          No extra fines or class funds recorded
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Payment Instructions / Help */}
+                  <div className={`p-6 border shadow-sm rounded-3xl mt-4 ${darkTheme ? 'bg-indigo-950/20 border-indigo-900/60' : 'bg-indigo-50/50 border-indigo-100'}`}>
+                    <h4 className="text-xs font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5 mb-2">
+                      <Info size={14} /> Settlement Protocol
+                    </h4>
+                    <p className={`text-[11px] leading-relaxed ${darkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Please deposit outstanding cash dues directly into the **Academy Accountant Registry Office** or the official **Bank Chalan**. Keep your deposit transaction slip and bring it to the coordinator desk to record payments instantly.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </main>
 

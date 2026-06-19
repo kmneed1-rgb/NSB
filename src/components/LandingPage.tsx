@@ -73,7 +73,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           onClick={onEnterPortal}
           className="py-2.5 px-6 bg-slate-950 text-white font-bold text-[10px] uppercase tracking-widest transition-all cursor-pointer hover:bg-indigo-600"
         >
-          Institutional Login
+          Login
         </motion.button>
       </header>
 
@@ -126,8 +126,20 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 1, delay: 0.3 }}
-            className="relative"
+            className="relative mt-12 lg:mt-0"
           >
+            <div className="relative aspect-[4/3] flex items-center justify-center">
+              <img 
+                src="/src/assets/images/student_reading_isolated_1781852835901.jpg" 
+                alt="Student reading book" 
+                className="max-w-full max-h-full object-contain mix-blend-multiply filter drop-shadow-2xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            
+            {/* Decorative Elements */}
+            <div className="absolute -z-10 -bottom-8 -left-8 w-64 h-64 bg-indigo-100 rounded-full blur-3xl opacity-50"></div>
+            <div className="absolute -z-10 -top-8 -right-8 w-64 h-64 bg-slate-100 rounded-full blur-3xl opacity-50"></div>
           </motion.div>
         </div>
       </section>
