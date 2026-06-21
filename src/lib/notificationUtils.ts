@@ -1,6 +1,6 @@
 export interface PortalNotification {
   id: string;
-  type: 'timetable_created' | 'timetable_updated' | 'timetable_deleted' | 'period_bell' | 'fee_due';
+  type: 'timetable_created' | 'timetable_updated' | 'timetable_deleted' | 'period_bell' | 'fee_due' | 'attendance_alert';
   title: string;
   message: string;
   timestamp: string;

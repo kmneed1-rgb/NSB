@@ -649,6 +649,8 @@ export default function App() {
           setTeachers={setTeachers}
           students={students}
           setStudents={setStudents}
+          attendance={attendance}
+          setAttendance={setAttendance}
           coordinators={coordinators}
           setCoordinators={setCoordinators}
           classes={classes}
@@ -657,6 +659,8 @@ export default function App() {
           setTimetable={setTimetable}
           fees={fees}
           setFees={setFees}
+          marks={marks}
+          setMarks={setMarks}
           onLogout={handleLogout}
         />
       ) : userSession.role === 'teacher' ? (

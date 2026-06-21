@@ -56,7 +56,7 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
 
     // 3. Check Coordinators
     const foundCoordinator = coordinators.find(c => 
-      c.email?.toLowerCase() === checkInput || 
+      c.name?.toLowerCase() === checkInput || 
       c.username?.toLowerCase() === checkInput ||
       c.id?.toLowerCase() === checkInput
     );
@@ -74,7 +74,7 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
 
     // 4. Check Faculty (Teachers)
     const foundTeacher = teachers.find(t => 
-      t.email?.toLowerCase() === checkInput || 
+      t.name?.toLowerCase() === checkInput || 
       t.username?.toLowerCase() === checkInput ||
       t.id?.toLowerCase() === checkInput
     );

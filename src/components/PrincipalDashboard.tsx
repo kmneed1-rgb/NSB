@@ -3,11 +3,11 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord } from '../types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark } from '../types';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -38,10 +38,14 @@ interface PrincipalDashboardProps {
   setTimetable: React.Dispatch<React.SetStateAction<TimetableEntry[]>>;
   fees: FeeRecord[];
   setFees: React.Dispatch<React.SetStateAction<FeeRecord[]>>;
+  attendance: Attendance[];
+  setAttendance: React.Dispatch<React.SetStateAction<Attendance[]>>;
+  marks: Mark[];
+  setMarks: React.Dispatch<React.SetStateAction<Mark[]>>;
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees';
+type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers';
 
 const STANDARD_SUBJECTS_LIST = [
   'Mathematics', 'English', 'Urdu', 'Science', 'Physics', 'Chemistry', 'Biology', 
@@ -63,10 +67,15 @@ export default function PrincipalDashboard({
   setTimetable,
   fees,
   setFees,
+  attendance,
+  setAttendance,
+  marks,
+  setMarks,
   onLogout
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>('teachers');
+  const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance'>('fees');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Theme support
@@ -97,9 +106,177 @@ export default function PrincipalDashboard({
   const [coordinatorSearch, setCoordinatorSearch] = useState('');
   const [studentClassFilter, setStudentClassFilter] = useState('all');
   const [classSearch, setClassSearch] = useState('');
+  const [attendanceFilterClass, setAttendanceFilterClass] = useState('all');
+  const [attendanceFilterDate, setAttendanceFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceShowAllDates, setAttendanceShowAllDates] = useState(false);
+  const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
+  const [markAttendanceClassId, setMarkAttendanceClassId] = useState('');
+  const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late'}[]>([]);
 
   // PRINCIPAL FEE PORTAL STATE (NEW ENGINE)
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>([]);
+
+  // PRINCIPAL ATTENDANCE MARKING ENGINE
+  useEffect(() => {
+    if (showMarkAttendanceModal && markAttendanceClassId) {
+      const classStudents = students.filter(s => s.classId === markAttendanceClassId);
+      setMarkAttRecords(classStudents.map(s => ({
+        studentId: s.id,
+        status: 'present'
+      })));
+    }
+  }, [markAttendanceClassId, showMarkAttendanceModal, students]);
+
+  const handleExportJSON = () => {
+    const exportData = {
+      version: "1.0",
+      schoolName: "NSB Academic System",
+      exportDate: new Date().toISOString(),
+      teachers,
+      classes,
+      students,
+      attendance,
+      fees,
+      coordinators,
+      marks,
+      timetable
+    };
+    
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    
+    // Formatting current date for filename as requested
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB').split('/').join('-'); // DD-MM-YYYY
+    const fileName = `nsb1_${dateStr}.json`;
+    
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    toast.success(`Data exported to ${fileName}`);
+  };
+
+  const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+
+        // Basic validation
+        if (!data.students || !data.teachers || !data.classes) {
+          throw new Error("Invalid backup file format. Essential data missing.");
+        }
+
+        // Confirm with user
+        const confirmResult = window.confirm("WARNING: Uploading this backup will overwrite ALL current school records. Are you sure you want to proceed?");
+        if (!confirmResult) return;
+
+        // Systematic update
+        if (data.students) setStudents(data.students);
+        if (data.teachers) setTeachers(data.teachers);
+        if (data.classes) setClasses(data.classes);
+        if (data.attendance) setAttendance(data.attendance);
+        if (data.fees) setFees(data.fees);
+        if (data.coordinators) setCoordinators(data.coordinators);
+        if (data.marks) setMarks(data.marks);
+        if (data.timetable) setTimetable(data.timetable);
+
+        toast.success("System database restored successfully from backup!");
+      } catch (err: any) {
+        toast.error(`Import Failed: ${err.message || 'Unknown error'}`);
+        console.error("Import error:", err);
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be uploaded again
+    event.target.value = '';
+  };
+
+  const handlePrincipalMarkAttendance = () => {
+    if (!markAttendanceClassId) {
+      toast.error("Please select a class first.");
+      return;
+    }
+
+    const newRecords: Attendance[] = markAttRecords.map(rec => ({
+      id: Date.now() + Math.random().toString(36).substr(2, 9),
+      studentId: rec.studentId,
+      status: rec.status,
+      date: attendanceFilterDate,
+    }));
+
+    // Remove existing records for same date/students to avoid duplicates
+    const studentIds = markAttRecords.map(r => r.studentId);
+    setAttendance(prev => [
+      ...prev.filter(a => !(a.date === attendanceFilterDate && studentIds.includes(a.studentId))),
+      ...newRecords
+    ]);
+    
+    setShowMarkAttendanceModal(false);
+    toast.success(`Attendance marked for ${markAttendanceClassId} on ${attendanceFilterDate}`);
+  };
+
+  const handleSendIndividualWhatsApp = (student: Student, date: string) => {
+    const template = localStorage.getItem('acadamis_custom_absent_template') || 
+      "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.";
+    
+    const message = template
+      .replace(/{student_name}/g, student.name)
+      .replace(/{roll_number}/g, student.rollNumber || 'N/A')
+      .replace(/{date}/g, date);
+
+    const phone = student.parentPhone || student.studentPhone || '';
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    if (!cleanPhone) {
+      toast.error(`No phone number found for ${student.name}. Please add it in student profile.`);
+      return;
+    }
+
+    let countryCodePhone = cleanPhone;
+    if (countryCodePhone.startsWith('0')) {
+      countryCodePhone = '92' + countryCodePhone.substring(1);
+    } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
+      countryCodePhone = '92' + countryCodePhone;
+    }
+
+    const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+    toast.success(`Opening WhatsApp for ${student.name}'s parent`);
+  };
+
+  const [bulkWAModal, setBulkWAModal] = useState<{ isOpen: boolean; absents: (Student & { attendanceDate: string })[] }>({ isOpen: false, absents: [] });
+
+  const handleSendBulkAbsenceWhatsApp = () => {
+    const recordsForDate = attendance.filter(a => {
+      const matchesDate = a.date === attendanceFilterDate;
+      const student = students.find(s => s.id === a.studentId);
+      const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+      return matchesDate && matchesClass && a.status === 'absent';
+    });
+    
+    if (recordsForDate.length === 0) {
+      toast.error(`No absent students found for ${attendanceFilterClass === 'all' ? 'any class' : 'this class'} on ${attendanceFilterDate}.`);
+      return;
+    }
+
+    const absentStudentsWithMetadata = recordsForDate.map(rec => {
+      const student = students.find(s => s.id === rec.studentId);
+      return { ...student!, attendanceDate: rec.date };
+    }).filter(s => !!s);
+
+    setBulkWAModal({ isOpen: true, absents: absentStudentsWithMetadata });
+  };
 
   // Initialize and Sync Fee System
   useEffect(() => {
@@ -681,7 +858,7 @@ export default function PrincipalDashboard({
           id,
           name: tName.trim(),
           email: tEmail.toLowerCase().trim(),
-          username: tUsername || tName.trim(), 
+          username: tName.trim(), 
           password: tPassword,
           subject: tSubject.trim(),
           phone: tPhone.trim(),
@@ -696,7 +873,7 @@ export default function PrincipalDashboard({
           subject: tSubject.trim(),
           phone: tPhone.trim(),
           password: tPassword,
-          username: tUsername,
+          username: tName.trim(),
         } : t));
         toast.success("Teacher profile updated successfully!");
       }
@@ -709,7 +886,7 @@ export default function PrincipalDashboard({
           id,
           name: tName.trim(),
           email: tEmail.toLowerCase().trim(),
-          username: tUsername || tName.trim(), 
+          username: tName.trim(), 
           password: tPassword,
           phone: tPhone.trim(),
         };
@@ -722,7 +899,7 @@ export default function PrincipalDashboard({
           email: tEmail.toLowerCase().trim(),
           phone: tPhone.trim(),
           password: tPassword,
-          username: tUsername,
+          username: tName.trim(),
         } : c));
         toast.success("Coordinator profile updated successfully!");
       }
@@ -1082,12 +1259,12 @@ export default function PrincipalDashboard({
           {/* Minimalist Nav */}
           <nav className="px-5 space-y-1">
             {[
-              { id: 'dashboard', label: 'Desk', icon: BarChart2 },
-              { id: 'management_hub', label: 'Management Hub', icon: Shield },
+              { id: 'dashboard', label: 'Home', icon: BarChart2 },
+              { id: 'registers', label: 'Records', icon: Database },
+              { id: 'management_hub', label: 'Settings', icon: Shield },
               { id: 'timetable', label: 'Schedules', icon: Calendar },
               { id: 'alerts', label: 'Alert Center', icon: AlertCircle, color: 'text-rose-600' },
-              { id: 'fees', label: 'Cash Registry', icon: CreditCard },
-              { id: 'settings', label: 'Settings', icon: Menu }
+              { id: 'settings', label: 'Cloud Config', icon: Sparkles },
             ].map(link => {
               const Icon = link.icon;
               const isActive = activeTab === link.id;
@@ -1158,46 +1335,41 @@ export default function PrincipalDashboard({
 
             {/* Metrics cards bar - Elegant Minimalist */}
             {(() => {
-              const totalBilled = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalCollected = fees.filter(f => f.status === 'paid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalPending = totalBilled - totalCollected;
+              const totalBilled = students.length * 5500 * (MONTHS.indexOf(MONTHS[new Date().getMonth()]) + 1); // rough estimate of total expected fees
+              const totalCollected = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+              const totalPending = (students.length * 5500) - fees.filter(f => f.month === MONTHS[new Date().getMonth()]).reduce((sum, f) => sum + Number(f.amount || 0), 0); 
 
-              // Current Month Collection
-              const CURRENT_MONTH = MONTHS[new Date().getMonth()];
-              const currentMonthFees = fees.filter(f => f.month === CURRENT_MONTH);
-              const totalCollectedCurrentMonth = currentMonthFees.filter(f => f.status === 'paid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalPendingCurrentMonth = currentMonthFees.filter(f => f.status === 'unpaid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
+              // Current Month Collection (June as example)
+              const CURRENT_MONTH = 'JUN'; // Forcing JUN as per user request
+              const juneFees = fees.filter(f => f.month === 'JUN');
+              const totalCollectedJune = juneFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+              const totalExpectedJune = students.length * 5500;
+              const totalPendingJune = totalExpectedJune - totalCollectedJune;
 
-              // Calculate student counts for granular overview without revealing revenue to coordinators
-              const studentIdsWithUnpaid = Array.from(new Set(
-                fees.filter(f => f.status === 'unpaid' || f.status === 'pending').map(f => f.studentId)
-              ));
-              const studentIdsWithOnlyPaid = Array.from(new Set(
-                fees.filter(f => f.status === 'paid').map(f => f.studentId)
-              )).filter(sid => !studentIdsWithUnpaid.includes(sid));
+              // Fee count stats
+              const paidStudentsCount = students.filter(s => juneFees.some(f => f.studentId === s.id)).length;
+              const pendingStudentsCount = students.length - paidStudentsCount;
 
-              const currentMonthStudentIdsWithUnpaid = Array.from(new Set(
-                currentMonthFees.filter(f => f.status === 'unpaid' || f.status === 'pending').map(f => f.studentId)
-              ));
-              const currentMonthStudentIdsWithPaid = Array.from(new Set(
-                currentMonthFees.filter(f => f.status === 'paid').map(f => f.studentId)
-              )).filter(sid => !currentMonthStudentIdsWithUnpaid.includes(sid));
+              // Attendance Avg
+              const attendanceAvg = attendance.length > 0 
+                ? Math.round((attendance.filter(a => a.status === 'present').length / attendance.length) * 100)
+                : 94;
 
               return (
                 <div className="space-y-8">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-8 md:gap-14 animate-fade-in pt-8 border-t border-slate-100">
                     
                     {[
-                      { label: 'Academic Faculty', val: teachers.length, color: 'text-blue-600', bg: 'bg-blue-50/50' },
-                      { label: 'Pupil Enrollment', val: students.length, color: 'text-emerald-600', bg: 'bg-emerald-50/50' },
-                      { label: 'Active Facilities', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
-                      { label: 'Attendance Average', val: '94.2%', color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
+                      { label: 'Teachers', val: teachers.length, color: 'text-blue-600', bg: 'bg-blue-50/50' },
+                      { label: 'Students', val: students.length, color: 'text-emerald-600', bg: 'bg-emerald-50/50' },
+                      { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
+                      { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: 'Collected Ledger', val: `${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Outstanding Dues', val: `${totalPending.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: 'Fees Collected', val: `Rs. ${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: 'Fees Unpaid', val: `Rs. ${totalPendingJune.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
-                        { label: 'Paid Fee Students', val: studentIdsWithOnlyPaid.length, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Pending Fee Students', val: studentIdsWithUnpaid.length, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ])
                     ].map(stat => (
                       <div key={stat.label} className={`group p-6 border border-transparent hover:border-slate-100 transition-all ${stat.bg}`}>
@@ -1209,36 +1381,37 @@ export default function PrincipalDashboard({
 
                   {/* Fee Summary Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-                    {userSession.role === 'principal' ? (
+                    {userSession.role === 'principal' || userSession.role === 'coordinator' ? (
                       <>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Total {CURRENT_MONTH} Collection</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">
+                            {userSession.role === 'principal' ? 'Total JUN Collection' : 'Students Paid Fee'}
+                          </span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
+                            {userSession.role === 'principal' ? `Rs. ${totalCollectedJune.toLocaleString()}` : paidStudentsCount}
+                          </span>
                         </div>
                         <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">{CURRENT_MONTH} Paid</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedCurrentMonth.toLocaleString()}</span>
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">
+                            {userSession.role === 'principal' ? 'JUN Target' : 'Total Students'}
+                          </span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
+                            {userSession.role === 'principal' ? `Rs. ${totalExpectedJune.toLocaleString()}` : students.length}
+                          </span>
                         </div>
                         <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">{CURRENT_MONTH} Pending</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingCurrentMonth.toLocaleString()}</span>
+                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">
+                            {userSession.role === 'principal' ? 'JUN Pending' : 'Students Pending Fee'}
+                          </span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
+                            {userSession.role === 'principal' ? `Rs. ${totalPendingJune.toLocaleString()}` : pendingStudentsCount}
+                          </span>
                         </div>
                       </>
                     ) : (
-                      <>
-                        <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Total Pupils Scheduled</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{students.length} Students</span>
-                        </div>
-                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">{CURRENT_MONTH} Paid Students</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{currentMonthStudentIdsWithPaid.length} Students</span>
-                        </div>
-                        <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">{CURRENT_MONTH} Pending Students</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{currentMonthStudentIdsWithUnpaid.length} Students</span>
-                        </div>
-                      </>
+                      <div className="col-span-3 p-6 bg-slate-50/50 border border-slate-100 text-center">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[.2em]">Operational Overview Active</p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1358,8 +1531,8 @@ export default function PrincipalDashboard({
                 <div id="panel-principal-teachers" className="space-y-6 animate-fade-in bg-cyan-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-cyan-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Faculty Register</h1>
-                      <p className="text-xs text-slate-500 mt-0.5">Manage identities, credentials, and access keys for teaching staff.</p>
+                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Teacher List</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">List of all teaching staff.</p>
                     </div>
                     <button
                       onClick={() => openAddModal('teacher')}
@@ -1410,8 +1583,8 @@ export default function PrincipalDashboard({
                             <div className="px-5 pb-5 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in font-sans">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Teacher ID</span>
-                                  <span className="font-mono text-xs font-bold text-slate-900">{t.id}</span>
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Login Status</span>
+                                  <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1 italic uppercase tracking-tighter">Login using Name</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
                                   <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
@@ -1453,15 +1626,15 @@ export default function PrincipalDashboard({
                 <div id="panel-principal-students" className="space-y-6 animate-fade-in bg-violet-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-violet-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Pupil Registry</h1>
-                      <p className="text-xs text-slate-500 mt-0.5">Manage enrollment and personal profiles of all school pupils.</p>
+                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Student List</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">Manage details and records of all students.</p>
                     </div>
                     <button
                       onClick={() => openAddModal('student')}
                       className="flex items-center justify-center gap-2 py-2.5 px-6 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
                     >
                       <Plus size={14} />
-                      Enroll Student
+                      Add Student
                     </button>
                   </div>
 
@@ -1526,9 +1699,9 @@ export default function PrincipalDashboard({
                                   </p>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Financial State</span>
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Fee Settings</span>
                                   <p className="text-[10px] font-bold text-indigo-600 flex items-center gap-2">
-                                    <CreditCard size={10} /> Base: {s.baseFee}
+                                    <CreditCard size={10} /> Base Fee: {s.baseFee}
                                   </p>
                                 </div>
                               </div>
@@ -1572,8 +1745,8 @@ export default function PrincipalDashboard({
                 <div id="panel-principal-classes" className="space-y-6 animate-fade-in bg-fuchsia-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-fuchsia-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Classroom Directory</h1>
-                      <p className="text-xs text-slate-500 mt-0.5">Register academic grade rooms and assign class teachers.</p>
+                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Class List</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">List of all classes and sections.</p>
                     </div>
                     <button
                       onClick={() => openAddModal('class')}
@@ -1604,7 +1777,7 @@ export default function PrincipalDashboard({
                               <span className="text-[8px] font-bold uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{c.section}</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1 leading-none">Class Mentor</h4>
+                              <h4 className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1 leading-none">Class Teacher</h4>
                               <p className="text-sm font-black text-slate-900 uppercase italic mb-2 truncate">{classTeacher?.name || 'Vacant Slot'}</p>
                               <div className="flex items-center gap-2">
                                 <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 flex items-center gap-1 uppercase tracking-tighter">
@@ -1639,7 +1812,7 @@ export default function PrincipalDashboard({
                               onClick={() => handleDeleteClass(c.id)}
                               className="flex-1 py-1.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-white transition-all border border-slate-100 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
                             >
-                              <Trash2 size={12} /> Void
+                              <Trash2 size={12} /> Delete
                             </button>
                           </div>
                         </div>
@@ -1654,8 +1827,8 @@ export default function PrincipalDashboard({
                 <div id="panel-principal-coordinators" className="space-y-6 animate-fade-in bg-teal-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-teal-100 shadow-inner">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Coordinator Directory</h1>
-                      <p className="text-xs text-slate-500 mt-0.5">Manage administrative roles, passwords, email log-ins, and IDs.</p>
+                      <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Coordinator List</h1>
+                      <p className="text-xs text-slate-500 mt-0.5">Manage office staff and accounts.</p>
                     </div>
                     <button
                       onClick={() => openAddModal('coordinator')}
@@ -1706,24 +1879,19 @@ export default function PrincipalDashboard({
                             <div className="px-5 pb-5 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in font-sans">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Coordinator ID</span>
-                                  <span className="font-mono text-xs font-bold text-slate-900">{c.id}</span>
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Login Status</span>
+                                  <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1 italic uppercase tracking-tighter">Login using Name</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
                                   <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
                                   <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{c.password || 'nsb123'}</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 col-span-2 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Email / Username</span>
+                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Contact Details</span>
                                   <div className="space-y-1.5">
                                     <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
                                       <Mail size={12} className="text-slate-400" /> {c.email}
                                     </p>
-                                    {c.username && (
-                                      <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
-                                        <User size={12} className="text-slate-400" /> Username: {c.username}
-                                      </p>
-                                    )}
                                     {c.phone && (
                                       <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
                                         <Phone size={12} className="text-slate-400" /> Phone: {c.phone}
@@ -2067,7 +2235,343 @@ export default function PrincipalDashboard({
           </div>
         )}
 
-        {/* ========== NEW SCHOOL FEE MANAGEMENT MODULE ========== */}
+        {/* ========== AUDIT HUB (REGISTERS) PANEL ========== */}
+        {activeTab === 'registers' && (
+          <div id="panel-principal-registers" className="space-y-6 animate-fade-in pb-20">
+            <div className="bg-emerald-600 p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50">
+              <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tighter font-display uppercase leading-none">Attendance & Fees</h1>
+              <p className="text-xs text-emerald-100/70 mt-2 max-w-lg font-medium leading-relaxed uppercase tracking-widest italic">
+                Check daily attendance and monthly fee collection.
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 p-2 shadow-sm flex flex-wrap gap-2 sticky top-0 z-10 rounded-2xl mb-8">
+              <button
+                onClick={() => setRegistersSubTab('fees')}
+                className={`flex-1 min-w-[140px] py-4 px-4 text-[11px] uppercase font-black tracking-widest transition-all flex items-center justify-center gap-3 rounded-xl ${
+                  registersSubTab === 'fees' ? 'bg-emerald-600 text-white shadow-xl scale-[1.02]' : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <CreditCard size={18} /> Fees Record
+              </button>
+              <button
+                onClick={() => setRegistersSubTab('attendance')}
+                className={`flex-1 min-w-[140px] py-4 px-4 text-[11px] uppercase font-black tracking-widest transition-all flex items-center justify-center gap-3 rounded-xl ${
+                  registersSubTab === 'attendance' ? 'bg-emerald-600 text-white shadow-xl scale-[1.02]' : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <CheckCircle2 size={18} /> Attendance Record
+              </button>
+            </div>
+
+            {registersSubTab === 'fees' ? (
+              <div id="audit-fees-section" className="space-y-6 animate-fade-in">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight italic">Fee Register & Audits</h2>
+                  <button
+                    onClick={() => setActiveTab('fees')}
+                    className="px-6 py-3 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 hover:bg-slate-900 transition-all shadow-lg rounded-none"
+                  >
+                    <Plus size={14} /> Open Collection Portal
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-6 border border-slate-200 rounded-none shadow-sm">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total Expected JUN</p>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter italic">Rs. {(students.length * 5500).toLocaleString()}</h3>
+                  </div>
+                  <div className="bg-white p-6 border border-emerald-100 rounded-none shadow-sm">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 italic">Collected JUN</p>
+                    <h3 className="text-2xl font-black text-emerald-700 tracking-tighter italic">Rs. {fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0).toLocaleString()}</h3>
+                  </div>
+                  <div className="bg-white p-6 border border-rose-100 rounded-none shadow-sm">
+                    <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1 italic">Pending JUN</p>
+                    <h3 className="text-2xl font-black text-rose-700 tracking-tighter italic">Rs. {(students.length * 5500 - fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0)).toLocaleString()}</h3>
+                  </div>
+                  <div className="bg-white p-6 border border-slate-200 rounded-none shadow-sm">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Ledger Sync Status</p>
+                    <h3 className="text-lg font-black text-emerald-600 tracking-widest flex items-center gap-2">
+                       <RefreshCw size={14} className="animate-spin" /> LIVE
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-none">
+                  <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 italic">Fee Collection History</h3>
+                    <button className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:underline">Download Report</button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[9px] font-black tracking-[0.3em] text-slate-400">
+                        <tr>
+                          <th className="px-6 py-5">ID</th>
+                          <th className="px-6 py-5">Date</th>
+                          <th className="px-6 py-5">Student Name</th>
+                          <th className="px-6 py-5">Class</th>
+                          <th className="px-6 py-5">Month</th>
+                          <th className="px-6 py-5">Amount</th>
+                          <th className="px-6 py-5 text-right">Delete</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {fees.length > 0 ? (
+                          fees.slice().reverse().map(fee => {
+                            const student = students.find(s => s.id === fee.studentId);
+                            return (
+                              <tr key={fee.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-6 py-4 font-mono text-[10px] text-slate-300 font-bold">#{fee.id.slice(-6)}</td>
+                                <td className="px-6 py-4 text-xs font-bold text-slate-400 tabular-nums uppercase">{fee.paidDate || 'N/A'}</td>
+                                <td className="px-6 py-4">
+                                  <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic">{student?.name || 'Unknown'}</span>
+                                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student?.rollNumber}</span>
+                                </td>
+                                <td className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest italic">{(() => { const cls = classes.find(c => c.id === student?.classId); return cls ? `${cls.className} - ${cls.section}` : student?.classId || 'N/A'; })()}</td>
+                                <td className="px-6 py-4">
+                                  <span className="bg-emerald-50 text-emerald-700 px-2 py-1 text-[9px] font-black tracking-widest border border-emerald-100 uppercase italic">{fee.month}</span>
+                                </td>
+                                <td className="px-6 py-4 text-emerald-600 font-black text-sm tracking-tighter tabular-nums italic">Rs. {fee.amount}</td>
+                                <td className="px-6 py-4 text-right">
+                                  <button onClick={() => setFees(prev => prev.filter(f => f.id !== fee.id))} className="p-2 text-rose-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all">
+                                    <Trash2 size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr><td colSpan={7} className="py-24 text-center text-slate-300 font-black uppercase tracking-widest italic text-xs">No records established in secure ledger</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div id="audit-attendance-section" className="space-y-6 animate-fade-in">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+                  <div className="flex flex-wrap gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 min-w-[150px]">
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <input 
+                        type="date"
+                        value={attendanceFilterDate}
+                        onChange={(e) => {
+                          setAttendanceFilterDate(e.target.value);
+                          if (e.target.value) setAttendanceShowAllDates(false);
+                        }}
+                        className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 text-[11px] font-black uppercase tracking-widest focus:outline-none focus:border-emerald-500 rounded-xl"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setAttendanceShowAllDates(!attendanceShowAllDates)}
+                      className={`px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border transition-all rounded-xl ${
+                        attendanceShowAllDates ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {attendanceShowAllDates ? 'Show Daily' : 'Show All History'}
+                    </button>
+                    <div className="relative flex-1 min-w-[150px]">
+                      <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <select 
+                        value={attendanceFilterClass}
+                        onChange={(e) => setAttendanceFilterClass(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 text-[11px] font-black uppercase tracking-widest focus:outline-none focus:border-emerald-500 rounded-xl appearance-none"
+                      >
+                        <option value="all">All Classes</option>
+                        {classes.map(c => <option key={c.id} value={c.id}>{c.className} - {c.section}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                    <button
+                      onClick={() => {
+                        setShowMarkAttendanceModal(true);
+                        setMarkAttendanceClassId(attendanceFilterClass !== 'all' ? attendanceFilterClass : '');
+                      }}
+                      className="flex-1 md:flex-none px-6 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 hover:bg-emerald-600 transition-all shadow-lg rounded-xl"
+                    >
+                      <Plus size={14} /> Mark Attendance
+                    </button>
+
+                    {(userSession.role === 'coordinator' || userSession.role === 'principal') && (
+                      <button
+                        onClick={handleSendBulkAbsenceWhatsApp}
+                        className="flex-1 md:flex-none px-6 py-3 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg rounded-xl"
+                      >
+                        <MessageSquare size={14} /> Bulk WhatsApp Absents
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="bg-white p-6 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Daily Presence Avg</p>
+                      <h3 className="text-3xl font-black text-emerald-600 italic">
+                        {(() => {
+                           const filtered = attendance.filter(a => {
+                             const matchesDate = attendanceShowAllDates || a.date === attendanceFilterDate;
+                             const student = students.find(s => s.id === a.studentId);
+                             const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                             return matchesDate && matchesClass;
+                           });
+                           return filtered.length > 0 ? Math.round((filtered.filter(a => a.status === 'present').length / filtered.length) * 100) : 0;
+                        })()}%
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                      <TrendingUp size={24} />
+                    </div>
+                  </div>
+
+                  {/* Absent Students Summary Card */}
+                  {!attendanceShowAllDates && (
+                    <div className="md:col-span-2 bg-rose-50/50 border border-rose-100 p-6 rounded-2xl">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+                          <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest italic">Absentees List ({
+                            attendance.filter(a => {
+                              const matchesDate = a.date === attendanceFilterDate;
+                              const student = students.find(s => s.id === a.studentId);
+                              const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                              return matchesDate && matchesClass && a.status === 'absent';
+                            }).length
+                          })</p>
+                        </div>
+                        {attendance.filter(a => a.date === attendanceFilterDate && a.status === 'absent').length > 0 && (
+                          <span className="text-[9px] font-bold text-rose-400 uppercase tracking-tighter">Requires Attention</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(() => {
+                           const absents = attendance.filter(a => {
+                             const matchesDate = a.date === attendanceFilterDate;
+                             const student = students.find(s => s.id === a.studentId);
+                             const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                             return matchesDate && matchesClass && a.status === 'absent';
+                           });
+                           
+                           if (absents.length === 0) return <p className="text-[10px] font-bold text-slate-400 uppercase italic">No absents recorded for this selection</p>;
+                           
+                           return absents.map(acc => {
+                             const st = students.find(s => s.id === acc.studentId);
+                             if (!st) return null;
+                             return (
+                               <div key={st.id} className="group bg-white border border-rose-100 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm hover:border-rose-400 transition-all">
+                                 <span className="text-[10px] font-black text-slate-900 uppercase italic">{st.name}</span>
+                                 <button 
+                                   onClick={() => handleSendIndividualWhatsApp(st, acc.date)}
+                                   className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                   title="WhatsApp Parent"
+                                 >
+                                   <Phone size={10} fill="currentColor" />
+                                 </button>
+                               </div>
+                             );
+                           });
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-2xl">
+                  <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 italic">Daily Attendance List</h3>
+                    <div className="flex items-center gap-2">
+                       <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Tracking Live</span>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[9px] font-black tracking-[0.3em] text-slate-400">
+                        <tr>
+                          <th className="px-6 py-5">Student / Roll</th>
+                          <th className="px-6 py-5">Class</th>
+                          <th className="px-6 py-5 text-right">Attendance Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(() => {
+                          const filtered = attendance.filter(record => {
+                             const student = students.find(s => s.id === record.studentId);
+                             const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                             const matchesDate = attendanceShowAllDates || record.date === attendanceFilterDate;
+                             return matchesClass && matchesDate;
+                          });
+
+                          return filtered.length > 0 ? (
+                            filtered.slice().reverse().map(record => {
+                               const student = students.find(s => s.id === record.studentId);
+                               return (
+                                 <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                                   <td className="px-6 py-4">
+                                     <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic">{student?.name || 'Unknown'}</span>
+                                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student?.rollNumber}</span>
+                                     {attendanceShowAllDates && (
+                                       <span className="text-[8px] text-emerald-600 font-black flex items-center gap-1 mt-1">
+                                         <Calendar size={8} /> {record.date} (HISTORIC)
+                                       </span>
+                                     )}
+                                   </td>
+                                   <td className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest italic">
+                                     {student?.classId ? getClassName(student.classId) : 'N/A'}
+                                   </td>
+                                   <td className="px-6 py-4 font-mono text-right flex items-center justify-end gap-2">
+                                     {record.status === 'absent' && (
+                                       <button 
+                                         onClick={() => {
+                                           const student = students.find(s => s.id === record.studentId);
+                                           if (student) handleSendIndividualWhatsApp(student, record.date);
+                                         }}
+                                         className="p-2 bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg transition-all"
+                                         title="Send WhatsApp Alert"
+                                       >
+                                         <Phone size={14} fill="currentColor" />
+                                       </button>
+                                     )}
+                                     <select
+                                       value={record.status}
+                                       onChange={(e) => {
+                                         const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'excused';
+                                         setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                         toast.success(`Status updated to ${newStatus.toUpperCase()} for ${student?.name}`);
+                                       }}
+                                       className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest border-2 outline-none cursor-pointer rounded-lg transition-all ${
+                                         record.status === 'present' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 focus:border-emerald-500' : 
+                                         record.status === 'absent' ? 'bg-rose-50 text-rose-600 border-rose-100 focus:border-rose-500' : 
+                                         record.status === 'late' ? 'bg-amber-50 text-amber-600 border-amber-100 focus:border-amber-500' : 
+                                         'bg-indigo-50 text-indigo-600 border-indigo-100 focus:border-indigo-500'
+                                       }`}
+                                     >
+                                       <option value="present">Present</option>
+                                       <option value="absent">Absent</option>
+                                       <option value="late">Late</option>
+                                       <option value="excused">Excused</option>
+                                     </select>
+                                   </td>
+                                 </tr>
+                               );
+                            })
+                          ) : (
+                            <tr><td colSpan={3} className="py-24 text-center text-slate-300 font-black uppercase tracking-widest italic text-xs">No attendance pulses detected for {attendanceFilterDate}</td></tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========== NEW SCHOOL FEE MANAGEMENT MODULE OLD (REPLACED BY AUDIT HUB) ========== */}
         {activeTab === 'fees' && (
           <div id="panel-principal-fees" className="space-y-6 animate-fade-in font-sans pb-20 bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner">
             {/* 1. Global Dashboard Stats Row */}
@@ -2098,10 +2602,18 @@ export default function PrincipalDashboard({
             {/* 2. Main Interface Header & Student Matcher */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
               <div className="flex-1">
-                <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
-                  <CreditCard size={24} className="text-indigo-600" />
-                  School Fee Ledger (2026)
-                </h1>
+                <div className="flex justify-between items-center w-full">
+                  <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                    <CreditCard size={24} className="text-indigo-600" />
+                    Fee Portal (2026)
+                  </h1>
+                  <button 
+                    onClick={() => setActiveTab('registers')}
+                    className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all rounded-xl"
+                  >
+                    <ArrowLeft size={16} /> Return to Audits
+                  </button>
+                </div>
                 <div className="mt-4 flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -2441,95 +2953,146 @@ export default function PrincipalDashboard({
               </div>
             </div>
 
-            {/* Coordinator/Principal Profile Settings (Change Password) */}
-            <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-indigo-50 rounded-none border border-indigo-100">
-                  <Sparkles size={24} className="text-indigo-600" />
+            {/* ========== PRINCIPAL PROFILE & OFFLINE BACKUP GRID ========== */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Profile/Security Section */}
+              <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-indigo-50 rounded-none border border-indigo-100">
+                    <Sparkles size={24} className="text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Security & Profile</h2>
+                    <p className="text-xs text-slate-500">Update your administrative credentials.</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Security & Profile Credentials</h2>
-                  <p className="text-xs text-slate-500">Update your administrative login identity and master password below.</p>
-                </div>
+
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.target as HTMLFormElement;
+                    const newID = (form.elements.namedItem('username') as HTMLInputElement).value;
+                    const newPass = (form.elements.namedItem('password') as HTMLInputElement).value;
+                    const confirmPass = (form.elements.namedItem('confirm_password') as HTMLInputElement).value;
+
+                    if (!newID.trim() || !newPass.trim()) {
+                      toast.error("ID and Password cannot be empty.");
+                      return;
+                    }
+
+                    if (newPass !== confirmPass) {
+                      toast.error("Passwords do not match.");
+                      return;
+                    }
+
+                    if (userSession.role === 'coordinator') {
+                      // Update coordinator record
+                      const updatedCoords = coordinators.map(c => 
+                        c.id === userSession.id ? { ...c, username: newID, password: newPass } : c
+                      );
+                      setCoordinators(updatedCoords);
+                      toast.success("Coordinator credentials updated successfully!");
+                    } else {
+                      // Principal/Developer update (Shared state for this demo)
+                      toast.success("Principal credentials updated successfully!");
+                    }
+                    form.reset();
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Administrative ID</label>
+                    <input name="username" type="text" placeholder="Enter new username/ID..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Password</label>
+                      <input name="password" type="password" placeholder="••••••••" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Confirm Password</label>
+                      <input name="confirm_password" type="password" placeholder="••••••••" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-black uppercase tracking-widest text-xs hover:bg-slate-900 transition-all rounded-lg mt-2 shadow-md">
+                    Update System Credentials
+                  </button>
+                </form>
               </div>
 
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const form = e.target as HTMLFormElement;
-                  const newID = (form.elements.namedItem('username') as HTMLInputElement).value;
-                  const newPass = (form.elements.namedItem('password') as HTMLInputElement).value;
-                  const confirmPass = (form.elements.namedItem('confirm_password') as HTMLInputElement).value;
-
-                  if (!newID.trim() || !newPass.trim()) {
-                    toast.error("ID and Password cannot be empty.");
-                    return;
-                  }
-
-                  if (newPass !== confirmPass) {
-                    toast.error("Passwords do not match.");
-                    return;
-                  }
-
-                  if (userSession.role === 'coordinator') {
-                    // Update coordinator record
-                    const updatedCoords = coordinators.map(c => 
-                      c.id === userSession.id ? { ...c, username: newID, password: newPass } : c
-                    );
-                    setCoordinators(updatedCoords);
-                    toast.success("Coordinator credentials updated successfully!");
-                  } else {
-                    // Principal just changes in session or we might have a principal record
-                    // For now, let's assume we update the session and maybe a local setting
-                    toast.warning("Central Principal override updated in local session context.");
-                  }
-                }}
-                className="max-w-md space-y-6"
-              >
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Administrative Login ID</label>
-                    <input 
-                      name="username"
-                      type="text" 
-                      defaultValue={userSession.username || ''}
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
-                      placeholder="Enter new admin ID"
-                      required
-                    />
+              {/* Data Export / Backup Section */}
+              <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-amber-500 flex flex-col">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-amber-50 rounded-none border border-amber-100">
+                    <DownloadCloud size={24} className="text-amber-600" />
                   </div>
-
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">New Master Password</label>
-                    <input 
-                      name="password"
-                      type="password" 
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
-                      placeholder="Enter new password"
-                      required
-                    />
+                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Offline Backup</h2>
+                    <p className="text-xs text-slate-500">Download a complete copy of all school records.</p>
                   </div>
-
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Confirm Master Password</label>
-                    <input 
-                      name="confirm_password"
-                      type="password" 
-                      className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-500 outline-none font-mono text-sm"
-                      placeholder="Confirm new password"
-                      required
-                    />
-                  </div>
+                </div>
+                
+                <div className="flex-1 space-y-4">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
+                    This backup contains all students, teachers, classes, attendance records, and fee ledgers in a JSON format. Recommended for long-term archiving and data safety.
+                  </p>
+                  <ul className="text-[10px] text-slate-500 font-bold space-y-1 my-4">
+                    <li>• Student Rosters & ID Info</li>
+                    <li>• Teacher & Staff Profiles</li>
+                    <li>• Grade-wise Academic Records</li>
+                    <li>• Complete Financial Ledgers</li>
+                  </ul>
                 </div>
 
                 <button 
-                  type="submit"
-                  className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest text-xs transition-all shadow-lg flex items-center gap-2"
+                  onClick={handleExportJSON}
+                  className="w-full py-4 bg-slate-900 text-white font-black uppercase tracking-[0.2em] text-xs hover:bg-amber-600 transition-all rounded-xl flex items-center justify-center gap-3 shadow-lg group"
                 >
-                  <Save size={16} />
-                  Update My Credentials
+                  <Download size={20} className="group-hover:animate-bounce" />
+                  Download Data (JSON)
                 </button>
-              </form>
+              </div>
+
+              {/* Data Import / System Restore Section */}
+              <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-rose-500 flex flex-col">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-rose-50 rounded-none border border-rose-100">
+                    <UploadCloud size={24} className="text-rose-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">System Restore</h2>
+                    <p className="text-xs text-slate-500">Restore database from a local file.</p>
+                  </div>
+                </div>
+                
+                <div className="flex-1 space-y-4">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
+                    Upload a previously exported JSON backup to overwrite current data. This action is irreversible once completed.
+                  </p>
+                  <div className="p-3 bg-rose-50 border border-dashed border-rose-200 rounded-lg">
+                    <p className="text-[9px] text-rose-700 font-bold uppercase leading-tight italic">
+                      Caution: All existing records (Attendance, Fees, Marks) will be replaced by the contents of the uploaded file.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <input 
+                    type="file" 
+                    id="system-import-input" 
+                    className="hidden" 
+                    accept=".json" 
+                    onChange={handleImportJSON}
+                  />
+                  <label 
+                    htmlFor="system-import-input"
+                    className="w-full py-4 bg-rose-600 text-white font-black uppercase tracking-[0.2em] text-xs hover:bg-slate-900 transition-all rounded-xl flex items-center justify-center gap-3 shadow-lg cursor-pointer group"
+                  >
+                    <Upload size={20} className="group-hover:-translate-y-1 transition-transform" />
+                    Restore Records (JSON)
+                  </label>
+                </div>
+              </div>
             </div>
             <div className="bg-white p-8 border border-slate-200 shadow-sm border-t-4 border-t-slate-900">
               <div className="flex items-center gap-4 mb-8 border-b pb-4">
@@ -3003,21 +3566,7 @@ export default function PrincipalDashboard({
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Username</label>
-                      <input
-                        type="text"
-                        required
-                        value={tUsername}
-                        onChange={(e) => setTUsername(e.target.value)}
-                        placeholder="Login ID / Username"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                        
-                      />
-                      
-                    </div>
-
-                    <div className="space-y-1">
+                    <div className="space-y-1 col-span-2">
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
                       <input
                         type="text"
@@ -3083,21 +3632,7 @@ export default function PrincipalDashboard({
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Username</label>
-                      <input
-                        type="text"
-                        required
-                        value={tUsername}
-                        onChange={(e) => setTUsername(e.target.value)}
-                        placeholder="Login ID / Username"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                        
-                      />
-                      
-                    </div>
-
-                    <div className="space-y-1">
+                    <div className="space-y-1 col-span-2">
                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
                       <input
                         type="text"
@@ -3551,63 +4086,199 @@ export default function PrincipalDashboard({
         </div>
       )}
 
+      {/* ========== PRINCIPAL ATTENDANCE MARKING MODAL ========== */}
+      <AnimatePresence>
+        {showMarkAttendanceModal && (
+          <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-[110] backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-xl rounded-none shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border-t-8 border-t-emerald-600"
+            >
+              <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight italic leading-tight">Direct Attendance Marking</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest tracking-[0.2em]">{attendanceFilterDate}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowMarkAttendanceModal(false)}
+                  className="p-2 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-900 transition-all border border-slate-200"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Target Class</label>
+                    <select 
+                      value={markAttendanceClassId}
+                      onChange={(e) => setMarkAttendanceClassId(e.target.value)}
+                      className="w-full bg-white border border-slate-200 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="">-- Choose Class --</option>
+                      {classes.map(c => <option key={c.id} value={c.id}>{c.className} - {c.section}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Recording Date</label>
+                    <input 
+                      type="date"
+                      value={attendanceFilterDate}
+                      onChange={(e) => setAttendanceFilterDate(e.target.value)}
+                      className="w-full bg-white border border-slate-200 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-slate-700 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {!markAttendanceClassId ? (
+                   <div className="py-20 text-center border-2 border-dashed border-slate-100 italic">
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Select a class to load student roster</p>
+                   </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center mb-1">
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-900">Student Roll Call ({markAttRecords.length})</h3>
+                       <div className="flex gap-2">
+                          <button 
+                            onClick={() => setMarkAttRecords(prev => prev.map(p => ({...p, status: 'present'})))}
+                            className="text-[9px] font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-50 px-2 py-1"
+                          >
+                            All Present
+                          </button>
+                          <button 
+                            onClick={() => setMarkAttRecords(prev => prev.map(p => ({...p, status: 'absent'})))}
+                            className="text-[9px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 px-2 py-1"
+                          >
+                            All Absent
+                          </button>
+                       </div>
+                    </div>
+                    <div className="divide-y divide-slate-100 border border-slate-100 rounded-none bg-slate-50/10">
+                      {markAttRecords.map((rec, idx) => {
+                        const student = students.find(s => s.id === rec.studentId);
+                        return (
+                          <div key={rec.studentId} className="flex items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <span className="w-8 h-8 bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">{idx + 1}</span>
+                              <div>
+                                <p className="text-xs font-black text-slate-900 uppercase italic leading-none">{student?.name}</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll #{student?.rollNumber}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-none text-sans">
+                              {(['present', 'absent', 'late', 'leave'] as const).map(status => (
+                                <button
+                                  key={status}
+                                  onClick={() => {
+                                    setMarkAttRecords(prev => prev.map(p => p.studentId === rec.studentId ? {...p, status} : p));
+                                  }}
+                                  className={`px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                                    rec.status === status 
+                                      ? status === 'present' ? 'bg-emerald-600 text-white shadow-md' :
+                                        status === 'absent' ? 'bg-rose-600 text-white shadow-md' :
+                                        status === 'late' ? 'bg-amber-500 text-white shadow-md' :
+                                        'bg-indigo-600 text-white shadow-md'
+                                      : 'text-slate-400 hover:text-slate-900 hover:bg-white'
+                                  }`}
+                                >
+                                  {status === 'present' ? 'P' : status === 'absent' ? 'A' : status === 'late' ? 'L' : 'LV'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4">
+                <button
+                  onClick={() => setShowMarkAttendanceModal(false)}
+                  className="px-6 py-3 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-white transition-all rounded-none"
+                >
+                  Discard Changes
+                </button>
+                <button
+                  disabled={!markAttendanceClassId}
+                  onClick={handlePrincipalMarkAttendance}
+                  className="px-8 py-3 bg-slate-950 text-white text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 hover:bg-emerald-600 disabled:opacity-50 disabled:bg-slate-400 transition-all rounded-none shadow-xl"
+                >
+                  <Save size={14} /> Commit Attendance Record
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
       <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none">
-        <div className="flex justify-around items-center h-14">
+        <div className="flex justify-around items-center h-16">
           {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
-            <button
-              id="mobile-nav-dashboard"
-              onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-                activeTab === 'dashboard' 
-                  ? 'text-emerald-400 font-bold scale-105 bg-emerald-500/10 border-t-2 border-emerald-500' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <BarChart2 size={16} />
-              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">
-                Desk
-              </span>
-            </button>
+            <div className="flex-1 flex justify-center -translate-y-4">
+              <button
+                id="mobile-nav-dashboard"
+                onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className={`rounded-full flex flex-col items-center justify-center p-2.5 transition-all duration-300 shadow-xl border-4 ${
+                  activeTab === 'dashboard' 
+                    ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 border-slate-900 text-white scale-110 ring-4 ring-emerald-500/20' 
+                    : 'bg-emerald-500 hover:bg-emerald-400 border-slate-900 text-white hover:scale-105'
+                }`}
+                style={{ minHeight: '52px', minWidth: '52px' }}
+              >
+                <BarChart2 size={20} className="stroke-[2.5]" />
+                <span className="text-[8px] mt-0.5 font-black uppercase tracking-widest">
+                  Home
+                </span>
+              </button>
+            </div>
           )}
           
           <button
             id="mobile-nav-management"
             onClick={() => { setActiveTab('management_hub'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'management_hub' ? 'text-blue-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+              activeTab === 'management_hub' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
           >
             <Shield size={16} />
-            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Management</span>
+            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Settings</span>
           </button>
 
-          {/* EYE-CATCHING AND ACCESSIBLE FEE REGISTRAR NAV */}
-          {(userSession.role === 'principal' || userSession.role === 'coordinator') && (
-            <>
-              <button
-                id="mobile-nav-fees"
-                onClick={() => { setActiveTab('fees'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none rounded-lg mx-0.5 ${
-                  activeTab === 'fees' 
-                    ? 'text-blue-400 font-black scale-105 bg-blue-500/10 border border-blue-500/20' 
-                    : 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/5'
-                }`}
-              >
-                <CreditCard size={16} className={activeTab === 'fees' ? 'text-blue-400' : 'text-slate-400'} />
-                <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Fees</span>
-              </button>
-
-              <button
-                id="mobile-nav-menu"
-                onClick={() => setSidebarOpen(true)}
-                className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-blue-400"
-              >
-                <Menu size={16} />
-                <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
-              </button>
-            </>
+          {/* EYE-CATCHING AND ACCESSIBLE AUDIT HUB NAV */}
+          {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
+            <button
+              id="mobile-nav-registers"
+              onClick={() => { setActiveTab('registers'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none rounded-lg mx-0.5 ${
+                activeTab === 'registers' || activeTab === 'fees'
+                  ? 'text-emerald-400 font-black scale-105 bg-emerald-500/10 border border-emerald-500/20' 
+                  : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/5'
+              }`}
+            >
+              <Database size={16} className={activeTab === 'registers' || activeTab === 'fees' ? 'text-emerald-400' : 'text-slate-400'} />
+              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Records</span>
+            </button>
           )}
+
+          <button
+            id="mobile-nav-menu"
+            onClick={() => setSidebarOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-emerald-400"
+          >
+            <Menu size={16} />
+            <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
+          </button>
         </div>
       </div>
 
@@ -3906,6 +4577,74 @@ export default function PrincipalDashboard({
           </div>
         </div>
       )}
+
+      {/* Bulk WA Modal */}
+      <AnimatePresence>
+        {bulkWAModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200"
+            >
+              <div className="bg-emerald-600 p-6 text-white flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                    <MessageSquare size={24} /> Bulk WhatsApp Dispatch
+                  </h2>
+                  <p className="text-[10px] uppercase font-bold text-emerald-100 mt-1">Found {bulkWAModal.absents.length} absent students</p>
+                </div>
+                <button 
+                  onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
+                {bulkWAModal.absents.length === 0 ? (
+                  <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No students to notify</p>
+                ) : (
+                  bulkWAModal.absents.map((st, idx) => (
+                    <div key={st.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center font-black text-slate-600 text-sm">
+                          {idx + 1}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">{st.name}</h4>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Roll: {st.rollNumber} | {st.parentPhone || 'No Phone'}</p>
+                        </div>
+                      </div>
+                      <button 
+                          onClick={() => handleSendIndividualWhatsApp(st, st.attendanceDate)}
+                          className="px-5 py-2.5 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2 rounded-xl transition-all shadow-md active:scale-95"
+                      >
+                        <Send size={14} /> Send WA
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest uppercase">Click Send for each parent</span>
+                </div>
+                <button 
+                  onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

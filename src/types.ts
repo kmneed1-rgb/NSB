@@ -64,7 +64,7 @@ export interface Attendance {
   id: string;
   studentId: string;   // References Student.id
   date: string;        // YYYY-MM-DD
-  status: 'present' | 'absent';
+  status: 'present' | 'absent' | 'late' | 'leave';
 }
 
 export interface FeeRecord {

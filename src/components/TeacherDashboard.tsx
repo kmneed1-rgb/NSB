@@ -82,7 +82,8 @@ export default function TeacherDashboard({
   // Fallback class view strictly limited to teacher's classes
   const [activeClassId, setActiveClassId] = useState<string>(classId);
   
-  const viewClassStudents = students.filter(s => activeClassId === 'all' || s.classId === activeClassId);
+  const myClassIds = myClasses.map(c => c.id);
+  const viewClassStudents = students.filter(s => myClassIds.includes(s.classId) && (activeClassId === 'all' || s.id === 'all' || s.classId === activeClassId));
 
   const handleAddCashFee = () => {
     if (!newFeeStudentId || !newFeeAmount) {
@@ -165,9 +166,9 @@ export default function TeacherDashboard({
   const [newPassword, setNewPassword] = useState('');
 
   // ATTENDANCE STATES
-  const [attendanceDate, setAttendanceDate] = useState('2026-06-09'); // Default date based on simulated metadata
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]); // Initialize to current date YYYY-MM-DD
   // Local scratchpad for managing attendance edits before saving
-  const [scratchAttendance, setScratchAttendance] = useState<{ [studentId: string]: 'present' | 'absent' }>({});
+  const [scratchAttendance, setScratchAttendance] = useState<{ [studentId: string]: 'present' | 'absent' | 'late' | 'leave' }>({});
   const [attendanceMode, setAttendanceMode] = useState<'list' | 'swipe'>('list');
   const [activeSwipeIndex, setActiveSwipeIndex] = useState<number>(0);
   const [feeSearch, setFeeSearch] = useState('');
@@ -367,13 +368,21 @@ export default function TeacherDashboard({
   const attendanceStatusList = classesToCheckForReminders.map(cId => {
     const cls = classes.find(item => item.id === cId);
     const classStudents = students.filter(s => s.classId === cId);
-    const marked = classStudents.length > 0 && attendance.some(a => a.date === attendanceDate && classStudents.some(s => s.id === a.studentId));
+    const classAttendanceForDate = attendance.filter(a => a.date === attendanceDate && classStudents.some(s => s.id === a.studentId));
+    const marked = classStudents.length > 0 && classAttendanceForDate.length > 0;
+    
+    // Calculate counts
+    const presentCount = classAttendanceForDate.filter(a => a.status === 'present').length;
+    const absentCount = classAttendanceForDate.filter(a => a.status === 'absent').length;
+
     return {
       classId: cId,
       className: cls ? `${cls.className}-${cls.section}` : 'N/A',
       isMentorClass: cId === classId,
       marked,
-      studentCount: classStudents.length
+      studentCount: classStudents.length,
+      presentCount,
+      absentCount
     };
   });
 
@@ -387,7 +396,7 @@ export default function TeacherDashboard({
     const classStudents = students.filter(s => s.classId === cId);
     const dateAttendance = attendance.filter(a => a.date === date);
     
-    const initialToggles: { [studentId: string]: 'present' | 'absent' } = {};
+    const initialToggles: { [studentId: string]: 'present' | 'absent' | 'late' | 'leave' } = {};
     classStudents.forEach(student => {
       const match = dateAttendance.find(a => a.studentId === student.id);
       // Default to 'present' if not marked, or set stored value
@@ -404,10 +413,10 @@ export default function TeacherDashboard({
     loadAttendanceForDate(dateStr, clsId);
   };
 
-  const handleToggleAttendance = (studentId: string) => {
+  const handleSetStatus = (studentId: string, status: 'present' | 'absent' | 'late' | 'leave') => {
     setScratchAttendance(prev => ({
       ...prev,
-      [studentId]: prev[studentId] === 'present' ? 'absent' : 'present'
+      [studentId]: status
     }));
   };
 
@@ -428,6 +437,7 @@ export default function TeacherDashboard({
     }));
 
     setAttendance([...cleanLogs, ...newLogs]);
+
     toast.success('Attendance logs successfully updated and cached!');
   };
 
@@ -662,10 +672,9 @@ export default function TeacherDashboard({
             {[
               { id: 'dashboard', label: 'Overview', icon: Sparkles },
               { id: 'students', label: 'Roster', icon: Users },
-              { id: 'attendance', label: 'Roll Call', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || classes[0]?.id || '', attendanceDate) },
-              { id: 'marks', label: 'Grading', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
-              { id: 'timetable', label: 'Schedule', icon: Calendar },
-              
+              { id: 'attendance', label: 'Attendance', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || classes[0]?.id || '', attendanceDate) },
+              { id: 'marks', label: 'Marks', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
+              { id: 'timetable', label: 'Time Table', icon: Calendar },
               { id: 'settings', label: 'Settings', icon: Sparkles }
             ].map((item) => (
               <button
@@ -677,7 +686,7 @@ export default function TeacherDashboard({
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all ${
                   activeTab === item.id 
-                    ? 'bg-slate-900 text-white' 
+                    ? 'bg-emerald-600 shadow-lg shadow-emerald-100 text-white' 
                     : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
@@ -857,19 +866,24 @@ export default function TeacherDashboard({
             {/* Header Block */}
             <div className="bg-white rounded-none p-6 md:p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-emerald-600">
               <div>
-                <span className="text-[10px] font-extrabold text-emerald-600 uppercase tracking-widest block mb-1">WELCOME HOME</span>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Bonjour, {userSession.name}!</h1>
-                <p className="text-sm text-slate-500 mt-1 max-w-md">
-                  Active instructional desk serving primary subject: <strong className="text-slate-800">{teacherSubject}</strong>.
-                  {myClasses.some(c => c.classTeacherId === teacherId) ? (
-                    (() => {
-                      const mc = myClasses.find(c => c.classTeacherId === teacherId);
-                      return <span> Serving as primary mentor for class <strong className="text-emerald-700 font-bold">{mc?.className} - {mc?.section}</strong>.</span>;
-                    })()
-                  ) : (
-                    <span className="text-orange-600 font-medium"> Currently not assigned as a dedicated general class mentor.</span>
+                <h1 className="text-xl font-black text-slate-900 tracking-tight font-display uppercase">{userSession.name}</h1>
+                <div className="flex flex-wrap items-center gap-3 mt-2">
+                  <div className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider border border-emerald-100 italic">
+                    Faculty Member
+                  </div>
+                  <div className="w-1 h-1 rounded-full bg-slate-300"></div>
+                  <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">
+                    {teacherSubject}
+                  </span>
+                  {myClasses.some(c => c.classTeacherId === teacherId) && (
+                    <>
+                      <div className="w-1 h-1 rounded-full bg-slate-300"></div>
+                      <span className="text-xs font-bold text-emerald-600 uppercase tracking-tight">
+                        Class Incharge: {myClasses.find(c => c.classTeacherId === teacherId)?.className}
+                      </span>
+                    </>
                   )}
-                </p>
+                </div>
               </div>
 
               {myClasses.some(c => c.classTeacherId === teacherId) && (
@@ -987,7 +1001,17 @@ export default function TeacherDashboard({
                         <ListTodo size={14} className="text-emerald-600" />
                         Today's Attendance Checklist ({attendanceStatusList.length})
                       </h3>
-                      <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Verification Task</span>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          <span className="text-[10px] font-black uppercase text-slate-500">Total P: {attendanceStatusList.reduce((acc, curr) => acc + curr.presentCount, 0)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                          <span className="text-[10px] font-black uppercase text-slate-500">Total A: {attendanceStatusList.reduce((acc, curr) => acc + curr.absentCount, 0)}</span>
+                        </div>
+                        <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Verification Task</span>
+                      </div>
                     </div>
 
                     {attendanceStatusList.length === 0 ? (
@@ -1018,6 +1042,14 @@ export default function TeacherDashboard({
                               </div>
                               <p className="text-[10px] text-slate-500">
                                 Total Pupils: <span className="font-bold text-slate-700">{item.studentCount}</span>
+                                {item.marked && (
+                                  <>
+                                    <span className="mx-1">|</span>
+                                    <span className="text-emerald-600 font-bold">P: {item.presentCount}</span>
+                                    <span className="mx-1">|</span>
+                                    <span className="text-rose-600 font-bold">A: {item.absentCount}</span>
+                                  </>
+                                )}
                               </p>
                             </div>
 
@@ -1063,7 +1095,62 @@ export default function TeacherDashboard({
               </div>
             </div>
 
-            {/* Quick Action shortcuts cards - Geometric bottom border theme */}
+            {/* ========== WEEKLY PERIOD SCHEDULE (HOME TAB) ========== */}
+            <div className="bg-white border border-slate-200 shadow-sm p-6 border-t-4 border-t-amber-500">
+              <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-50 text-amber-600 border border-amber-100">
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider font-display">My Timetable</h2>
+                    <p className="text-[10px] text-slate-500 mt-0.5 uppercase font-bold tracking-widest">Global period view organized by day cards</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                {DAYS.map(day => {
+                  const dayPeriodsInRange = timetable
+                    .filter(tt => tt.teacherId === teacherId && tt.day === day)
+                    .sort((a, b) => PERIODS.indexOf(a.period) - PERIODS.indexOf(b.period));
+                  
+                  if (dayPeriodsInRange.length === 0) return null;
+
+                  return (
+                    <div key={day} className="animate-fade-in">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em] bg-slate-900 text-white px-2 py-0.5">{day}</span>
+                        <div className="h-px flex-1 bg-slate-100"></div>
+                      </div>
+                      <div className="grid grid-cols-2 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                        {dayPeriodsInRange.map((entry) => {
+                          const clsLabel = getClassLabel(entry.classId);
+                          return (
+                            <div key={entry.id} className="bg-white border border-slate-200 p-3 shadow-xs hover:border-amber-300 transition-colors flex flex-col justify-between group">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-tighter bg-amber-50 px-1 border border-amber-100">
+                                  {entry.period}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black text-slate-900 leading-tight group-hover:text-amber-700 transition-colors uppercase italic">{entry.subject}</p>
+                                <p className="text-[8px] text-slate-500 font-bold uppercase tracking-tight mt-0.5">{clsLabel}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {timetable.filter(tt => tt.teacherId === teacherId).length === 0 && (
+                  <div className="py-12 text-center">
+                    <p className="text-xs font-bold text-slate-400 uppercase italic">No sessions assigned in global timetable yet.</p>
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6">
               
               <div 
@@ -1202,7 +1289,7 @@ export default function TeacherDashboard({
                   onChange={(e) => setActiveClassId(e.target.value)}
                   className="px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-700 focus:outline-none"
                 >
-                  {classes.map(cl => (
+                  {myClasses.map(cl => (
                     <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
                   ))}
                 </select>
@@ -1348,7 +1435,6 @@ export default function TeacherDashboard({
                       <tr className="border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50">
                         <th className="px-6 py-4 w-28">Roll #</th>
                         <th className="px-6 py-4">Student Profile</th>
-                        <th className="px-6 py-4">Calendar Index</th>
                         <th className="px-6 py-4 text-center">Status Toggle</th>
                       </tr>
                     </thead>
@@ -1360,26 +1446,51 @@ export default function TeacherDashboard({
                             <tr key={student.id} className="hover:bg-gray-50/20">
                               <td className="px-6 py-4 font-mono text-gray-700 font-bold">#{student.rollNumber}</td>
                               <td className="px-6 py-4">
-                                <span className="font-semibold text-slate-900 block">{student.name}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-900 block">{student.name}</span>
+                                  {(() => {
+                                    const studentFees = fees.filter(f => f.studentId === student.id);
+                                    const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
+                                    const isPaid = totalPaid >= 5000; // Assuming 5000 is the target for this month
+                                    return (
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActiveTab('fees');
+                                        }}
+                                        className={`px-1.5 py-0.5 rounded-none text-[7px] font-black uppercase tracking-tighter border transition-all ${
+                                          isPaid 
+                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                            : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
+                                        }`}
+                                      >
+                                        {isPaid ? 'Fee Paid' : 'Fee Pending'}
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
                                 <span className="text-[10px] text-gray-400 font-mono">{student.email}</span>
                               </td>
-                              <td className="px-6 py-4 text-xs font-bold text-gray-600">
-                                {attendanceDate}
-                              </td>
                               <td className="px-6 py-4">
-                                <div className="flex items-center justify-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleAttendance(student.id)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-sm transition-all ${
-                                      status === 'present'
-                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/60'
-                                        : 'bg-red-100 text-red-800 border border-red-200/60'
-                                    }`}
-                                  >
-                                    {status === 'present' ? <UserCheck size={13} /> : <UserX size={13} />}
-                                    {status.toUpperCase()}
-                                  </button>
+                                <div className="flex items-center justify-center gap-1.5 p-1 bg-gray-100/50 rounded-xl">
+                                  {(['present', 'absent', 'late', 'leave'] as const).map((st) => (
+                                    <button
+                                      key={st}
+                                      type="button"
+                                      onClick={() => handleSetStatus(student.id, st)}
+                                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                        status === st
+                                          ? st === 'present' ? 'bg-emerald-600 text-white shadow-md' :
+                                            st === 'absent' ? 'bg-rose-600 text-white shadow-md' :
+                                            st === 'late' ? 'bg-amber-500 text-white shadow-md' :
+                                            'bg-indigo-600 text-white shadow-md'
+                                          : 'text-gray-400 hover:text-gray-900 hover:bg-white'
+                                      }`}
+                                    >
+                                      {st === 'present' ? 'P' : st === 'absent' ? 'A' : st === 'late' ? 'L' : 'LV'}
+                                    </button>
+                                  ))}
                                 </div>
                               </td>
                             </tr>
@@ -1387,7 +1498,7 @@ export default function TeacherDashboard({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={4} className="px-6 py-12 text-center text-gray-400 text-sm italic font-medium">
+                          <td colSpan={3} className="px-6 py-12 text-center text-gray-400 text-sm italic font-medium">
                             No student profiles enrolled inside the class scope.
                           </td>
                         </tr>
@@ -1471,6 +1582,29 @@ export default function TeacherDashboard({
                                     </div>
                                     <h3 className="text-lg font-black text-slate-900 tracking-tight font-display uppercase leading-tight">{currentStudent.name}</h3>
                                     <p className="text-xs text-slate-400 font-mono mt-1">{currentStudent.email}</p>
+                                    <div className="mt-4 flex justify-center">
+                                      {(() => {
+                                        const studentFees = fees.filter(f => f.studentId === currentStudent.id);
+                                        const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
+                                        const isPaid = totalPaid >= 5000;
+                                        return (
+                                          <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveTab('fees');
+                                            }}
+                                            className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest border transition-all ${
+                                              isPaid 
+                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                                : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
+                                            }`}
+                                          >
+                                            {isPaid ? 'Verification: Paid' : 'Verification: Pending'}
+                                          </button>
+                                        );
+                                      })()}
+                                    </div>
                                   </div>
                                 </div>
 
@@ -1489,39 +1623,34 @@ export default function TeacherDashboard({
                           </div>
 
                           {/* Quick swipe controls */}
-                          <div className="flex items-center justify-between gap-3 font-sans">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setScratchAttendance(prev => ({ ...prev, [currentStudent.id]: 'absent' }));
-                                setActiveSwipeIndex(idx => idx + 1);
-                              }}
-                              className="flex-1 py-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold tracking-wider uppercase text-center rounded-none transition-all cursor-pointer"
-                            >
-                              ABSENT &larr;
-                            </button>
-                            
+                          <div className="grid grid-cols-2 gap-2 w-full font-sans">
+                            {(['present', 'absent', 'late', 'leave'] as const).map((st) => (
+                              <button
+                                key={st}
+                                type="button"
+                                onClick={() => {
+                                  handleSetStatus(currentStudent.id, st);
+                                  setActiveSwipeIndex(idx => idx + 1);
+                                }}
+                                className={`py-3 text-[10px] font-black tracking-widest uppercase text-center rounded-xl transition-all border shadow-sm ${
+                                  st === 'present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white' :
+                                  st === 'absent' ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-600 hover:text-white' :
+                                  st === 'late' ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-600 hover:text-white' :
+                                  'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
+                                }`}
+                              >
+                                {st} {st === 'present' ? '✅' : st === 'absent' ? '❌' : st === 'late' ? '⏰' : '📄'}
+                              </button>
+                            ))}
                             <button
                               type="button"
                               onClick={() => {
                                 if (activeSwipeIndex > 0) setActiveSwipeIndex(idx => idx - 1);
                               }}
                               disabled={activeSwipeIndex === 0}
-                              className="px-3.5 py-3 bg-slate-100 text-slate-500 hover:bg-slate-200 border border-slate-200 text-xs font-bold uppercase disabled:opacity-40 rounded-none cursor-pointer"
-                              title="Rewind Card"
+                              className="col-span-2 py-2.5 bg-slate-50 text-slate-500 hover:bg-slate-200 border border-slate-200 text-[10px] font-black uppercase tracking-widest disabled:opacity-40 rounded-xl cursor-pointer mt-2"
                             >
-                              ⏪ Back
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setScratchAttendance(prev => ({ ...prev, [currentStudent.id]: 'present' }));
-                                setActiveSwipeIndex(idx => idx + 1);
-                              }}
-                              className="flex-1 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold tracking-wider uppercase text-center rounded-none transition-all cursor-pointer"
-                            >
-                              PRESENT &rarr;
+                              ⏪ Rewind Previous Student
                             </button>
                           </div>
                         </div>
@@ -1595,52 +1724,25 @@ export default function TeacherDashboard({
                       </p>
                     </div>
                     {absentsList.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          toast.success(`Autopilot Rule Executed: SMS/WhatsApp broadcast initiated successfully for ${absentsList.length} absent students!`);
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase py-2 px-3 tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        ⚡ Simulate Autopilot Blast ({absentsList.length} parents)
-                      </button>
+                      <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 flex items-center gap-2">
+                         <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Read-Only View</span>
+                         <p className="text-[9px] text-slate-400 font-bold uppercase italic">Absence alerts must be approved and dispatched by the school coordinator.</p>
+                      </div>
                     )}
                   </div>
 
                   {absentsList.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {absentsList.map(st => {
-                        const localTpl = localStorage.getItem('acadamis_custom_absent_template') || 
-                          "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.";
-                        const messageText = localTpl
-                          .replace(/{student_name}/g, st.name)
-                          .replace(/{roll_number}/g, st.rollNumber || '')
-                          .replace(/{date}/g, attendanceDate);
                         return (
-                          <div key={st.id} className="bg-white/5 border border-white/10 p-3.5 space-y-2.5 flex flex-col justify-between">
-                            <div>
-                              <div className="flex justify-between items-start">
-                                <h4 className="text-xs font-bold text-white uppercase">{st.name}</h4>
-                                <span className="text-[9px] font-mono text-indigo-300 font-bold">Roll: #{st.rollNumber}</span>
-                              </div>
-                              <p className="text-[10px] text-slate-300 font-mono italic mt-1 bg-white/[0.03] p-1.5 border border-white/5 line-clamp-2">
-                                "{messageText}"
-                              </p>
+                          <div key={st.id} className="bg-white/5 border border-white/10 p-3.5 space-y-2 flex flex-col">
+                            <div className="flex justify-between items-start border-b border-white/5 pb-2">
+                              <h4 className="text-xs font-bold text-white uppercase">{st.name}</h4>
+                              <span className="text-[9px] font-mono text-indigo-300 font-bold bg-indigo-500/10 px-1.5">Roll: #{st.rollNumber}</span>
                             </div>
-
-                            <div className="flex justify-between items-center pt-2.5 border-t border-white/10">
-                              <span className="text-[9px] font-mono text-emerald-400">📲 {st.parentPhone || '0300-1112222'}</span>
-                              <a
-                                href={`https://api.whatsapp.com/send?phone=${st.parentPhone || '923001234567'}&text=${encodeURIComponent(messageText)}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => {
-                                  toast.info(`Direct WhatsApp communication opened with ${st.name}'s parent!`);
-                                }}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[9px] px-2.5 py-1 uppercase flex items-center gap-1 transition-all"
-                              >
-                                💬 WA Send
-                              </a>
+                            <div className="pt-1">
+                              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Parent Name</p>
+                              <p className="text-[10px] text-emerald-400 font-bold uppercase mt-0.5">{st.guardianName || 'Guardian'}</p>
                             </div>
                           </div>
                         );
@@ -1862,55 +1964,6 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                       </table>
                     </div>
                   </div>
-
-                  {/* ========== WHATSAPP REPORT CARD BROADCASTER ========== */}
-                  {reportSubjectsList.length > 0 && (
-                    <div className="bg-gradient-to-br from-slate-950 to-indigo-900 text-white p-6 rounded-2xl border border-indigo-500/30 shadow-lg mt-8 space-y-4 font-sans">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                        <div>
-                          <h3 className="text-sm font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2 font-display">
-                            <span>📊</span> WhatsApp Report Dispatch
-                          </h3>
-                          <p className="text-[11px] text-indigo-200 mt-1">
-                            Review and dispatch the compiled scorecard directly to ${student.name}'s parents via WhatsApp.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const parentPhone = student.parentPhone || student.studentPhone || '';
-                            const cleanPhone = parentPhone.replace(/\D/g, '');
-                            if (!cleanPhone) {
-                              toast.error(`No parent phone number found for ${student.name}. Please add it in Principal dashboard.`);
-                              return;
-                            }
-                            // Form wa.me link. Use the first digits. Usually in Pakistan we add 92 if not present, but letting pure digits work.
-                            let countryCodePhone = cleanPhone;
-                            if (countryCodePhone.startsWith('0')) {
-                              countryCodePhone = '92' + countryCodePhone.substring(1);
-                            } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
-                               countryCodePhone = '92' + countryCodePhone;
-                            }
-                            
-                            const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(whatsappText)}`;
-                            window.open(waUrl, '_blank');
-                            toast.success(`Opening WhatsApp for ${student.name}`);
-                          }}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black uppercase py-2 px-4 rounded-xl tracking-wider flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-emerald-900/50"
-                        >
-                          <Send size={14} />
-                          Send to WhatsApp
-                        </button>
-                      </div>
-
-                      <div className="bg-white/10 backdrop-blur-sm border border-white/10 p-4 rounded-xl space-y-3 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-                        <div className="flex whitespace-pre-wrap text-sm text-indigo-50 font-medium leading-relaxed font-mono">
-                          {whatsappText}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })() : (
@@ -2029,6 +2082,91 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
         )}
 
         {/* ========== SETTINGS TAB (CHANGE ID/PASSWORD) ========== */}
+        {/* ========== FEES & FINANCIAL HUB PANEL ========== */}
+        {activeTab === 'fees' && (
+          <div id="panel-teacher-fees" className="space-y-6 animate-fade-in bg-slate-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-100 shadow-inner">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase italic">Ledger & Financials</h1>
+                <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest font-bold">Class Fee Tracking & Collection Status (Digital Registrar)</p>
+              </div>
+              <button
+                onClick={() => setShowAddFeeModal(true)}
+                className="px-6 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200"
+              >
+                <Plus size={14} /> Record Cash Collection
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-6 border border-slate-100 shadow-sm rounded-none">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 italic">Total Expected</p>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tighter">
+                  Rs. {students.length * 5500}
+                </h3>
+              </div>
+              <div className="bg-white p-6 border border-emerald-100 shadow-sm rounded-none">
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1 italic">Cash Collected</p>
+                <h3 className="text-2xl font-black text-emerald-700 tracking-tighter">
+                  Rs. {fees.reduce((acc, curr) => acc + curr.amount, 0)}
+                </h3>
+              </div>
+              <div className="bg-white p-6 border border-amber-100 shadow-sm rounded-none">
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 italic">Pending Dues</p>
+                <h3 className="text-2xl font-black text-amber-700 tracking-tighter">
+                  Rs. {(students.length * 5500) - fees.reduce((acc, curr) => acc + curr.amount, 0)}
+                </h3>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                  <CreditCard size={14} className="text-emerald-600" /> Recent Collection Ledger
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-400">
+                    <tr>
+                      <th className="px-6 py-4">Transaction ID</th>
+                      <th className="px-6 py-4">Student Profile</th>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Amount</th>
+                      <th className="px-6 py-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-[11px]">
+                    {fees.length > 0 ? (
+                      fees.slice().reverse().map(fee => {
+                        const student = students.find(s => s.id === fee.studentId);
+                        return (
+                          <tr key={fee.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 font-mono font-bold text-slate-400">#{fee.id.slice(-6)}</td>
+                            <td className="px-6 py-4">
+                              <span className="font-black text-slate-900 block tracking-tight uppercase italic">{student?.name || 'Unknown student'}</span>
+                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">Roll #{student?.rollNumber}</span>
+                            </td>
+                            <td className="px-6 py-4 text-slate-500 font-bold tracking-widest text-[10px]">{fee.paidDate || fee.month}</td>
+                            <td className="px-6 py-4 text-emerald-600 font-black tracking-tighter text-sm">Rs. {fee.amount}</td>
+                            <td className="px-6 py-4 uppercase">
+                              <span className="bg-emerald-50 text-emerald-600 px-2 py-1 text-[8px] font-black tracking-widest border border-emerald-100">Verified</span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic font-bold uppercase tracking-widest text-[10px]">No collection records found in active period</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'settings' && (
           <div id="panel-teacher-settings" className="space-y-8 animate-fade-in bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
             <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
@@ -2189,199 +2327,24 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
             <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Pupils</span>
           </button>
 
+          <button
+            id="mobile-nav-attendance"
+            onClick={() => { setActiveTab('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
+              activeTab === 'attendance' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <CheckSquare size={18} />
+            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Attendance</span>
+          </button>
+
           
 
         </div>
       </div>
 
-      {/* Add Cash Fee Modal */}
-      <AnimatePresence>
-        {showAddFeeModal && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-md border border-slate-200 p-8 shadow-2xl relative"
-            >
-              <button 
-                onClick={() => setShowAddFeeModal(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-900"
-              >
-                <X size={20} />
-              </button>
-
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-emerald-50 rounded-none border border-emerald-100/60">
-                  <CreditCard size={20} className="text-emerald-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black uppercase tracking-tight text-slate-900">Add Cash Collection</h2>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest tracking-[0.2em]">Quick Ledger Entry (Cash Collection)</p>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Select Student</label>
-                  <select 
-                    value={newFeeStudentId}
-                    onChange={(e) => {
-                      const sid = e.target.value;
-                      setNewFeeStudentId(sid);
-                      if (sid) {
-                        const student = students.find(s => s.id === sid);
-                        const arrears = fees
-                          .filter(f => f.studentId === sid && f.status === 'unpaid')
-                          .reduce((sum, f) => sum + f.amount, 0);
-                        const base = student?.baseFee || 500;
-                        setNewFeeAmount((base + arrears).toString());
-                        setAmountCollected((base + arrears).toString());
-                      }
-                    }}
-                    className="w-full bg-white border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="">-- Select Pupil --</option>
-                    {viewClassStudents.map(s => {
-                      const studentArrears = fees
-                        .filter(f => f.studentId === s.id && f.status === 'unpaid')
-                        .reduce((sum, f) => sum + f.amount, 0);
-                      return (
-                        <option key={s.id} value={s.id}>
-                          {s.name} (Roll: #{s.rollNumber}) {studentArrears > 0 ? `| Arrears: ${studentArrears}` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5 col-span-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block leading-none mb-1">Voucher Amount (Total Amount)</label>
-                    <div className="flex gap-2 mb-2">
-                      {[500, 400, 300].map(amt => (
-                        <button
-                          key={amt}
-                          onClick={() => setNewFeeAmount(amt.toString())}
-                          className="px-2 py-1 bg-slate-100 hover:bg-slate-900 hover:text-white transition-all text-[9px] font-black rounded-lg border border-slate-200"
-                        >
-                          {amt}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-mono text-xs font-bold">Rs.</span>
-                      <input 
-                        type="number"
-                        value={newFeeAmount}
-                        onChange={(e) => setNewFeeAmount(e.target.value)}
-                        placeholder="e.g. 500"
-                        className="w-full pl-7 pr-3 py-2 bg-white border border-slate-200 text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500" 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 col-span-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block leading-none mb-1 italic">Cash Collected (Received)</label>
-                    <div className="flex gap-2 mb-2">
-                      {newFeeAmount && [newFeeAmount, (Number(newFeeAmount)/2).toString()].map(amt => (
-                        <button
-                          key={amt}
-                          onClick={() => setAmountCollected(amt.toString())}
-                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-600 hover:text-white transition-all text-[9px] font-black text-emerald-700 rounded-lg border border-emerald-100"
-                        >
-                          Recovered ${amt}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-emerald-500 font-mono text-xs font-bold">Rs.</span>
-                      <input 
-                        type="number"
-                        value={amountCollected}
-                        onChange={(e) => setAmountCollected(e.target.value)}
-                        placeholder="Full amount?"
-                        className="w-full pl-7 pr-3 py-2 bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 focus:outline-none focus:border-emerald-600 placeholder:text-emerald-300" 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Month</label>
-                    <select 
-                      value={newFeeMonth}
-                      onChange={(e) => setNewFeeMonth(e.target.value)}
-                      className="w-full bg-white border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
-                    >
-                      {['June 2026', 'July 2026', 'August 2026', 'September 2026'].map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Fee Category</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        'Tuition Fee', 
-                        'Pending Balance', 
-                        ...(classes.find(c => c.id === activeClassId)?.feeConfigs?.map(cc => cc.name) || ['Paper Fund'])
-                      ].filter((v, i, a) => a.indexOf(v) === i).map(cat => {
-                        const curCls = classes.find(c => c.id === activeClassId);
-                        let displayAmount = '';
-                        if (cat === 'Tuition Fee') {
-                          const student = students.find(s => s.id === newFeeStudentId);
-                          displayAmount = student?.baseFee ? String(student.baseFee) : '1500';
-                        } else {
-                          const config = curCls?.feeConfigs?.find(cc => cc.name === cat);
-                          if (config) displayAmount = String(config.amount);
-                          else if (cat === 'Paper Fund') displayAmount = '150';
-                          else if (cat === 'Pending Balance') displayAmount = '500';
-                        }
-                        
-                        const isSelected = newFeeType === cat;
-
-                        return (
-                          <button
-                            key={cat}
-                            type="button"
-                            onClick={() => {
-                              if (isSelected) {
-                                setNewFeeType('');
-                                setNewFeeAmount('');
-                              } else {
-                                setNewFeeType(cat);
-                                if (displayAmount) setNewFeeAmount(displayAmount);
-                              }
-                            }}
-                            className={`py-2 px-3 border text-[10px] uppercase font-black tracking-wider transition-all text-left rounded-sm cursor-pointer flex justify-between items-center ${
-                              isSelected 
-                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs' 
-                                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                            }`}
-                          >
-                            <span>{cat}</span>
-                            {displayAmount && <span className="text-[8px] opacity-70">Rs. {displayAmount}</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleAddCashFee}
-                  className="w-full bg-slate-900 text-white font-black uppercase tracking-widest py-3 mt-2 hover:bg-emerald-600 transition-all text-xs flex items-center justify-center gap-2"
-                >
-                  <CheckCircle2 size={16} />
-                  Record Collection
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
+      {/* Removed fee collection for teachers per principal request */}
+      
       {/* Student Profile & Direct Mark Management Modal */}
       <AnimatePresence>
         {showProfileModal && selectedStudentProfile && (
@@ -2615,7 +2578,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -2626,15 +2589,6 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                 >
                   Copy Text
                 </button>
-                <a
-                  href={`https://api.whatsapp.com/send?phone=${feeNotificationPopup.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(feeNotificationPopup.messageText)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-3 bg-emerald-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2"
-                >
-                  <Phone size={14} fill="currentColor" />
-                  WA Receipt
-                </a>
               </div>
             </div>
 
