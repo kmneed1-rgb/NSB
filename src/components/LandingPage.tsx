@@ -87,12 +87,12 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-50 rounded-full blur-[100px] opacity-40"></div>
         </div>
 
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
+        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center text-center">
           <motion.div 
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="space-y-10 text-center lg:text-left"
+            className="space-y-10 max-w-4xl w-full"
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-full">
               <Sparkles className="w-4 h-4 text-indigo-600" />
@@ -108,7 +108,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
               NSB1 School & Academy delivers first-class academic excellence in Gujranwala. We combine digital portal efficiency with rigorous traditional standards to prepare the next generation.
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center lg:justify-start">
+            <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -126,34 +126,6 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                 View Streams
               </motion.a>
             </div>
-          </motion.div>
-
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 1 }}
-            className="relative flex items-center justify-center p-8 bg-slate-50 border border-slate-100 rounded-3xl"
-          >
-            <img 
-              src="/logo.png" 
-              alt="NSB 1 ACADEMY LOGO" 
-              className="max-w-[280px] lg:max-w-[360px] w-full h-auto object-contain drop-shadow-2xl opacity-90"
-              referrerPolicy="no-referrer"
-            />
-            {/* Decorative Floating Card */}
-            <motion.div 
-              animate={{ y: [0, -10, 0] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-              className="absolute -top-4 -right-4 bg-white p-4 shadow-xl border border-slate-100 rounded-xl hidden sm:block"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg"><CheckCircle2 size={20}/></div>
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Status</div>
-                  <div className="text-xs font-black text-slate-900 uppercase">Admissions Open</div>
-                </div>
-              </div>
-            </motion.div>
           </motion.div>
         </div>
       </section>

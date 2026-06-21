@@ -2380,7 +2380,20 @@ export default function PrincipalDashboard({
                         className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 text-[11px] font-black uppercase tracking-widest focus:outline-none focus:border-emerald-500 rounded-xl appearance-none"
                       >
                         <option value="all">All Classes</option>
-                        {classes.map(c => <option key={c.id} value={c.id}>{c.className} - {c.section}</option>)}
+                        {classes.map(c => {
+                          const classStudentIds = students.filter(s => s.classId === c.id).map(s => s.id);
+                          const isMarked = attendance.some(a => a.date === attendanceFilterDate && classStudentIds.includes(a.studentId));
+                          return (
+                            <option 
+                              key={c.id} 
+                              value={c.id}
+                              style={{ color: isMarked ? '#059669' : '#e11d48' }}
+                              className={isMarked ? 'text-emerald-600' : 'text-rose-600'}
+                            >
+                              {c.className} - {c.section} {isMarked ? '✓' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   </div>
