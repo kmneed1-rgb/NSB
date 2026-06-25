@@ -3,7 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send, Zap } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -20,6 +20,10 @@ import {
   getGlobalStats, 
   loadFromLocalStorage, 
   saveToLocalStorage, 
+  deleteOtherFund,
+  editOtherFund,
+  deletePayment,
+  editPayment,
   StudentFeeData, 
   MONTHS 
 } from '../lib/feeEngine';
@@ -251,8 +255,75 @@ export default function PrincipalDashboard({
     }
 
     const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(message)}`;
-    window.open(waUrl, '_blank');
-    toast.success(`Opening WhatsApp for ${student.name}'s parent`);
+    
+    if (autoWhatsAppRedirect) {
+      window.open(waUrl, '_blank');
+      toast.success(`Opening WhatsApp for ${student.name}'s parent`);
+    } else {
+      toast(
+        (t) => (
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold">Message ready for {student.name}</span>
+            <button 
+              onClick={() => {
+                window.open(waUrl, '_blank');
+                toast.dismiss(t.id);
+              }}
+              className="bg-emerald-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase"
+            >
+              Send
+            </button>
+          </div>
+        ),
+        { duration: 6000 }
+      );
+    }
+  };
+
+  const handleSendFeeNotification = (student: Student, type: 'payment' | 'charge', amount: number, details: string) => {
+    const template = type === 'payment' 
+      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name}. Thank you for your cooperation. NSB 1 Academy.`
+      : `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s school account. Please contact office for details. NSB 1 Academy.`;
+    
+    const phone = student.parentPhone || student.studentPhone || '';
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    if (!cleanPhone) {
+      toast.error(`No phone number found for ${student.name}. Notification skipped.`);
+      return;
+    }
+
+    let countryCodePhone = cleanPhone;
+    if (countryCodePhone.startsWith('0')) {
+      countryCodePhone = '92' + countryCodePhone.substring(1);
+    } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
+      countryCodePhone = '92' + countryCodePhone;
+    }
+
+    const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(template)}`;
+    
+    if (autoWhatsAppRedirect) {
+      window.open(waUrl, '_blank');
+      toast.success(`Opening WhatsApp for ${student.name}'s fee notification`);
+    } else {
+      toast(
+        (t) => (
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold">Fee alert ready for {student.name}</span>
+            <button 
+              onClick={() => {
+                window.open(waUrl, '_blank');
+                toast.dismiss(t.id);
+              }}
+              className="bg-indigo-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase"
+            >
+              Send
+            </button>
+          </div>
+        ),
+        { duration: 6000 }
+      );
+    }
   };
 
   const [bulkWAModal, setBulkWAModal] = useState<{ isOpen: boolean; absents: (Student & { attendanceDate: string })[] }>({ isOpen: false, absents: [] });
@@ -313,6 +384,8 @@ export default function PrincipalDashboard({
   
   const [feePaymentModal, setFeePaymentModal] = useState<{isOpen: boolean; studentId: string; month: string; pending: number; previousArrears: number; amount: string; year: number}>({ isOpen: false, studentId: '', month: '', pending: 0, previousArrears: 0, amount: '', year: 2026 });
   
+  const [feeEditModal, setFeeEditModal] = useState<{isOpen: boolean; type: 'payment' | 'other'; recordId: string; studentId: string; amount: string; desc: string}>({ isOpen: false, type: 'payment', recordId: '', studentId: '', amount: '', desc: '' });
+
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean, type: string, id: string, message: string}>({ isOpen: false, type: '', id: '', message: '' });
 
   // SATH HI Parent Notification Popup / Modal states
@@ -351,6 +424,9 @@ export default function PrincipalDashboard({
   const [whatsAppAutoFee, setWhatsAppAutoFee] = useState(true);
   const [whatsAppAutoAbsence, setWhatsAppAutoAbsence] = useState(true);
   const [whatsAppAutoResult, setWhatsAppAutoResult] = useState(false);
+  const [autoWhatsAppRedirect, setAutoWhatsAppRedirect] = useState(() => {
+    return localStorage.getItem('nsb_auto_wa_redirect') !== 'false';
+  });
 
   // Customizable SMS / WhatsApp Templates
   const [absentTemplate, setAbsentTemplate] = useState<string>(() => {
@@ -2474,7 +2550,7 @@ export default function PrincipalDashboard({
                              const st = students.find(s => s.id === acc.studentId);
                              if (!st) return null;
                              return (
-                               <div key={st.id} className="group bg-white border border-rose-100 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm hover:border-rose-400 transition-all">
+                               <div key={acc.id} className="group bg-white border border-rose-100 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm hover:border-rose-400 transition-all">
                                  <span className="text-[10px] font-black text-slate-900 uppercase italic">{st.name}</span>
                                  <button 
                                    onClick={() => handleSendIndividualWhatsApp(st, acc.date)}
@@ -2644,8 +2720,8 @@ export default function PrincipalDashboard({
                     onChange={(e) => setFeeClassFilter(e.target.value)}
                   >
                     <option value="all">All Classes</option>
-                    {Array.from(new Set(feeStudents.map(s => s.class))).map(c => (
-                      <option key={c} value={c}>{c}</option>
+                    {Array.from(new Set(feeStudents.map(s => s.class))).filter(Boolean).map(c => (
+                      <option key={String(c)} value={String(c)}>{String(c)}</option>
                     ))}
                   </select>
                   <select
@@ -2709,6 +2785,7 @@ export default function PrincipalDashboard({
                           if (!desc || amt <= 0) { toast.error("Enter valid details"); return; }
                           
                           setFeeStudents(prev => addOtherFund(prev, student.id, desc, amt));
+                          handleSendFeeNotification(student, 'charge', amt, desc);
                           (document.getElementById('otherDesc') as HTMLInputElement).value = '';
                           (document.getElementById('otherAmt') as HTMLInputElement).value = '';
                           toast.success("Other fund entry added!");
@@ -2836,16 +2913,85 @@ export default function PrincipalDashboard({
                       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                         <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2">Other Funds Entries</h3>
                         <div className="h-40 overflow-y-auto custom-scrollbar space-y-2">
-                          {account.otherFunds.length > 0 ? account.otherFunds.map((f, i) => (
-                            <div key={i} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100">
-                              <div>
+                          {account.otherFunds.length > 0 ? account.otherFunds.map((f) => (
+                            <div key={f.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100 group">
+                              <div className="flex-1">
                                 <p className="text-xs font-black text-slate-800 capitalize">{f.desc}</p>
                                 <p className="text-[9px] text-slate-400 font-bold">{f.date}</p>
                               </div>
-                              <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                    onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: f.id, studentId: String(student.id), amount: String(f.amount), desc: f.desc })}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      if(window.confirm("Delete this entry?")) {
+                                        setFeeStudents(prev => deleteOtherFund(prev, student.id, f.id));
+                                        toast.success("Entry deleted");
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           )) : (
                             <div className="h-full flex items-center justify-center text-[10px] text-slate-300 font-bold italic uppercase">No extra entries found</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Payment Transactions History (Monthly Fees) */}
+                      <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-indigo-600 tracking-widest border-b pb-2 flex justify-between items-center">
+                          Monthly Fee Payment History
+                          <span className="text-[9px] text-slate-400 font-bold italic">Latest transactions first</span>
+                        </h3>
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2">
+                          {student.payments && student.payments.length > 0 ? student.payments.slice().reverse().map((p) => (
+                            <div key={p.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100 group">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-black text-slate-900 uppercase italic">{p.month} {p.year}</span>
+                                  <span className="text-[8px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Fee</span>
+                                </div>
+                                <p className="text-[9px] text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-black text-emerald-600">Rs. {p.amount}</span>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                    onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}` })}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      if(window.confirm("Delete this payment record?")) {
+                                        setFeeStudents(prev => deletePayment(prev, student.id, p.id));
+                                        toast.success("Payment deleted");
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="py-10 flex flex-col items-center justify-center text-slate-300 gap-2">
+                              <CreditCard size={24} />
+                              <p className="text-[10px] font-black uppercase tracking-widest">No payment records found</p>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -3255,6 +3401,25 @@ export default function PrincipalDashboard({
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-slate-50 p-5 border border-slate-200 space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-white border border-slate-200 ring-2 ring-emerald-500/20">
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-black uppercase text-indigo-600 flex items-center gap-1">
+                            <Zap size={10} /> Auto-Redirect WhatsApp
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Open WA tab automatically</p>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const next = !autoWhatsAppRedirect;
+                            setAutoWhatsAppRedirect(next);
+                            localStorage.setItem('nsb_auto_wa_redirect', String(next));
+                          }}
+                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-all duration-300 ${autoWhatsAppRedirect ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        >
+                          <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-300 ${autoWhatsAppRedirect ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                        </button>
+                      </div>
+
                       <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-black uppercase text-slate-800">Fee Auto-Reminders</p>
@@ -4575,6 +4740,8 @@ export default function PrincipalDashboard({
                     const amt = Number(feePaymentModal.amount);
                     if (amt !== 0) {
                       setFeeStudents(prev => addPayment(prev, feePaymentModal.studentId, feePaymentModal.month, feePaymentModal.year, amt));
+                      const studentObj = students.find(s => String(s.id) === String(feePaymentModal.studentId));
+                      if (studentObj) handleSendFeeNotification(studentObj, 'payment', amt, `${feePaymentModal.month} ${feePaymentModal.year}`);
                       setFeePaymentModal({ ...feePaymentModal, isOpen: false });
                       toast.success(`Payment transaction of Rs. ${amt} recorded for ${feePaymentModal.month}`);
                     } else {
@@ -4584,6 +4751,74 @@ export default function PrincipalDashboard({
                   className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2"
                 >
                   Confirm Payment
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========== FEE RECORD EDIT MODAL ========== */}
+      {feeEditModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-[110] overflow-y-auto animate-fade-in animate-duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-8 border border-slate-200 animate-scale-up">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Edit {feeEditModal.type === 'payment' ? 'Payment' : 'Other Fund'} Record</h3>
+              <button 
+                onClick={() => setFeeEditModal({ ...feeEditModal, isOpen: false })}
+                className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {feeEditModal.type === 'other' && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</label>
+                  <input 
+                    type="text"
+                    value={feeEditModal.desc}
+                    onChange={(e) => setFeeEditModal({ ...feeEditModal, desc: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 transition-colors outline-none"
+                  />
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount (Rs.)</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm">Rs.</span>
+                  <input 
+                    type="number"
+                    value={feeEditModal.amount}
+                    onChange={(e) => setFeeEditModal({ ...feeEditModal, amount: e.target.value })}
+                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xl font-black text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 transition-colors outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex flex-col gap-3">
+                <button 
+                  onClick={() => {
+                    const amt = Number(feeEditModal.amount);
+                    if (feeEditModal.type === 'payment') {
+                      setFeeStudents(prev => editPayment(prev, feeEditModal.studentId, feeEditModal.recordId, amt));
+                    } else {
+                      setFeeStudents(prev => editOtherFund(prev, feeEditModal.studentId, feeEditModal.recordId, feeEditModal.desc, amt));
+                    }
+                    setFeeEditModal({ ...feeEditModal, isOpen: false });
+                    toast.success("Record updated successfully!");
+                  }}
+                  className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2"
+                >
+                  <Save size={16} /> Save Changes
+                </button>
+                <button 
+                  onClick={() => setFeeEditModal({ ...feeEditModal, isOpen: false })}
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest rounded-xl transition-all flex justify-center items-center"
+                >
+                  Cancel
                 </button>
               </div>
             </div>
@@ -4621,7 +4856,7 @@ export default function PrincipalDashboard({
                   <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No students to notify</p>
                 ) : (
                   bulkWAModal.absents.map((st, idx) => (
-                    <div key={st.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
+                    <div key={st.id || idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center font-black text-slate-600 text-sm">
                           {idx + 1}

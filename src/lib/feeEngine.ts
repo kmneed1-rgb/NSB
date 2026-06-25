@@ -1,5 +1,6 @@
 
 export interface Payment {
+  id: string;
   month: string;
   year: number;
   amount: number;
@@ -7,6 +8,7 @@ export interface Payment {
 }
 
 export interface OtherFund {
+  id: string;
   desc: string;
   amount: number;
   date: string;
@@ -41,17 +43,47 @@ export const addPayment = (students: StudentFeeData[], studentId: string | numbe
         if (!m.isFutureMonth && m.pending > 0 && remainingAmount > 0) {
           const toPay = Math.min(m.pending, remainingAmount);
           remainingAmount -= toPay;
-          newPayments.push({ month: m.month, year, amount: toPay, date });
+          newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: m.month, year, amount: toPay, date });
         }
       }
       
       if (remainingAmount > 0) {
-         newPayments.push({ month: targetMonth, year, amount: remainingAmount, date });
+         newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: targetMonth, year, amount: remainingAmount, date });
       }
 
       return {
         ...s,
         payments: newPayments
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 1.1 deletePayment
+export const deletePayment = (students: StudentFeeData[], studentId: string | number, paymentId: string): StudentFeeData[] => {
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        payments: s.payments.filter(p => p.id !== paymentId)
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 1.2 editPayment
+export const editPayment = (students: StudentFeeData[], studentId: string | number, paymentId: string, newAmount: number): StudentFeeData[] => {
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        payments: s.payments.map(p => p.id === paymentId ? { ...p, amount: newAmount } : p)
       };
     }
     return s;
@@ -96,10 +128,6 @@ export const getYearlySummary = (student: StudentFeeData, year: number) => {
 
 // 4. getTotalPending - sum of all months pending
 export const getTotalPending = (student: StudentFeeData) => {
-  // Assuming tracking for a specific set of years or current year. 
-  // For simplicity, we calculate based on all months that have been "active" or just current year + any historical.
-  // In a real system, we'd check which months the student was enrolled. 
-  // Here we'll calculate based on the current year's 12 months for demonstration.
   const currentYear = new Date().getFullYear();
   const yearly = getYearlySummary(student, currentYear);
   return yearly.reduce((sum, m) => sum + m.pending, 0);
@@ -114,10 +142,40 @@ export const getTotalCollected = (student: StudentFeeData) => {
 export const addOtherFund = (students: StudentFeeData[], studentId: string | number, description: string, amount: number): StudentFeeData[] => {
   const date = new Date().toISOString().split('T')[0];
   const updatedStudents = students.map(s => {
-    if (s.id === studentId) {
+    if (String(s.id) === String(studentId)) {
       return {
         ...s,
-        otherFunds: [...s.otherFunds, { desc: description, amount, date }]
+        otherFunds: [...s.otherFunds, { id: Math.random().toString(36).substr(2, 9), desc: description, amount, date }]
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 6.1 deleteOtherFund
+export const deleteOtherFund = (students: StudentFeeData[], studentId: string | number, fundId: string): StudentFeeData[] => {
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        otherFunds: s.otherFunds.filter(f => f.id !== fundId)
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 6.2 editOtherFund
+export const editOtherFund = (students: StudentFeeData[], studentId: string | number, fundId: string, newDesc: string, newAmount: number): StudentFeeData[] => {
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        otherFunds: s.otherFunds.map(f => f.id === fundId ? { ...f, desc: newDesc, amount: newAmount } : f)
       };
     }
     return s;
@@ -183,5 +241,23 @@ export const saveToLocalStorage = (students: StudentFeeData[]) => {
 
 export const loadFromLocalStorage = (): StudentFeeData[] => {
   const data = localStorage.getItem('school_fee_data');
-  return data ? JSON.parse(data) : [];
+  if (!data) return [];
+  try {
+    const parsed: StudentFeeData[] = JSON.parse(data);
+    // Migration: ensure all payments and otherFunds have IDs
+    return parsed.map(s => ({
+      ...s,
+      payments: (s.payments || []).map(p => ({
+        ...p,
+        id: p.id || Math.random().toString(36).substr(2, 9)
+      })),
+      otherFunds: (s.otherFunds || []).map(f => ({
+        ...f,
+        id: f.id || Math.random().toString(36).substr(2, 9)
+      }))
+    }));
+  } catch (e) {
+    console.error("Error loading fee data:", e);
+    return [];
+  }
 };
