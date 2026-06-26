@@ -3,11 +3,11 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send, Zap } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send, Zap, FileText, Printer } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark } from '../types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData } from '../types';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -18,13 +18,10 @@ import {
   getTotalOtherFunds, 
   getStudentFullAccount, 
   getGlobalStats, 
-  loadFromLocalStorage, 
-  saveToLocalStorage, 
   deleteOtherFund,
   editOtherFund,
   deletePayment,
   editPayment,
-  StudentFeeData, 
   MONTHS 
 } from '../lib/feeEngine';
 
@@ -46,10 +43,14 @@ interface PrincipalDashboardProps {
   setAttendance: React.Dispatch<React.SetStateAction<Attendance[]>>;
   marks: Mark[];
   setMarks: React.Dispatch<React.SetStateAction<Mark[]>>;
+  feeStudents: StudentFeeData[];
+  setFeeStudents: React.Dispatch<React.SetStateAction<StudentFeeData[]>>;
+  appSettings: AppSettings;
+  setAppSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   onLogout: () => void;
 }
 
-type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers';
+type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers' | 'monthly_report';
 
 const STANDARD_SUBJECTS_LIST = [
   'Mathematics', 'English', 'Urdu', 'Science', 'Physics', 'Chemistry', 'Biology', 
@@ -75,12 +76,24 @@ export default function PrincipalDashboard({
   setAttendance,
   marks,
   setMarks,
+  feeStudents,
+  setFeeStudents,
+  appSettings,
+  setAppSettings,
   onLogout
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [reportClassFilter, setReportClassFilter] = useState<string>('all');
+  const [selectedStudentReport, setSelectedStudentReport] = useState<Student | null>(null);
+  const [reportMonth, setReportMonth] = useState<Month>(MONTHS[new Date().getMonth()]);
   const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>('teachers');
   const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance'>('fees');
+  const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setAppSettings(prev => ({ ...prev, [key]: value }));
+  };
 
   // Theme support
   const [darkTheme, setDarkTheme] = useState<boolean>(() => {
@@ -116,9 +129,6 @@ export default function PrincipalDashboard({
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
   const [markAttendanceClassId, setMarkAttendanceClassId] = useState('');
   const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late'}[]>([]);
-
-  // PRINCIPAL FEE PORTAL STATE (NEW ENGINE)
-  const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>([]);
 
   // PRINCIPAL ATTENDANCE MARKING ENGINE
   useEffect(() => {
@@ -231,7 +241,7 @@ export default function PrincipalDashboard({
   };
 
   const handleSendIndividualWhatsApp = (student: Student, date: string) => {
-    const template = localStorage.getItem('acadamis_custom_absent_template') || 
+    const template = appSettings.absentTemplate || 
       "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.";
     
     const message = template
@@ -256,7 +266,7 @@ export default function PrincipalDashboard({
 
     const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(message)}`;
     
-    if (autoWhatsAppRedirect) {
+    if (appSettings.autoWhatsAppRedirect) {
       window.open(waUrl, '_blank');
       toast.success(`Opening WhatsApp for ${student.name}'s parent`);
     } else {
@@ -280,12 +290,17 @@ export default function PrincipalDashboard({
     }
   };
 
-  const handleSendFeeNotification = (student: Student, type: 'payment' | 'charge', amount: number, details: string) => {
+  const handleSendFeeNotification = (student: Student | StudentFeeData, type: 'payment' | 'charge', amount: number, details: string) => {
+    // Find fee data to get total pending
+    const fStudent = feeStudents.find(fs => String(fs.id) === String(student.id));
+    const totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+
     const template = type === 'payment' 
-      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name}. Thank you for your cooperation. NSB 1 Academy.`
-      : `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s school account. Please contact office for details. NSB 1 Academy.`;
+      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name}. Your remaining balance is Rs. ${totalPending}. Thank you for your cooperation. NSB 1 Academy.`
+      : `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s school account. Your total pending balance is Rs. ${totalPending}. Please contact office for details. NSB 1 Academy.`;
     
-    const phone = student.parentPhone || student.studentPhone || '';
+    // Check both potential phone fields
+    const phone = (student as any).parentPhone || (student as any).studentPhone || (student as any).phone || '';
     const cleanPhone = phone.replace(/\D/g, '');
     
     if (!cleanPhone) {
@@ -302,7 +317,7 @@ export default function PrincipalDashboard({
 
     const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(template)}`;
     
-    if (autoWhatsAppRedirect) {
+    if (appSettings.autoWhatsAppRedirect) {
       window.open(waUrl, '_blank');
       toast.success(`Opening WhatsApp for ${student.name}'s fee notification`);
     } else {
@@ -349,33 +364,6 @@ export default function PrincipalDashboard({
     setBulkWAModal({ isOpen: true, absents: absentStudentsWithMetadata });
   };
 
-  // Initialize and Sync Fee System
-  useEffect(() => {
-    const stored = loadFromLocalStorage();
-    
-    // Sync with existing students from props
-    const synced = students.map(s => {
-      const match = stored.find(fs => String(fs.id) === String(s.id));
-      if (match) {
-        return {
-          ...match,
-          name: s.name, // keep name/class updated from official list
-          class: classes.find(c => c.id === s.classId)?.className || match.class
-        };
-      }
-      return {
-        id: s.id,
-        name: s.name,
-        class: classes.find(c => c.id === s.classId)?.className || 'Default',
-        monthlyFee: s.baseFee || 1500,
-        payments: [],
-        otherFunds: []
-      };
-    });
-    
-    setFeeStudents(synced);
-  }, [students, classes]);
-
   const [feeSearch, setFeeSearch] = useState('');
   const [feeClassFilter, setFeeClassFilter] = useState('all');
   const [selectedStudentForFee, setSelectedStudentForFee] = useState<string>('');
@@ -420,38 +408,6 @@ export default function PrincipalDashboard({
   const [annualFeeVal, setAnnualFeeVal] = useState('500');
   const [miscFeeVal, setMiscFeeVal] = useState('200');
 
-  // WhatsApp Alert & Autopilot States
-  const [whatsAppAutoFee, setWhatsAppAutoFee] = useState(true);
-  const [whatsAppAutoAbsence, setWhatsAppAutoAbsence] = useState(true);
-  const [whatsAppAutoResult, setWhatsAppAutoResult] = useState(false);
-  const [autoWhatsAppRedirect, setAutoWhatsAppRedirect] = useState(() => {
-    return localStorage.getItem('nsb_auto_wa_redirect') !== 'false';
-  });
-
-  // Customizable SMS / WhatsApp Templates
-  const [absentTemplate, setAbsentTemplate] = useState<string>(() => {
-    return localStorage.getItem('acadamis_custom_absent_template') || 
-      "ATTENTION: Your child {student_name} is marked ABSENT today ({date}). Kindly contact the school office. Principal.";
-  });
-
-  const [feeTemplate, setFeeTemplate] = useState<string>(() => {
-    return localStorage.getItem('acadamis_custom_fee_template') || 
-      "Greetings! 🌟\nNSB1 Principal Office Reminder:\nGuardian of {student_name} (Class: {class_name}).\nPending balance detected: Rs {total_pending} (Due for: {months}).\nKindly settle the dues today to avoid portal suspension.\nThank you.";
-  });
-
-  const [broadcastLogs, setBroadcastLogs] = useState<Array<{
-    id: string;
-    recipient: string;
-    phone: string;
-    type: string;
-    text: string;
-    timestamp: string;
-    status: 'Sent' | 'Failed' | 'Autopilot';
-  }>>([
-    { id: 'tx_1', recipient: 'Naveed (Parent of Mohammad)', phone: '+923001234567', type: 'Absent Alarm 🔔', text: 'ATTENTION: Your child Mohammad is absent from class today (09-06-2026). Kindly contact the principal\'s office.', timestamp: '2026-06-09 09:10 AM', status: 'Sent' },
-    { id: 'tx_2', recipient: 'Irfan (Parent of Ayesha)', phone: '+923219876543', type: 'Fee Reminder 💰', text: 'Reminder: Ayesha\'s fee (500) is outstanding. Please clear soon.', timestamp: '2026-06-09 11:20 AM', status: 'Sent' }
-  ]);
-
   // Modals / Form editing state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'teacher' | 'student' | 'class' | 'timetable' | 'coordinator'>('teacher');
@@ -477,7 +433,8 @@ export default function PrincipalDashboard({
   const [sRoll, setSRoll] = useState('');
   const [sParentPhone, setSParentPhone] = useState('');
   const [sStudentPhone, setSStudentPhone] = useState('');
-  const [sBaseFee, setSBaseFee] = useState('500');
+  const [sBaseFee, setSBaseFee] = useState('0');
+  const [sEnrollmentMonth, setSEnrollmentMonth] = useState('January');
   const [sPassword, setSPassword] = useState('nsb123');
   const [sUsername, setSUsername] = useState('');
   const [sIsAcademy, setSIsAcademy] = useState(false);
@@ -502,72 +459,6 @@ export default function PrincipalDashboard({
 
   // Active Timetable View Filter
   const [selectedTimetableClass, setSelectedTimetableClass] = useState<string>(classes[0]?.id || '');
-  const [extraPeriods, setExtraPeriods] = useState<Record<string, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem('acadamis_extra_periods');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return {};
-  });
-
-  const [deletedPeriods, setDeletedPeriods] = useState<Record<string, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem('acadamis_deleted_periods');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return {};
-  });
-
-  useEffect(() => {
-    localStorage.setItem('acadamis_extra_periods', JSON.stringify(extraPeriods));
-  }, [extraPeriods]);
-
-  useEffect(() => {
-    localStorage.setItem('acadamis_deleted_periods', JSON.stringify(deletedPeriods));
-  }, [deletedPeriods]);
-
-  useEffect(() => {
-    let changed = false;
-    const cleaned = { ...extraPeriods };
-
-    for (const classId of Object.keys(cleaned)) {
-      const activePeriodsForClass = timetable
-        .filter(tt => tt.classId === classId)
-        .map(tt => tt.period);
-      
-      const currentList = cleaned[classId] || [];
-      const newList = currentList.filter(p => activePeriodsForClass.includes(p));
-      
-      if (newList.length !== currentList.length) {
-        cleaned[classId] = newList;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      setExtraPeriods(cleaned);
-      localStorage.setItem('acadamis_extra_periods', JSON.stringify(cleaned));
-    }
-  }, [timetable]);
-
-  const [periodColors, setPeriodColors] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem('acadamis_period_colors');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return {};
-  });
-
-  useEffect(() => {
-    localStorage.setItem('acadamis_period_colors', JSON.stringify(periodColors));
-  }, [periodColors]);
-
   const [selectedSlot, setSelectedSlot] = useState<{period: string, day: string} | null>(null);
   const [periodToDeletePending, setPeriodToDeletePending] = useState<{period: string, day: string} | null>(null);
   const [draggedSlot, setDraggedSlot] = useState<{day: DayOfWeek, period: string, entry: TimetableEntry | undefined} | null>(null);
@@ -617,12 +508,12 @@ export default function PrincipalDashboard({
 
   const getPeriodColor = (period: string) => {
     const key = `${selectedTimetableClass}_${period}`;
-    return periodColors[key] || '#4f46e5'; // default Indigo color
+    return appSettings.periodColors[key] || '#4f46e5'; // default Indigo color
   };
 
   const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
-  const allPeriods = [...defaultPeriods, ...(extraPeriods[selectedTimetableClass] || [])].filter(
-    p => !(deletedPeriods[selectedTimetableClass] || []).includes(p)
+  const allPeriods = [...defaultPeriods, ...(appSettings.extraPeriods[selectedTimetableClass] || [])].filter(
+    p => !(appSettings.deletedPeriods[selectedTimetableClass] || []).includes(p)
   );
 
   const handleBackupDatabase = () => {
@@ -638,11 +529,7 @@ export default function PrincipalDashboard({
           timetable,
           fees,
           broadcastLogs,
-          extraPeriods,
-          deletedPeriods,
-          periodColors,
-          absentTemplate,
-          feeTemplate
+          appSettings
         }
       };
 
@@ -714,7 +601,8 @@ export default function PrincipalDashboard({
     setSRoll('');
     setSParentPhone('');
     setSStudentPhone('');
-    setSBaseFee('500');
+    setSBaseFee('0');
+    setSEnrollmentMonth('January');
     setSPassword('nsb123');
     setSUsername('');
     setSIsAcademy(false);
@@ -797,7 +685,8 @@ export default function PrincipalDashboard({
         setSRoll(match.rollNumber);
         setSParentPhone(match.parentPhone);
         setSStudentPhone(match.studentPhone || '');
-        setSBaseFee(match.baseFee?.toString() || '500');
+        setSBaseFee(match.baseFee?.toString() || '0');
+        setSEnrollmentMonth(match.enrollmentMonth || 'January');
         setSPassword(match.password || 'nsb123');
         setSUsername(match.username || '');
         setSIsAcademy(match.category === 'Academy');
@@ -994,9 +883,10 @@ export default function PrincipalDashboard({
           rollNumber: sRoll.trim(),
           parentPhone: sParentPhone.trim(),
           studentPhone: sStudentPhone.trim(),
-          baseFee: Number(sBaseFee) || 500,
+          baseFee: Number(sBaseFee) || 0,
           category: sIsAcademy ? 'Academy' : 'Regular',
-          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : []
+          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
+          enrollmentMonth: sEnrollmentMonth
         };
         setStudents([...students, newStudent]);
         toast.success("Student profile added successfully!");
@@ -1009,11 +899,12 @@ export default function PrincipalDashboard({
           rollNumber: sRoll.trim(),
           parentPhone: sParentPhone.trim(),
           studentPhone: sStudentPhone.trim(),
-          baseFee: Number(sBaseFee) || 500,
+          baseFee: Number(sBaseFee) || 0,
           password: sPassword,
           username: sUsername,
           category: sIsAcademy ? 'Academy' : 'Regular',
-          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : []
+          academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
+          enrollmentMonth: sEnrollmentMonth
         } : s));
         toast.success("Student profile updated successfully!");
       }
@@ -1072,34 +963,24 @@ export default function PrincipalDashboard({
         });
 
         // If the period was marked as deleted, clear it from deleted list
-        setDeletedPeriods(prev => {
-          const currentList = prev[ttClassId] || [];
-          if (currentList.includes(ttPeriod)) {
-            const updated = {
-              ...prev,
-              [ttClassId]: currentList.filter(p => p !== ttPeriod)
-            };
-            localStorage.setItem('acadamis_deleted_periods', JSON.stringify(updated));
-            return updated;
-          }
-          return prev;
-        });
+        const currentDeletedAdd = appSettings.deletedPeriods[ttClassId] || [];
+        if (currentDeletedAdd.includes(ttPeriod)) {
+          updateSetting('deletedPeriods', {
+            ...appSettings.deletedPeriods,
+            [ttClassId]: currentDeletedAdd.filter(p => p !== ttPeriod)
+          });
+        }
 
         // Automatically register period in extraPeriods if it is custom
         const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
         if (ttPeriod && !defaultPeriods.includes(ttPeriod)) {
-          setExtraPeriods(prev => {
-            const classList = prev[ttClassId] || [];
-            if (!classList.includes(ttPeriod)) {
-              const updated = {
-                ...prev,
-                [ttClassId]: [...classList, ttPeriod]
-              };
-              localStorage.setItem('acadamis_extra_periods', JSON.stringify(updated));
-              return updated;
-            }
-            return prev;
-          });
+          const classList = appSettings.extraPeriods[ttClassId] || [];
+          if (!classList.includes(ttPeriod)) {
+            updateSetting('extraPeriods', {
+              ...appSettings.extraPeriods,
+              [ttClassId]: [...classList, ttPeriod]
+            });
+          }
         }
       } else {
         setTimetable(timetable.map(tt => tt.id === currentId ? {
@@ -1128,34 +1009,23 @@ export default function PrincipalDashboard({
         });
 
         // If the period was marked as deleted, clear it from deleted list
-        setDeletedPeriods(prev => {
-          const currentList = prev[ttClassId] || [];
-          if (currentList.includes(ttPeriod)) {
-            const updated = {
-              ...prev,
-              [ttClassId]: currentList.filter(p => p !== ttPeriod)
-            };
-            localStorage.setItem('acadamis_deleted_periods', JSON.stringify(updated));
-            return updated;
-          }
-          return prev;
-        });
+        const currentDeletedEdit = appSettings.deletedPeriods[ttClassId] || [];
+        if (currentDeletedEdit.includes(ttPeriod)) {
+          updateSetting('deletedPeriods', {
+            ...appSettings.deletedPeriods,
+            [ttClassId]: currentDeletedEdit.filter(p => p !== ttPeriod)
+          });
+        }
 
         // Automatically register period in extraPeriods if it is custom
-        const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
         if (ttPeriod && !defaultPeriods.includes(ttPeriod)) {
-          setExtraPeriods(prev => {
-            const classList = prev[ttClassId] || [];
-            if (!classList.includes(ttPeriod)) {
-              const updated = {
-                ...prev,
-                [ttClassId]: [...classList, ttPeriod]
-              };
-              localStorage.setItem('acadamis_extra_periods', JSON.stringify(updated));
-              return updated;
-            }
-            return prev;
-          });
+          const classList = appSettings.extraPeriods[ttClassId] || [];
+          if (!classList.includes(ttPeriod)) {
+            updateSetting('extraPeriods', {
+              ...appSettings.extraPeriods,
+              [ttClassId]: [...classList, ttPeriod]
+            });
+          }
         }
       }
     }
@@ -1337,8 +1207,9 @@ export default function PrincipalDashboard({
             {[
               { id: 'dashboard', label: 'Home', icon: BarChart2 },
               { id: 'registers', label: 'Records', icon: Database },
-              { id: 'management_hub', label: 'Settings', icon: Shield },
+              { id: 'management_hub', label: 'Admin Hub', icon: Shield },
               { id: 'timetable', label: 'Schedules', icon: Calendar },
+              { id: 'monthly_report', label: 'Reports', icon: FileText, color: 'text-indigo-600' },
               { id: 'alerts', label: 'Alert Center', icon: AlertCircle, color: 'text-rose-600' },
               { id: 'settings', label: 'Cloud Config', icon: Sparkles },
             ].map(link => {
@@ -2202,6 +2073,144 @@ export default function PrincipalDashboard({
           </div>
         )}
 
+        {activeTab === 'monthly_report' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase italic border-l-8 border-indigo-600 pl-6">
+                  Student Monthly Performance Report
+                </h1>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2 pl-6">
+                  Academic & Financial Analytics Hub
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select 
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase outline-none focus:border-indigo-500 shadow-sm"
+                  value={reportClassFilter}
+                  onChange={(e) => setReportClassFilter(e.target.value)}
+                >
+                  <option value="all">All Classes</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>{c.className} ({c.section})</option>
+                  ))}
+                </select>
+                <select 
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase outline-none focus:border-indigo-500 shadow-sm"
+                  value={new Date().getFullYear()}
+                  onChange={() => {}}
+                >
+                  <option value={new Date().getFullYear()}>{new Date().getFullYear()}</option>
+                  <option value={new Date().getFullYear() - 1}>{new Date().getFullYear() - 1}</option>
+                </select>
+                <select 
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase outline-none focus:border-indigo-500 shadow-sm"
+                  value={reportMonth}
+                  onChange={(e) => setReportMonth(e.target.value as Month)}
+                >
+                  {MONTHS.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Performance Grid */}
+            <div className="grid grid-cols-1 gap-6">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                  <h2 className="text-sm font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                    <Users size={18} className="text-indigo-600" /> 
+                    {reportClassFilter === 'all' ? 'All Classes' : `Class ${classes.find(c => c.id === reportClassFilter)?.className}`} Student Summary
+                  </h2>
+                  <div className="flex gap-2">
+                    <button className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                      <Download size={14} className="text-slate-600" />
+                    </button>
+                    <button className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                      <Printer size={14} className="text-slate-600" />
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-900 text-white">
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Student</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Fee Status</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Test Avg</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Grade</th>
+                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {students
+                        .filter(s => reportClassFilter === 'all' || s.classId === reportClassFilter)
+                        .map(s => {
+                        const feeData = feeStudents.find(fs => String(fs.id) === String(s.id));
+                        const feeSummary = feeData ? getMonthlySummary(feeData, reportMonth, new Date().getFullYear()) : null;
+                        const totalPending = feeData ? getTotalPending(feeData) + getTotalOtherFunds(feeData) : 0;
+                        
+                        const studentMarks = marks.filter(m => m.studentId === s.id);
+                        const avg = studentMarks.length > 0 
+                          ? Math.round(studentMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / studentMarks.length)
+                          : 0;
+                        
+                        const getGrade = (a: number) => {
+                          if (a >= 90) return 'A+';
+                          if (a >= 80) return 'A';
+                          if (a >= 70) return 'B';
+                          if (a >= 60) return 'C';
+                          if (a >= 50) return 'D';
+                          return 'F';
+                        };
+
+                        return (
+                          <tr 
+                            key={s.id} 
+                            onClick={() => setSelectedStudentReport(s)}
+                            className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-slate-950 text-white rounded-full flex items-center justify-center font-black text-xs border border-slate-800">
+                                  {s.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{s.name}</p>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              {feeSummary?.pending === 0 ? (
+                                <span className="bg-emerald-50 text-emerald-600 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-emerald-100">Paid</span>
+                              ) : (
+                                <span className="bg-rose-50 text-rose-600 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-rose-100">Unpaid</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className="text-xs font-black text-slate-900">{avg > 0 ? `${avg}%` : 'N/A'}</span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`text-xs font-black ${avg >= 50 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                                {avg > 0 ? getGrade(avg) : 'N/A'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="text-xs font-black text-slate-900">Rs. {totalPending}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'alerts' && (
           <div id="notification-center" className="space-y-6 animate-fade-in font-sans pb-20">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-6 mb-8">
@@ -2249,7 +2258,7 @@ export default function PrincipalDashboard({
                   const totalPending = sFees.reduce((acc, curr) => acc + curr.amount, 0);
                   const months = sFees.map(f => f.month).join(', ');
                   
-                  const waMessage = feeTemplate
+                  const waMessage = appSettings.feeTemplate
                     .replace(/{student_name}/g, student.name)
                     .replace(/{class_name}/g, classObj ? `${classObj.className}-${classObj.section}` : '')
                     .replace(/{total_pending}/g, totalPending.toString())
@@ -2662,12 +2671,12 @@ export default function PrincipalDashboard({
 
         {/* ========== NEW SCHOOL FEE MANAGEMENT MODULE OLD (REPLACED BY AUDIT HUB) ========== */}
         {activeTab === 'fees' && (
-          <div id="panel-principal-fees" className="space-y-6 animate-fade-in font-sans pb-20 bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner">
+          <div id="panel-principal-fees" className="space-y-6 animate-fade-in font-sans pb-20 bg-emerald-50/50 p-4 sm:p-6 rounded-2xl border border-emerald-100 shadow-inner">
             {/* 1. Global Dashboard Stats Row */}
             {(() => {
               const stats = getGlobalStats(feeStudents);
               return (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Students</p>
                     <p className="text-xl font-black text-slate-900">{stats.totalStudents}</p>
@@ -2689,33 +2698,34 @@ export default function PrincipalDashboard({
             })()}
 
             {/* 2. Main Interface Header & Student Matcher */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-              <div className="flex-1">
-                <div className="flex justify-between items-center w-full">
-                  <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
-                    <CreditCard size={24} className="text-indigo-600" />
-                    Fee Portal (2026)
-                  </h1>
-                  <button 
-                    onClick={() => setActiveTab('registers')}
-                    className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all rounded-xl"
-                  >
-                    <ArrowLeft size={16} /> Return to Audits
-                  </button>
+            <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <CreditCard size={24} className="text-indigo-600" />
+                  Fee Portal (2026)
+                </h1>
+                <button 
+                  onClick={() => setActiveTab('registers')}
+                  className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all rounded-xl border border-slate-100 sm:border-none"
+                >
+                  <ArrowLeft size={16} /> Return to Audits
+                </button>
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="Search student by name or ID..." 
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={feeSearch}
+                    onChange={(e) => setFeeSearch(e.target.value)}
+                  />
                 </div>
-                <div className="mt-4 flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Search student by name or ID..." 
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                      value={feeSearch}
-                      onChange={(e) => setFeeSearch(e.target.value)}
-                    />
-                  </div>
+                <div className="flex flex-col sm:flex-row gap-3">
                   <select
-                    className="px-4 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                     value={feeClassFilter}
                     onChange={(e) => setFeeClassFilter(e.target.value)}
                   >
@@ -2725,7 +2735,7 @@ export default function PrincipalDashboard({
                     ))}
                   </select>
                   <select
-                    className="px-4 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl cursor-pointer hover:bg-indigo-700 transition-colors"
+                    className="w-full flex-1 px-4 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl cursor-pointer hover:bg-indigo-700 transition-colors"
                     value={selectedStudentForFee}
                     onChange={(e) => setSelectedStudentForFee(e.target.value)}
                   >
@@ -2765,35 +2775,51 @@ export default function PrincipalDashboard({
                   
                   {/* Left Column: Recording & Quick Actions */}
                   <div className="lg:col-span-4 space-y-6">
-                    {/* Add Other Funds Form */}
-                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 shadow-xl space-y-4 text-white">
-                      <h3 className="text-xs font-black uppercase text-amber-500 tracking-widest flex items-center gap-2">
-                        <ArrowUpRight size={16} /> Other Funds / Fines
-                      </h3>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase">Description</label>
-                        <input id="otherDesc" type="text" placeholder="e.g. Exam Fund, Fine..." className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-white outline-none" />
+                    {/* Refactored Other Funds Interface */}
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2 flex items-center gap-2">
+                          <BookOpen size={14} className="text-blue-500" /> Fund Entry Cards
+                        </h3>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {[
+                            { label: 'Paper Fund', desc: 'Paper Fund', icon: BookOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
+                            { label: 'Summer Pack', desc: 'Summer Pack', icon: Sun, color: 'text-orange-600', bg: 'bg-orange-50' },
+                            { label: 'Other Fund', desc: 'Miscellaneous', icon: PlusCircle, color: 'text-indigo-600', bg: 'bg-indigo-50' }
+                          ].map((fund, idx) => (
+                            <div key={idx} className={`${fund.bg} p-4 rounded-2xl border border-slate-100 flex flex-col gap-3`}>
+                              <div className="flex items-center gap-2">
+                                <fund.icon size={16} className={fund.color} />
+                                <span className={`text-[10px] font-black uppercase tracking-wider ${fund.color}`}>{fund.label}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <input 
+                                  id={`fundAmt_${idx}`} 
+                                  type="number" 
+                                  placeholder="Amount" 
+                                  className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-black outline-none focus:border-indigo-500"
+                                />
+                                <button 
+                                  onClick={() => {
+                                    const amtInput = document.getElementById(`fundAmt_${idx}`) as HTMLInputElement;
+                                    const amt = Number(amtInput.value);
+                                    if (amt <= 0) { toast.error("Enter valid amount"); return; }
+                                    
+                                    setFeeStudents(prev => addOtherFund(prev, student.id, fund.desc, amt));
+                                    handleSendFeeNotification(student, 'charge', amt, fund.desc);
+                                    amtInput.value = '';
+                                    toast.success(`${fund.label} entry added!`);
+                                  }}
+                                  className="px-3 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-500 uppercase">Amount (Rs.)</label>
-                        <input id="otherAmt" type="number" className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-black text-white outline-none" placeholder="0" />
-                      </div>
-                      <button 
-                        onClick={() => {
-                          const desc = (document.getElementById('otherDesc') as HTMLInputElement).value;
-                          const amt = Number((document.getElementById('otherAmt') as HTMLInputElement).value);
-                          if (!desc || amt <= 0) { toast.error("Enter valid details"); return; }
-                          
-                          setFeeStudents(prev => addOtherFund(prev, student.id, desc, amt));
-                          handleSendFeeNotification(student, 'charge', amt, desc);
-                          (document.getElementById('otherDesc') as HTMLInputElement).value = '';
-                          (document.getElementById('otherAmt') as HTMLInputElement).value = '';
-                          toast.success("Other fund entry added!");
-                        }}
-                        className="w-full py-3 bg-white text-slate-900 hover:bg-amber-400 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95"
-                      >
-                        Add Entry
-                      </button>
                     </div>
                   </div>
 
@@ -2829,7 +2855,7 @@ export default function PrincipalDashboard({
                           <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div> Pending</span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-4 p-2 sm:p-4 bg-slate-50/50">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-4 p-2 sm:p-4 bg-slate-50/50">
                         {account.yearlyBreakdown.map(m => (
                           <div 
                             key={m.month} 
@@ -2921,7 +2947,7 @@ export default function PrincipalDashboard({
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
-                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center gap-1 transition-opacity">
                                   <button 
                                     onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: f.id, studentId: String(student.id), amount: String(f.amount), desc: f.desc })}
                                     className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -2966,7 +2992,7 @@ export default function PrincipalDashboard({
                               </div>
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-black text-emerald-600">Rs. {p.amount}</span>
-                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center gap-1 transition-opacity">
                                   <button 
                                     onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}` })}
                                     className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -3410,13 +3436,11 @@ export default function PrincipalDashboard({
                         </div>
                         <button 
                           onClick={() => {
-                            const next = !autoWhatsAppRedirect;
-                            setAutoWhatsAppRedirect(next);
-                            localStorage.setItem('nsb_auto_wa_redirect', String(next));
+                            updateSetting('autoWhatsAppRedirect', !appSettings.autoWhatsAppRedirect);
                           }}
-                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-all duration-300 ${autoWhatsAppRedirect ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-all duration-300 ${appSettings.autoWhatsAppRedirect ? 'bg-indigo-600' : 'bg-slate-300'}`}
                         >
-                          <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-300 ${autoWhatsAppRedirect ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                          <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-300 ${appSettings.autoWhatsAppRedirect ? 'translate-x-5' : 'translate-x-0'}`}></div>
                         </button>
                       </div>
 
@@ -3426,10 +3450,10 @@ export default function PrincipalDashboard({
                           <p className="text-[9px] text-slate-400">Auto-send WhatsApp on invoice generation.</p>
                         </div>
                         <button 
-                          onClick={() => setWhatsAppAutoFee(!whatsAppAutoFee)}
-                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${whatsAppAutoFee ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          onClick={() => updateSetting('whatsAppAutoFee', !appSettings.whatsAppAutoFee)}
+                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${appSettings.whatsAppAutoFee ? 'bg-emerald-500' : 'bg-slate-300'}`}
                         >
-                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${whatsAppAutoFee ? 'ml-auto' : 'mr-auto'}`}></div>
+                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${appSettings.whatsAppAutoFee ? 'ml-auto' : 'mr-auto'}`}></div>
                         </button>
                       </div>
 
@@ -3439,10 +3463,10 @@ export default function PrincipalDashboard({
                           <p className="text-[9px] text-slate-400">Auto-ping parents when student is marked absent.</p>
                         </div>
                         <button 
-                          onClick={() => setWhatsAppAutoAbsence(!whatsAppAutoAbsence)}
-                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${whatsAppAutoAbsence ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          onClick={() => updateSetting('whatsAppAutoAbsence', !appSettings.whatsAppAutoAbsence)}
+                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${appSettings.whatsAppAutoAbsence ? 'bg-emerald-500' : 'bg-slate-300'}`}
                         >
-                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${whatsAppAutoAbsence ? 'ml-auto' : 'mr-auto'}`}></div>
+                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${appSettings.whatsAppAutoAbsence ? 'ml-auto' : 'mr-auto'}`}></div>
                         </button>
                       </div>
 
@@ -3452,10 +3476,10 @@ export default function PrincipalDashboard({
                           <p className="text-[9px] text-slate-400">Send report cards via WhatsApp automatically.</p>
                         </div>
                         <button 
-                          onClick={() => setWhatsAppAutoResult(!whatsAppAutoResult)}
-                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${whatsAppAutoResult ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                          onClick={() => updateSetting('whatsAppAutoResult', !appSettings.whatsAppAutoResult)}
+                          className={`w-10 h-5 rounded-full flex items-center px-1 transition-colors ${appSettings.whatsAppAutoResult ? 'bg-emerald-500' : 'bg-slate-300'}`}
                         >
-                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${whatsAppAutoResult ? 'ml-auto' : 'mr-auto'}`}></div>
+                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${appSettings.whatsAppAutoResult ? 'ml-auto' : 'mr-auto'}`}></div>
                         </button>
                       </div>
                     </div>
@@ -3528,12 +3552,8 @@ export default function PrincipalDashboard({
                     
                     <textarea 
                       rows={4}
-                      value={absentTemplate}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAbsentTemplate(val);
-                        localStorage.setItem('acadamis_custom_absent_template', val);
-                      }}
+                      value={appSettings.absentTemplate}
+                      onChange={(e) => updateSetting('absentTemplate', e.target.value)}
                       placeholder="Insert your custom absent template copy..."
                       className="w-full bg-slate-50 text-xs border border-slate-200 p-3 italic font-medium focus:outline-none focus:border-indigo-600 focus:bg-white"
                     />
@@ -3550,7 +3570,7 @@ export default function PrincipalDashboard({
                     <div className="pt-2 border-t text-[9.5px]">
                       <span className="font-bold text-slate-500 block uppercase">Draft Sample Live Preview:</span>
                       <p className="text-slate-700 font-medium italic mt-1 bg-slate-100 p-2 border leading-normal">
-                        "{absentTemplate
+                        "{appSettings.absentTemplate
                           .replace(/{student_name}/g, "Zain")
                           .replace(/{roll_number}/g, "12")
                           .replace(/{date}/g, new Date().toLocaleDateString())}"
@@ -3573,8 +3593,7 @@ export default function PrincipalDashboard({
                             else if (val === "urgent") newTpl = "🚨 URGENT: Rs. {total_pending} outstanding for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
                             
                             if (newTpl) {
-                              setFeeTemplate(newTpl);
-                              localStorage.setItem('acadamis_custom_fee_template', newTpl);
+                              updateSetting('feeTemplate', newTpl);
                             }
                           }}
                           defaultValue=""
@@ -3590,12 +3609,8 @@ export default function PrincipalDashboard({
                     
                     <textarea 
                       rows={4}
-                      value={feeTemplate}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setFeeTemplate(val);
-                        localStorage.setItem('acadamis_custom_fee_template', val);
-                      }}
+                      value={appSettings.feeTemplate}
+                      onChange={(e) => updateSetting('feeTemplate', e.target.value)}
                       placeholder="Insert your custom outstanding fee template copy..."
                       className="w-full bg-slate-50 text-xs border border-slate-200 p-3 italic font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
                     />
@@ -3614,7 +3629,7 @@ export default function PrincipalDashboard({
                     <div className="pt-2 border-t text-[9.5px]">
                       <span className="font-bold text-slate-500 block uppercase">Draft Sample Live Preview:</span>
                       <p className="text-slate-700 font-medium italic mt-1 bg-slate-100 p-2 border leading-normal whitespace-pre-wrap">
-                        "{feeTemplate
+                        "{appSettings.feeTemplate
                           .replace(/{student_name}/g, "Zain")
                           .replace(/{class_name}/g, "Class-A")
                           .replace(/{total_pending}/g, "1500")
@@ -3631,13 +3646,11 @@ export default function PrincipalDashboard({
                     <button 
                       type="button"
                       onClick={() => {
-                        localStorage.setItem('acadamis_custom_absent_template', absentTemplate);
-                        localStorage.setItem('acadamis_custom_fee_template', feeTemplate);
-                        toast.success("All customizable message templates saved successfully!");
+                        toast.success("Templates are automatically synced to the cloud!");
                       }}
                       className="bg-slate-900 hover:bg-slate-850 text-white font-black text-[10px] uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
                     >
-                      Save Templates
+                      Sync Status
                     </button>
                   </div>
                 </div>
@@ -3954,16 +3967,30 @@ export default function PrincipalDashboard({
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Monthly Fee</label>
-                    <input
-                      type="number"
-                      required
-                      value={sBaseFee}
-                      onChange={(e) => setSBaseFee(e.target.value)}
-                      placeholder="e.g. 500"
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Monthly Fee (Rs.)</label>
+                      <input
+                        type="number"
+                        required
+                        value={sBaseFee}
+                        onChange={(e) => setSBaseFee(e.target.value)}
+                        placeholder="e.g. 1500"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Enrollment Month</label>
+                      <select
+                        value={sEnrollmentMonth}
+                        onChange={(e) => setSEnrollmentMonth(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      >
+                        {MONTHS.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Academy Student Toggle & Subject Management */}
@@ -4168,7 +4195,7 @@ export default function PrincipalDashboard({
                             }}
                             className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                           >
-                            {['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', ...(extraPeriods[ttClassId || selectedTimetableClass] || [])].map(p => (
+                            {['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', ...(appSettings.extraPeriods[ttClassId || selectedTimetableClass] || [])].map(p => (
                               <option key={p} value={p}>{p}</option>
                             ))}
                             <option value="__custom__">+ Enter Custom / Next Period...</option>
@@ -4263,6 +4290,278 @@ export default function PrincipalDashboard({
           </div>
         </div>
       )}
+
+      {/* ========== STUDENT DETAIL REPORT MODAL ========== */}
+      <AnimatePresence>
+        {selectedStudentReport && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+                <div className="relative z-10 flex items-center gap-6">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-3xl font-black shadow-lg shadow-indigo-500/20 rotate-3">
+                    {selectedStudentReport.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight italic">{selectedStudentReport.name}</h2>
+                    <div className="flex flex-wrap gap-3 mt-2">
+                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5">
+                        Class: {classes.find(c => c.id === selectedStudentReport.classId)?.className}
+                      </span>
+                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5">
+                        Roll: {selectedStudentReport.rollNumber}
+                      </span>
+                      <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20">
+                        {selectedStudentReport.category}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedStudentReport(null)}
+                  className="relative z-10 p-2 hover:bg-white/10 rounded-full transition-all text-white/60 hover:text-white"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50">
+                {/* Stats Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Attendance Card */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Attendance</span>
+                      <CalendarDays size={16} className="text-blue-500" />
+                    </div>
+                    <div>
+                      <div className="text-3xl font-black text-slate-900">
+                        {(() => {
+                          const stats = attendance.filter(a => a.studentId === selectedStudentReport.id);
+                          if (stats.length === 0) return '0%';
+                          const present = stats.filter(a => a.status === 'present' || a.status === 'leave').length;
+                          return `${Math.round((present / stats.length) * 100)}%`;
+                        })()}
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Average Presence</p>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-blue-500 h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${(() => {
+                          const stats = attendance.filter(a => a.studentId === selectedStudentReport.id);
+                          if (stats.length === 0) return 0;
+                          const present = stats.filter(a => a.status === 'present' || a.status === 'leave').length;
+                          return Math.round((present / stats.length) * 100);
+                        })()}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Academics Card */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Academics</span>
+                      <Award size={16} className="text-indigo-500" />
+                    </div>
+                    <div>
+                      <div className="text-3xl font-black text-slate-900">
+                        {(() => {
+                          const sMarks = marks.filter(m => m.studentId === selectedStudentReport.id);
+                          if (sMarks.length === 0) return 'N/A';
+                          const avg = Math.round(sMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / sMarks.length);
+                          return `${avg}%`;
+                        })()}
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Test Performance</p>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-indigo-500 h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${(() => {
+                          const sMarks = marks.filter(m => m.studentId === selectedStudentReport.id);
+                          if (sMarks.length === 0) return 0;
+                          return Math.round(sMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / sMarks.length);
+                        })()}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Financials Card */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Financials</span>
+                      <CreditCard size={16} className="text-emerald-500" />
+                    </div>
+                    <div>
+                      <div className="text-3xl font-black text-slate-900">
+                        {(() => {
+                          const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
+                          if (!fData) return 'Rs. 0';
+                          return `Rs. ${getTotalPending(fData) + getTotalOtherFunds(fData)}`;
+                        })()}
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Outstanding</p>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-emerald-500 h-full rounded-full transition-all duration-1000"
+                        style={{ width: '100%' }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Sections */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Test History */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
+                      <BookOpen size={16} className="text-indigo-600" /> Recent Test Scores
+                    </h3>
+                    <div className="space-y-3">
+                      {marks.filter(m => m.studentId === selectedStudentReport.id).length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-4 text-center">No academic records found for this student.</p>
+                      ) : (
+                        marks
+                          .filter(m => m.studentId === selectedStudentReport.id)
+                          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                          .slice(0, 5)
+                          .map((m, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                              <div>
+                                <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.subject}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">{m.date}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs font-black text-indigo-600">{m.marksObtained}/{m.totalMarks}</p>
+                                <p className="text-[9px] font-bold text-slate-400">{Math.round((Number(m.marksObtained)/Number(m.totalMarks))*100)}%</p>
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Attendance Log */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
+                      <Calendar size={16} className="text-blue-600" /> Monthly Attendance History
+                    </h3>
+                    <div className="space-y-2">
+                      {MONTHS.map(month => {
+                        const monthLogs = attendance.filter(a => {
+                          const aDate = new Date(a.date);
+                          return a.studentId === selectedStudentReport.id && MONTHS[aDate.getMonth()] === month;
+                        });
+                        
+                        if (monthLogs.length === 0) return null;
+
+                        const present = monthLogs.filter(l => l.status === 'present').length;
+                        const leave = monthLogs.filter(l => l.status === 'leave').length;
+                        const absent = monthLogs.filter(l => l.status === 'absent').length;
+
+                        return (
+                          <div key={month} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="text-xs font-black text-slate-800 uppercase">{month}</span>
+                            <div className="flex gap-2">
+                              <div className="text-center px-2">
+                                <p className="text-[8px] font-black text-emerald-500 uppercase">Pres</p>
+                                <p className="text-xs font-black">{present}</p>
+                              </div>
+                              <div className="text-center px-2 border-x border-slate-200">
+                                <p className="text-[8px] font-black text-amber-500 uppercase">Leave</p>
+                                <p className="text-xs font-black">{leave}</p>
+                              </div>
+                              <div className="text-center px-2">
+                                <p className="text-[8px] font-black text-rose-500 uppercase">Abs</p>
+                                <p className="text-xs font-black">{absent}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {!attendance.some(a => a.studentId === selectedStudentReport.id) && (
+                        <p className="text-xs text-slate-400 italic py-4 text-center">No attendance logs found.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Financial Ledger Section */}
+                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-6 flex items-center gap-2 border-b pb-4">
+                    <CreditCard size={18} className="text-emerald-600" /> Complete Financial Ledger
+                  </h3>
+                  <div className="space-y-4">
+                    {(() => {
+                      const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
+                      if (!fData) return <p className="text-center text-slate-400 italic">No financial data found.</p>;
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div>
+                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Monthly Payments</p>
+                              <div className="space-y-2">
+                                {fData.payments.map((p, i) => (
+                                  <div key={i} className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                                    <div>
+                                      <p className="text-xs font-black text-emerald-900 uppercase">{p.month} {p.year}</p>
+                                      <p className="text-[9px] font-bold text-emerald-600 uppercase">{p.date}</p>
+                                    </div>
+                                    <span className="text-xs font-black text-emerald-700">Rs. {p.amount}</span>
+                                  </div>
+                                ))}
+                                {fData.payments.length === 0 && <p className="text-[10px] text-slate-400">No monthly payments recorded.</p>}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Other Fund Charges</p>
+                              <div className="space-y-2">
+                                {fData.otherFunds.map((f, i) => (
+                                  <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                    <div>
+                                      <p className="text-xs font-black text-slate-800 uppercase">{f.desc}</p>
+                                      <p className="text-[9px] font-bold text-slate-400 uppercase">{f.date}</p>
+                                    </div>
+                                    <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                                  </div>
+                                ))}
+                                {fData.otherFunds.length === 0 && <p className="text-[10px] text-slate-400">No additional charges recorded.</p>}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3">
+                <button 
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-300 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
+                >
+                  <Printer size={16} /> Print Full Report
+                </button>
+                <button 
+                  onClick={() => setSelectedStudentReport(null)}
+                  className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl active:scale-95"
+                >
+                  Close Profile
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ========== PRINCIPAL ATTENDANCE MARKING MODAL ========== */}
       <AnimatePresence>
@@ -4430,7 +4729,18 @@ export default function PrincipalDashboard({
             }`}
           >
             <Shield size={16} />
-            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Settings</span>
+            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Admin Hub</span>
+          </button>
+
+          <button
+            id="mobile-nav-reports"
+            onClick={() => { setActiveTab('monthly_report'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
+              activeTab === 'monthly_report' ? 'text-indigo-500 font-black scale-105' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <FileText size={16} />
+            <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Reports</span>
           </button>
 
           {/* EYE-CATCHING AND ACCESSIBLE AUDIT HUB NAV */}

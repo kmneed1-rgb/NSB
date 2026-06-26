@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
 import { db } from './firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord } from './types';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData } from './types';
 import { 
   INITIAL_TEACHERS, 
   INITIAL_CLASSES, 
@@ -89,6 +89,26 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => {
+    const saved = localStorage.getItem('school_fee_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('acadamis_app_settings');
+    return saved ? JSON.parse(saved) : {
+      absentTemplate: "Dear parent, your child {name} is absent today {date}. NSB 1 Academy.",
+      feeTemplate: "Dear parent, your child {name}'s fee for {month} is Rs. {amount} which is due on {date}. NSB 1 Academy.",
+      whatsAppAutoFee: true,
+      whatsAppAutoAbsence: true,
+      whatsAppAutoResult: false,
+      autoWhatsAppRedirect: true,
+      extraPeriods: {},
+      deletedPeriods: {},
+      periodColors: {}
+    };
+  });
+
   // User session state
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
     const saved = localStorage.getItem('acadamis_session');
@@ -108,6 +128,8 @@ export default function App() {
   const prevMarks = useRef<string>('');
   const prevFees = useRef<string>('');
   const prevCoordinators = useRef<string>('');
+  const prevFeeStudents = useRef<string>('');
+  const prevAppSettings = useRef<string>('');
 
   useEffect(() => {
     async function initFirebaseAndSync() {
@@ -221,6 +243,18 @@ export default function App() {
           const loadedCoordinators: Coordinator[] = [];
           coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
 
+          // Load StudentFeeData (new engine)
+          const feeDataSnapshot = await getDocs(collection(db, "fee_data"));
+          const loadedFeeStudents: StudentFeeData[] = [];
+          feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
+
+          // Load App Settings
+          const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
+          let loadedSettings: AppSettings | null = null;
+          if (settingsSnap.exists()) {
+            loadedSettings = settingsSnap.data() as AppSettings;
+          }
+
           setTeachers(loadedTeachers);
           setClasses(loadedClasses);
           setStudents(loadedStudents);
@@ -229,6 +263,8 @@ export default function App() {
           setMarks(loadedMarks);
           setFees(loadedFees);
           setCoordinators(loadedCoordinators);
+          if (loadedFeeStudents.length > 0) setFeeStudents(loadedFeeStudents);
+          if (loadedSettings) setAppSettings(loadedSettings);
 
           prevTeachers.current = JSON.stringify(loadedTeachers);
           prevClasses.current = JSON.stringify(loadedClasses);
@@ -238,6 +274,8 @@ export default function App() {
           prevMarks.current = JSON.stringify(loadedMarks);
           prevFees.current = JSON.stringify(loadedFees);
           prevCoordinators.current = JSON.stringify(loadedCoordinators);
+          prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
+          if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
 
           toast.success("ScholarSync connected with Cloud Firestore Ledger!");
         }
@@ -545,6 +583,97 @@ export default function App() {
     prevFees.current = currentStr;
   }, [fees]);
 
+  // Student Fee Data Sync (New Engine)
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(feeStudents);
+    if (currentStr === prevFeeStudents.current) return;
+
+    const current = feeStudents;
+    const prevArr: StudentFeeData[] = prevFeeStudents.current ? JSON.parse(prevFeeStudents.current) : [];
+
+    current.forEach(async (item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        try {
+          await setDoc(doc(db, "fee_data", String(item.id)), sanitizeForFirestore(item));
+        } catch (e) {
+          console.error("Firestore Fee Data Set Error:", e);
+        }
+      }
+    });
+
+    prevArr.forEach(async (item) => {
+      if (!current.some(p => p.id === item.id)) {
+        try {
+          await deleteDoc(doc(db, "fee_data", String(item.id)));
+        } catch (e) {
+          console.error("Firestore Fee Data Delete Error:", e);
+        }
+      }
+    });
+
+    prevFeeStudents.current = currentStr;
+    localStorage.setItem('school_fee_data', currentStr);
+  }, [feeStudents]);
+
+  // App Settings Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(appSettings);
+    if (currentStr === prevAppSettings.current) return;
+
+    const sync = async () => {
+      try {
+        await setDoc(doc(db, "app_settings", "global"), sanitizeForFirestore(appSettings));
+        prevAppSettings.current = currentStr;
+        localStorage.setItem('acadamis_app_settings', currentStr);
+      } catch (e) {
+        console.error("Firestore Settings Sync Error:", e);
+      }
+    };
+
+    sync();
+  }, [appSettings]);
+
+  // Auto-sync students to feeStudents collection
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    
+    let changed = false;
+    const updatedFeeStudents = students.map(s => {
+      const match = feeStudents.find(fs => String(fs.id) === String(s.id));
+      if (match) {
+        // Just update metadata if needed
+        const className = classes.find(c => c.id === s.classId)?.className || match.class;
+        if (match.name !== s.name || match.class !== className || match.enrollmentMonth !== s.enrollmentMonth || match.monthlyFee !== (s.baseFee || 0)) {
+          changed = true;
+          return { ...match, name: s.name, class: className, enrollmentMonth: s.enrollmentMonth, monthlyFee: s.baseFee || 0 };
+        }
+        return match;
+      } else {
+        changed = true;
+        return {
+          id: s.id,
+          name: s.name,
+          class: classes.find(c => c.id === s.classId)?.className || 'Default',
+          monthlyFee: s.baseFee || 0,
+          enrollmentMonth: s.enrollmentMonth || 'January',
+          payments: [],
+          otherFunds: []
+        };
+      }
+    });
+
+    // Remove fee data for students who are no longer in the system
+    const finalFeeStudents = updatedFeeStudents.filter(fs => students.some(s => String(s.id) === String(fs.id)));
+    if (finalFeeStudents.length !== updatedFeeStudents.length) changed = true;
+
+    if (changed) {
+      setFeeStudents(finalFeeStudents);
+    }
+  }, [students, classes, isSyncComplete.current]);
+
   // --- LOCALSTORAGE CACHING EFFECTS ---
   useEffect(() => {
     localStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
@@ -661,6 +790,10 @@ export default function App() {
           setFees={setFees}
           marks={marks}
           setMarks={setMarks}
+          feeStudents={feeStudents}
+          setFeeStudents={setFeeStudents}
+          appSettings={appSettings}
+          setAppSettings={setAppSettings}
           onLogout={handleLogout}
         />
       ) : userSession.role === 'teacher' ? (

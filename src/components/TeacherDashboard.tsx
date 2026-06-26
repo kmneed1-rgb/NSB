@@ -46,6 +46,8 @@ export default function TeacherDashboard({
   onLogout
 }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [timetableSubTab, setTimetableSubTab] = useState<'my' | 'class'>('my');
+  const [timetableClassId, setTimetableClassId] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAddFeeModal, setShowAddFeeModal] = useState(false);
   const [newFeeStudentId, setNewFeeStudentId] = useState('');
@@ -81,6 +83,12 @@ export default function TeacherDashboard({
 
   // Fallback class view strictly limited to teacher's classes
   const [activeClassId, setActiveClassId] = useState<string>(classId);
+  
+  useEffect(() => {
+    if (classId && !timetableClassId) {
+      setTimetableClassId(classId);
+    }
+  }, [classId]);
   
   const myClassIds = myClasses.map(c => c.id);
   const viewClassStudents = students.filter(s => myClassIds.includes(s.classId) && (activeClassId === 'all' || s.id === 'all' || s.classId === activeClassId));
@@ -586,6 +594,11 @@ export default function TeacherDashboard({
   const getClassLabel = (cId: string) => {
     const c = classes.find(item => item.id === cId);
     return c ? `${c.className}-${c.section}` : 'N/A';
+  };
+
+  const getTeacherName = (tId: string) => {
+    const t = teachers.find(item => item.id === tId);
+    return t ? t.name : 'Unknown';
   };
 
   return (
@@ -1983,10 +1996,43 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 {/* ========== TEACHER TIMETABLE SCHEDULE ========== */}
         {activeTab === 'timetable' && (
           <div id="panel-teacher-timetable" className="space-y-6 animate-fade-in bg-amber-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-amber-100 shadow-inner">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">My Pedagogical Timetable</h1>
-              <p className="text-xs text-gray-500 mt-0.5">Filter schedule blocks specifically looking for sessions registered to your instructor identity.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Pedagogical Timetable</h1>
+                <p className="text-xs text-gray-500 mt-0.5">Filter schedule blocks specifically looking for sessions registered to your instructor identity.</p>
+              </div>
+
+              {/* Sub-tabs for Timetable */}
+              <div className="flex bg-white p-1 rounded-xl border border-amber-200 shadow-sm">
+                <button 
+                  onClick={() => setTimetableSubTab('my')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${timetableSubTab === 'my' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  My Schedule
+                </button>
+                <button 
+                  onClick={() => setTimetableSubTab('class')}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${timetableSubTab === 'class' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Class Schedule
+                </button>
+              </div>
             </div>
+
+            {timetableSubTab === 'class' && (
+              <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-amber-100 shadow-sm animate-fade-in">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Class:</span>
+                <select 
+                  value={timetableClassId}
+                  onChange={(e) => setTimetableClassId(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-amber-500 transition-all"
+                >
+                  {myClasses.map(cl => (
+                    <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Timetable Grid mapping */}
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
@@ -2011,9 +2057,9 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                           {day}
                         </td>
                         {PERIODS.map(p => {
-                          // Find entries where this teacher is scheduled to instruct
+                          // Find entries based on sub-tab
                           const entry = timetable.find(
-                            tt => tt.teacherId === teacherId && 
+                            tt => (timetableSubTab === 'my' ? tt.teacherId === teacherId : tt.classId === timetableClassId) && 
                                  tt.day === day && 
                                  tt.period === p
                           );
@@ -2061,7 +2107,9 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                       )}
                                     </div>
                                     <div className="text-[10px] text-slate-755 mt-0.5 truncate font-medium">
-                                      🏫 Class: {getClassLabel(entry.classId)}
+                                      {timetableSubTab === 'my' 
+                                        ? `🏫 Class: ${getClassLabel(entry.classId)}` 
+                                        : `👤 Teacher: ${getTeacherName(entry.teacherId)}`}
                                     </div>
                                     <div className="text-[9px] font-mono text-slate-500 mt-1 flex items-center justify-between">
                                       <span>{entry.time}</span>

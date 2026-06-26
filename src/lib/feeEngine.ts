@@ -19,6 +19,7 @@ export interface StudentFeeData {
   name: string;
   class: string;
   monthlyFee: number;
+  enrollmentMonth?: string;
   payments: Payment[];
   otherFunds: OtherFund[];
 }
@@ -105,7 +106,16 @@ export const getMonthlySummary = (student: StudentFeeData, month: string, year: 
     isFutureMonth = true;
   }
 
-  const due = isFutureMonth ? 0 : student.monthlyFee;
+  // Check enrollment month
+  let isBeforeEnrollment = false;
+  if (student.enrollmentMonth) {
+    const enrollIndex = MONTHS.indexOf(student.enrollmentMonth as Month);
+    if (enrollIndex > monthIndex) {
+      isBeforeEnrollment = true;
+    }
+  }
+
+  const due = (isFutureMonth || isBeforeEnrollment) ? 0 : student.monthlyFee;
   const paid = student.payments
     .filter(p => p.month === month && p.year === year)
     .reduce((sum, p) => sum + p.amount, 0);

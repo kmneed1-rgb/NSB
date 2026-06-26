@@ -33,6 +33,7 @@ export interface Student {
   guardianName?: string;
   category?: string;
   academySubjects?: string[];
+  enrollmentMonth?: string;
 }
 
 export interface ClassFeeConfig {
@@ -90,6 +91,39 @@ export interface TimetableEntry {
   time: string;        // e.g., "09:00 AM - 10:00 AM"
   subject: string;
   teacherId: string;   // References Teacher.id
+}
+
+export interface AppSettings {
+  absentTemplate: string;
+  feeTemplate: string;
+  whatsAppAutoFee: boolean;
+  whatsAppAutoAbsence: boolean;
+  whatsAppAutoResult: boolean;
+  autoWhatsAppRedirect: boolean;
+  extraPeriods: Record<string, string[]>;
+  deletedPeriods: Record<string, string[]>;
+  periodColors: Record<string, string>;
+}
+
+export interface StudentFeeData {
+  id: string | number;
+  name: string;
+  class: string;
+  monthlyFee: number;
+  enrollmentMonth?: string;
+  payments: {
+    id: string;
+    month: string;
+    year: number;
+    amount: number;
+    date: string;
+  }[];
+  otherFunds: {
+    id: string;
+    desc: string;
+    amount: number;
+    date: string;
+  }[];
 }
 
 export interface UserSession {

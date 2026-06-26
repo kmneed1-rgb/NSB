@@ -1,136 +1,109 @@
 {
-  "entities": {
-    "Teacher": {
-      "title": "Teacher",
-      "description": "Information about school teachers.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "username": { "type": "string" },
-        "password": { "type": "string" },
-        "subject": { "type": "string" },
-        "phone": { "type": "string" }
-      },
-      "required": ["id", "name", "email", "username", "password"]
+  "collections": {
+    "students": {
+      "description": "Student records including academic and contact details",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "parentPhone": "string",
+        "studentPhone": "string",
+        "classId": "string",
+        "rollNo": "string",
+        "gender": "string",
+        "isAcademy": "boolean",
+        "academySubjects": "array",
+        "status": "string"
+      }
     },
-    "Class": {
-      "title": "Class",
-      "description": "Details of classrooms and class teachers.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "className": { "type": "string" },
-        "section": { "type": "string" },
-        "classTeacherId": { "type": "string" }
-      },
-      "required": ["id", "className", "section"]
+    "teachers": {
+      "description": "Teacher profiles and contact info",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "phone": "string",
+        "email": "string",
+        "designation": "string",
+        "status": "string"
+      }
     },
-    "Student": {
-      "title": "Student",
-      "description": "Information about students and parent contacts.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "username": { "type": "string" },
-        "password": { "type": "string" },
-        "classId": { "type": "string" },
-        "rollNumber": { "type": "string" },
-        "parentPhone": { "type": "string" }
-      },
-      "required": ["id", "name", "email", "username", "password", "classId"]
+    "coordinators": {
+      "description": "Coordinator profiles",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "phone": "string",
+        "designation": "string",
+        "status": "string"
+      }
     },
-    "TimetableEntry": {
-      "title": "TimetableEntry",
-      "description": "A scheduled weekly period for a class.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "classId": { "type": "string" },
-        "day": { "type": "string" },
-        "period": { "type": "string" },
-        "time": { "type": "string" },
-        "subject": { "type": "string" },
-        "teacherId": { "type": "string" }
-      },
-      "required": ["id", "classId", "day", "period", "time", "subject", "teacherId"]
+    "classes": {
+      "description": "Class definitions including section and teacher mapping",
+      "fields": {
+        "id": "string",
+        "className": "string",
+        "section": "string",
+        "classTeacherId": "string",
+        "subjects": "array",
+        "feeConfigs": "array"
+      }
     },
-    "Attendance": {
-      "title": "Attendance",
-      "description": "Daily student attendance records.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "studentId": { "type": "string" },
-        "date": { "type": "string" },
-        "status": { "type": "string", "enum": ["present", "absent"] }
-      },
-      "required": ["id", "studentId", "date", "status"]
+    "timetable": {
+      "description": "Class schedules",
+      "fields": {
+        "id": "string",
+        "classId": "string",
+        "day": "string",
+        "period": "string",
+        "subject": "string",
+        "teacherId": "string",
+        "startTime": "string",
+        "endTime": "string"
+      }
     },
-    "Mark": {
-      "title": "Mark",
-      "description": "Grade achievements or unit assessment marks.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "studentId": { "type": "string" },
-        "subject": { "type": "string" },
-        "examType": { "type": "string" },
-        "marksObtained": { "type": "number" },
-        "maxMarks": { "type": "number" }
-      },
-      "required": ["id", "studentId", "subject", "examType", "marksObtained", "maxMarks"]
+    "attendance": {
+      "description": "Daily attendance logs",
+      "fields": {
+        "id": "string",
+        "studentId": "string",
+        "date": "string",
+        "status": "string",
+        "markedBy": "string",
+        "timestamp": "timestamp"
+      }
     },
-    "FeeRecord": {
-      "title": "FeeRecord",
-      "description": "School tuition fees, fund billing records, and settle details.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "studentId": { "type": "string" },
-        "amount": { "type": "number" },
-        "dueDate": { "type": "string" },
-        "status": { "type": "string", "enum": ["paid", "unpaid", "pending"] },
-        "paidDate": { "type": "string" },
-        "month": { "type": "string" },
-        "paymentMethod": { "type": "string" },
-        "feeType": { "type": "string" },
-        "description": { "type": "string" }
-      },
-      "required": ["id", "studentId", "amount", "dueDate", "status", "month"]
-    }
-  },
-  "firestore": {
-    "/teachers/{teacherId}": {
-      "schema": { "$ref": "#/entities/Teacher" },
-      "description": "Individual teacher records"
+    "fees": {
+      "description": "Student fee records and payments",
+      "fields": {
+        "id": "string",
+        "studentId": "string",
+        "studentName": "string",
+        "class": "string",
+        "yearlyBreakdown": "array",
+        "otherFunds": "array",
+        "payments": "array",
+        "lastUpdated": "timestamp"
+      }
     },
-    "/classes/{classId}": {
-      "schema": { "$ref": "#/entities/Class" },
-      "description": "Classes configuration"
+    "settings": {
+      "description": "Global application settings and templates",
+      "fields": {
+        "absentTemplate": "string",
+        "feeTemplate": "string",
+        "whatsAppAutoFee": "boolean",
+        "whatsAppAutoAbsence": "boolean",
+        "whatsAppAutoResult": "boolean",
+        "autoWhatsAppRedirect": "boolean",
+        "extraPeriods": "map"
+      }
     },
-    "/students/{studentId}": {
-      "schema": { "$ref": "#/entities/Student" },
-      "description": "Student details"
-    },
-    "/timetable/{timetableId}": {
-      "schema": { "$ref": "#/entities/TimetableEntry" },
-      "description": "Timetable structures"
-    },
-    "/attendance/{attendanceId}": {
-      "schema": { "$ref": "#/entities/Attendance" },
-      "description": "Daily individual attendance"
-    },
-    "/marks/{markId}": {
-      "schema": { "$ref": "#/entities/Mark" },
-      "description": "Exam marks ledger"
-    },
-    "/fees/{feeId}": {
-      "schema": { "$ref": "#/entities/FeeRecord" },
-      "description": "Tuition and secondary fee bills"
+    "logs": {
+      "description": "System and broadcast logs",
+      "fields": {
+        "id": "string",
+        "type": "string",
+        "message": "string",
+        "timestamp": "timestamp"
+      }
     }
   }
 }
