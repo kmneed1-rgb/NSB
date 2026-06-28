@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
+import { Download, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData } from './types';
@@ -108,6 +110,52 @@ export default function App() {
       periodColors: {}
     };
   });
+
+  // --- PWA INSTALL PROMPT LOGIC ---
+  const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+
+  useEffect(() => {
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => console.log('SW Registered', reg))
+          .catch(err => console.log('SW Error', err));
+      });
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setInstallPromptEvent(e);
+      
+      // Show modal after a small delay
+      setTimeout(() => {
+        setShowInstallModal(true);
+      }, 1500);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = () => {
+    if (installPromptEvent) {
+      installPromptEvent.prompt();
+      installPromptEvent.userChoice.then((choiceResult: { outcome: string }) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the install prompt');
+        }
+        setInstallPromptEvent(null);
+        setShowInstallModal(false);
+      });
+    }
+  };
 
   // User session state
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
@@ -726,6 +774,52 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-center font-sans select-none">
         <Toaster position="top-right" richColors />
+        
+        {/* PWA Install Modal Popup */}
+        <AnimatePresence>
+          {showInstallModal && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200"
+              >
+                <div className="p-8 text-center space-y-6">
+                  <div className="w-20 h-20 bg-indigo-600 text-white rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-indigo-500/20 rotate-6">
+                    <Download size={40} strokeWidth={2.5} />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight italic text-slate-900">Install Portal</h3>
+                    <p className="text-xs font-bold text-slate-500 leading-relaxed uppercase tracking-wide">
+                      Add to your home screen for quick access and a better mobile experience.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3 pt-4">
+                    <button 
+                      onClick={handleInstallClick}
+                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
+                    >
+                      Install Now
+                    </button>
+                    <button 
+                      onClick={() => setShowInstallModal(false)}
+                      className="w-full py-4 bg-white border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
+                    >
+                      Maybe Later
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Smart School Management System</p>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         <div className="space-y-6 max-w-sm w-full animate-fade-in">
           {/* Animated Spinner with school academic icon */}
           <div className="relative w-16 h-16 mx-auto">
@@ -754,6 +848,52 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
+
+      {/* PWA Install Modal Popup */}
+      <AnimatePresence>
+        {showInstallModal && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 text-center space-y-6">
+                <div className="w-20 h-20 bg-indigo-600 text-white rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-indigo-500/20 rotate-6">
+                  <Download size={40} strokeWidth={2.5} />
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight italic">Install Portal</h3>
+                  <p className="text-xs font-bold text-slate-500 leading-relaxed uppercase tracking-wide">
+                    Add to your home screen for quick access and a better mobile experience.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 pt-4">
+                  <button 
+                    onClick={handleInstallClick}
+                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
+                  >
+                    Install Now
+                  </button>
+                  <button 
+                    onClick={() => setShowInstallModal(false)}
+                    className="w-full py-4 bg-white border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
+                  >
+                    Maybe Later
+                  </button>
+                </div>
+              </div>
+              <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Smart School Management System</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {!userSession ? (
         !viewPortal ? (
           <LandingPage
@@ -795,6 +935,8 @@ export default function App() {
           appSettings={appSettings}
           setAppSettings={setAppSettings}
           onLogout={handleLogout}
+          installPromptEvent={installPromptEvent}
+          onInstallApp={handleInstallClick}
         />
       ) : userSession.role === 'teacher' ? (
         <TeacherDashboard
@@ -812,6 +954,8 @@ export default function App() {
           fees={fees}
           setFees={setFees}
           onLogout={handleLogout}
+          installPromptEvent={installPromptEvent}
+          onInstallApp={handleInstallClick}
         />
       ) : (
         <StudentDashboard
@@ -827,6 +971,8 @@ export default function App() {
           fees={fees}
           setFees={setFees}
           onLogout={handleLogout}
+          installPromptEvent={installPromptEvent}
+          onInstallApp={handleInstallClick}
         />
       )}
     </div>

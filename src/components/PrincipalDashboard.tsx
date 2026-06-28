@@ -22,7 +22,8 @@ import {
   editOtherFund,
   deletePayment,
   editPayment,
-  MONTHS 
+  MONTHS,
+  Month
 } from '../lib/feeEngine';
 
 interface PrincipalDashboardProps {
@@ -48,6 +49,8 @@ interface PrincipalDashboardProps {
   appSettings: AppSettings;
   setAppSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
   onLogout: () => void;
+  installPromptEvent: any;
+  onInstallApp: () => void;
 }
 
 type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers' | 'monthly_report';
@@ -80,7 +83,9 @@ export default function PrincipalDashboard({
   setFeeStudents,
   appSettings,
   setAppSettings,
-  onLogout
+  onLogout,
+  installPromptEvent,
+  onInstallApp
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [reportClassFilter, setReportClassFilter] = useState<string>('all');
@@ -1230,6 +1235,17 @@ export default function PrincipalDashboard({
                 </button>
               );
             })}
+
+            {/* Install Button in Sidebar */}
+            {installPromptEvent && (
+              <button
+                onClick={onInstallApp}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+              >
+                <Download size={14} className="text-indigo-600" />
+                Install App
+              </button>
+            )}
           </nav>
         </div>
 
@@ -4430,17 +4446,16 @@ export default function PrincipalDashboard({
                       ) : (
                         marks
                           .filter(m => m.studentId === selectedStudentReport.id)
-                          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                           .slice(0, 5)
                           .map((m, idx) => (
                             <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                               <div>
                                 <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.subject}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">{m.date}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">{m.examType}</p>
                               </div>
                               <div className="text-right">
-                                <p className="text-xs font-black text-indigo-600">{m.marksObtained}/{m.totalMarks}</p>
-                                <p className="text-[9px] font-bold text-slate-400">{Math.round((Number(m.marksObtained)/Number(m.totalMarks))*100)}%</p>
+                                <p className="text-xs font-black text-indigo-600">{m.marksObtained}/{m.maxMarks}</p>
+                                <p className="text-[9px] font-bold text-slate-400">{Math.round((Number(m.marksObtained)/Number(m.maxMarks))*100)}%</p>
                               </div>
                             </div>
                           ))
@@ -4756,6 +4771,17 @@ export default function PrincipalDashboard({
             >
               <Database size={16} className={activeTab === 'registers' || activeTab === 'fees' ? 'text-emerald-400' : 'text-slate-400'} />
               <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Records</span>
+            </button>
+          )}
+
+          {/* Install Button for Mobile Navigation */}
+          {installPromptEvent && (
+            <button
+              onClick={onInstallApp}
+              className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none"
+            >
+              <Download size={16} className="text-indigo-600" />
+              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider text-indigo-600">Install</span>
             </button>
           )}
 

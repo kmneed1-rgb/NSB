@@ -25,6 +25,8 @@ interface StudentDashboardProps {
   fees: FeeRecord[];
   setFees: React.Dispatch<React.SetStateAction<FeeRecord[]>>;
   onLogout: () => void;
+  installPromptEvent: any;
+  onInstallApp: () => void;
 }
 
 type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees';
@@ -41,7 +43,9 @@ export default function StudentDashboard({
   marks,
   fees,
   setFees,
-  onLogout
+  onLogout,
+  installPromptEvent,
+  onInstallApp
 }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -399,6 +403,17 @@ export default function StudentDashboard({
                 {item.label}
               </button>
             ))}
+
+            {/* Install Button in Student Sidebar */}
+            {installPromptEvent && (
+              <button
+                onClick={onInstallApp}
+                className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+              >
+                <Download size={14} className="text-indigo-600" />
+                Install App
+              </button>
+            )}
           </nav>
         </div>
 
@@ -1373,6 +1388,17 @@ export default function StudentDashboard({
             <Calendar size={18} />
             <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Schedule</span>
           </button>
+
+          {/* Install Button for Student Mobile Navigation */}
+          {installPromptEvent && (
+            <button
+              onClick={onInstallApp}
+              className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none"
+            >
+              <Download size={18} className="text-emerald-400" />
+              <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider text-emerald-400">Install</span>
+            </button>
+          )}
 
         </div>
       </div>
