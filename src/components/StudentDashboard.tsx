@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
   Award, Calendar, Clock, LogOut, CheckSquare, Sparkles, BookOpen, 
-  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon
+  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download
 } from 'lucide-react';
 import { getNotifications, saveNotifications, addNotification, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';

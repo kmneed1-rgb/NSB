@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';

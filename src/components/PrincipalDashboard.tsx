@@ -3,7 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send, Zap, FileText, Printer } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, Send, Zap, FileText, Printer, Filter } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -246,11 +246,16 @@ export default function PrincipalDashboard({
   };
 
   const handleSendIndividualWhatsApp = (student: Student, date: string) => {
+    const sClass = classes.find(c => c.id === student.classId);
+    const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
+
     const template = appSettings.absentTemplate || 
       "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.";
     
     const message = template
       .replace(/{student_name}/g, student.name)
+      .replace(/{name}/g, student.name)
+      .replace(/{class_name}/g, className)
       .replace(/{roll_number}/g, student.rollNumber || 'N/A')
       .replace(/{date}/g, date);
 
@@ -295,14 +300,64 @@ export default function PrincipalDashboard({
     }
   };
 
-  const handleSendFeeNotification = (student: Student | StudentFeeData, type: 'payment' | 'charge', amount: number, details: string) => {
+  const handlePrintSummary = () => {
+    window.print();
+  };
+
+  const handleDownloadSummary = () => {
+    const filtered = students.filter(s => reportClassFilter === 'all' || s.classId === reportClassFilter);
+    
+    let csv = "Student Name,Roll Number,Class,Fee Status,Test Average,Pending Amount\n";
+    
+    filtered.forEach(s => {
+      const sClass = classes.find(c => c.id === s.classId);
+      const feeData = feeStudents.find(fs => String(fs.id) === String(s.id));
+      const feeSummary = feeData ? getMonthlySummary(feeData, reportMonth, new Date().getFullYear()) : null;
+      const totalPending = feeData ? getTotalPending(feeData) + getTotalOtherFunds(feeData) : 0;
+      
+      const studentMarks = marks.filter(m => m.studentId === s.id);
+      const avg = studentMarks.length > 0 
+        ? Math.round(studentMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / studentMarks.length)
+        : 0;
+
+      const feeStatus = feeSummary?.pending === 0 ? "Paid" : "Unpaid";
+      
+      csv += `"${s.name}","${s.rollNumber || 'N/A'}","${sClass?.className || 'N/A'}","${feeStatus}","${avg}%","Rs. ${totalPending}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `student_summary_${reportMonth}_${new Date().getFullYear()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Summary report downloaded successfully.");
+  };
+
+  const handleSendFeeNotification = (student: Student | StudentFeeData, type: 'payment' | 'charge' | 'reminder', amount: number, details: string) => {
     // Find fee data to get total pending
     const fStudent = feeStudents.find(fs => String(fs.id) === String(student.id));
-    const totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+    let totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+    
+    // Adjust pending balance based on the current action because state updates are async
+    if (type === 'payment') {
+      totalPending = Math.max(0, totalPending - amount);
+    } else if (type === 'charge') {
+      totalPending = totalPending + amount;
+    }
+
+    const classId = (student as any).classId;
+    const sClass = classId ? classes.find(c => c.id === classId) : null;
+    const className = sClass ? `${sClass.className} - ${sClass.section}` : ((student as any).class || 'N/A');
 
     const template = type === 'payment' 
-      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name}. Your remaining balance is Rs. ${totalPending}. Thank you for your cooperation. NSB 1 Academy.`
-      : `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s school account. Your total pending balance is Rs. ${totalPending}. Please contact office for details. NSB 1 Academy.`;
+      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name} (${className}). Your remaining balance is Rs. ${totalPending}. Thank you for your cooperation. NSB 1 Academy.`
+      : type === 'charge'
+      ? `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s (${className}) school account. Your total pending balance is Rs. ${totalPending}. Please contact office for details. NSB 1 Academy.`
+      : `Greetings! This is a reminder regarding the pending school fees for ${student.name} (${className}). Total outstanding balance is Rs. ${totalPending}. Please settle the dues at your earliest convenience. NSB 1 Academy.`;
     
     // Check both potential phone fields
     const phone = (student as any).parentPhone || (student as any).studentPhone || (student as any).phone || '';
@@ -347,6 +402,7 @@ export default function PrincipalDashboard({
   };
 
   const [bulkWAModal, setBulkWAModal] = useState<{ isOpen: boolean; absents: (Student & { attendanceDate: string })[] }>({ isOpen: false, absents: [] });
+  const [bulkWAClassFilter, setBulkWAClassFilter] = useState('all');
 
   const handleSendBulkAbsenceWhatsApp = () => {
     const recordsForDate = attendance.filter(a => {
@@ -1154,7 +1210,7 @@ export default function PrincipalDashboard({
     <div id="principal-dashboard-root" className="min-h-screen bg-gray-50 flex flex-col md:flex-row pb-16 md:pb-0 relative">
       
       {/* Mobile Top Header Indicator */}
-      <div id="mobile-top-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
+      <div id="mobile-top-bar" className={`md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20 ${selectedStudentReport ? 'print:hidden' : ''}`}>
         <div className="flex items-center gap-2">
           <Shield className="text-blue-600" size={20} />
           <span className="font-bold text-gray-900 tracking-tight">{userSession.role === 'principal' ? 'Principal Console' : 'Coordinator Console'}</span>
@@ -1191,7 +1247,7 @@ export default function PrincipalDashboard({
         id="sidebar-principal" 
         className={`fixed md:sticky top-0 left-0 h-screen w-60 bg-white border-r border-slate-100 text-slate-900 flex flex-col justify-between z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        } font-sans`}
+        } font-sans ${selectedStudentReport ? 'print:hidden' : ''}`}
       >
         <div>
           {/* Brand header - Minimalist */}
@@ -1262,7 +1318,7 @@ export default function PrincipalDashboard({
       </div>
 
       {/* Main Panel */}
-      <main className="flex-1 min-h-screen flex flex-col p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full font-sans text-slate-800">
+      <main className={`flex-1 min-h-screen flex flex-col p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full font-sans text-slate-800 ${selectedStudentReport ? 'print:hidden' : ''}`}>
         
         {userSession.role === 'developer' && (
           <div className="bg-amber-100 border border-amber-200 p-3 mb-6 flex items-center justify-between shadow-sm animate-pulse">
@@ -1531,9 +1587,6 @@ export default function PrincipalDashboard({
                             className="p-5 flex items-center justify-between cursor-pointer group-hover:bg-slate-50/50"
                           >
                             <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-slate-900 text-white flex items-center justify-center font-black italic text-lg border border-slate-700">
-                                {t.name.charAt(0)}
-                              </div>
                               <div>
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5">{t.name}</h3>
                                 <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none">{t.subject}</p>
@@ -1635,9 +1688,6 @@ export default function PrincipalDashboard({
                             className="p-4 flex items-center justify-between cursor-pointer group-hover:bg-slate-50/50"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-emerald-950 text-white flex items-center justify-center font-black italic border border-emerald-700 text-xs shadow-sm">
-                                #{s.rollNumber}
-                              </div>
                               <div className="min-w-0">
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate leading-none mb-1">{s.name}</h3>
                                 <div className="flex items-center gap-2">
@@ -1827,9 +1877,6 @@ export default function PrincipalDashboard({
                             className="p-5 flex items-center justify-between cursor-pointer group-hover:bg-slate-50/50"
                           >
                             <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-indigo-600 text-white flex items-center justify-center font-black italic text-lg border border-indigo-700">
-                                {c.name.charAt(0)}
-                              </div>
                               <div>
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5">{c.name}</h3>
                                 <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none">Academic Coordinator</p>
@@ -2140,10 +2187,18 @@ export default function PrincipalDashboard({
                     {reportClassFilter === 'all' ? 'All Classes' : `Class ${classes.find(c => c.id === reportClassFilter)?.className}`} Student Summary
                   </h2>
                   <div className="flex gap-2">
-                    <button className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                    <button 
+                      onClick={handleDownloadSummary}
+                      className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
+                      title="Download CSV"
+                    >
                       <Download size={14} className="text-slate-600" />
                     </button>
-                    <button className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                    <button 
+                      onClick={handlePrintSummary}
+                      className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
+                      title="Print Summary"
+                    >
                       <Printer size={14} className="text-slate-600" />
                     </button>
                   </div>
@@ -2152,11 +2207,10 @@ export default function PrincipalDashboard({
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-900 text-white">
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Student</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Fee Status</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Test Avg</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Grade</th>
-                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Pending</th>
+                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight">Student</th>
+                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-center">Fee Status</th>
+                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-center">Test Avg</th>
+                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-right">Pending</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2187,34 +2241,38 @@ export default function PrincipalDashboard({
                             onClick={() => setSelectedStudentReport(s)}
                             className="hover:bg-slate-50 transition-colors group cursor-pointer"
                           >
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-slate-950 text-white rounded-full flex items-center justify-center font-black text-xs border border-slate-800">
-                                  {s.name.charAt(0)}
-                                </div>
-                                <div>
-                                  <p className="text-xs font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{s.name}</p>
-                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
-                                </div>
+                            <td className="px-1.5 py-2">
+                              <div>
+                                <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors leading-tight">{s.name}</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
                               </div>
                             </td>
-                            <td className="px-6 py-4 text-center">
+                            <td className="px-1.5 py-2 text-center">
                               {feeSummary?.pending === 0 ? (
-                                <span className="bg-emerald-50 text-emerald-600 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-emerald-100">Paid</span>
+                                <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase border border-emerald-100">Paid</span>
                               ) : (
-                                <span className="bg-rose-50 text-rose-600 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-rose-100">Unpaid</span>
+                                <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase border border-rose-100">Unpaid</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className="text-xs font-black text-slate-900">{avg > 0 ? `${avg}%` : 'N/A'}</span>
+                            <td className="px-1.5 py-2 text-center">
+                              <span className="text-[10px] font-black text-slate-900">{avg > 0 ? `${avg}%` : '0%'}</span>
                             </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className={`text-xs font-black ${avg >= 50 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                                {avg > 0 ? getGrade(avg) : 'N/A'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className="text-xs font-black text-slate-900">Rs. {totalPending}</span>
+                            <td className="px-1.5 py-2 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <span className={`text-[10px] font-black leading-none ${totalPending > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                                  Rs.{totalPending}
+                                </span>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSendFeeNotification(s, 'reminder', 0, '');
+                                  }}
+                                  className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                                  title="Send Fee Reminder"
+                                >
+                                  <Send size={12} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2377,23 +2435,23 @@ export default function PrincipalDashboard({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="bg-white p-6 border border-slate-200 rounded-none shadow-sm">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total Expected JUN</p>
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter italic">Rs. {(students.length * 5500).toLocaleString()}</h3>
+                <div className="grid grid-cols-4 md:grid-cols-4 gap-1.5 sm:gap-4">
+                  <div className="bg-white p-2 sm:p-6 border border-slate-200 rounded-none shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-tight sm:tracking-widest mb-1 italic truncate">Expected</p>
+                    <h3 className="text-[10px] sm:text-2xl font-black text-slate-900 tracking-tighter italic">Rs.{(students.length * 5500).toLocaleString()}</h3>
                   </div>
-                  <div className="bg-white p-6 border border-emerald-100 rounded-none shadow-sm">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 italic">Collected JUN</p>
-                    <h3 className="text-2xl font-black text-emerald-700 tracking-tighter italic">Rs. {fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0).toLocaleString()}</h3>
+                  <div className="bg-white p-2 sm:p-6 border border-emerald-100 rounded-none shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-tight sm:tracking-widest mb-1 italic truncate">Collected</p>
+                    <h3 className="text-[10px] sm:text-2xl font-black text-emerald-700 tracking-tighter italic">Rs.{fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0).toLocaleString()}</h3>
                   </div>
-                  <div className="bg-white p-6 border border-rose-100 rounded-none shadow-sm">
-                    <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1 italic">Pending JUN</p>
-                    <h3 className="text-2xl font-black text-rose-700 tracking-tighter italic">Rs. {(students.length * 5500 - fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0)).toLocaleString()}</h3>
+                  <div className="bg-white p-2 sm:p-6 border border-rose-100 rounded-none shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-rose-600 uppercase tracking-tight sm:tracking-widest mb-1 italic truncate">Pending</p>
+                    <h3 className="text-[10px] sm:text-2xl font-black text-rose-700 tracking-tighter italic">Rs.{(students.length * 5500 - fees.filter(f => f.month === 'JUN').reduce((sum, f) => sum + Number(f.amount || 0), 0)).toLocaleString()}</h3>
                   </div>
-                  <div className="bg-white p-6 border border-slate-200 rounded-none shadow-sm">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Ledger Sync Status</p>
-                    <h3 className="text-lg font-black text-emerald-600 tracking-widest flex items-center gap-2">
-                       <RefreshCw size={14} className="animate-spin" /> LIVE
+                  <div className="bg-white p-2 sm:p-6 border border-slate-200 rounded-none shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-tight sm:tracking-widest mb-1 italic truncate">Sync</p>
+                    <h3 className="text-[10px] sm:text-lg font-black text-emerald-600 tracking-widest flex items-center gap-1">
+                       <RefreshCw size={10} className="animate-spin sm:w-[14px] sm:h-[14px]" /> LIVE
                     </h3>
                   </div>
                 </div>
@@ -2692,22 +2750,22 @@ export default function PrincipalDashboard({
             {(() => {
               const stats = getGlobalStats(feeStudents);
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Students</p>
-                    <p className="text-xl font-black text-slate-900">{stats.totalStudents}</p>
+                <div className="grid grid-cols-3 sm:grid-cols-2 md:grid-cols-4 gap-1.5 sm:gap-4">
+                  <div className="bg-white p-2 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-tight sm:tracking-widest truncate">Total Students</p>
+                    <p className="text-xs sm:text-xl font-black text-slate-900">{stats.totalStudents}</p>
                   </div>
-                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Collected</p>
-                    <p className="text-xl font-black text-emerald-700">Rs. {stats.totalCollected.toLocaleString()}</p>
+                  <div className="bg-emerald-50 p-2 sm:p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-tight sm:tracking-widest truncate">Collected</p>
+                    <p className="text-xs sm:text-xl font-black text-emerald-700">Rs. {stats.totalCollected.toLocaleString()}</p>
                   </div>
-                  <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 shadow-sm">
-                    <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Total Pending</p>
-                    <p className="text-xl font-black text-rose-700">Rs. {stats.totalPending.toLocaleString()}</p>
+                  <div className="bg-rose-50 p-2 sm:p-4 rounded-2xl border border-rose-100 shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-rose-600 uppercase tracking-tight sm:tracking-widest truncate">Pending</p>
+                    <p className="text-xs sm:text-xl font-black text-rose-700">Rs. {stats.totalPending.toLocaleString()}</p>
                   </div>
-                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 shadow-sm">
-                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Other Funds</p>
-                    <p className="text-xl font-black text-amber-700">Rs. {stats.totalOther.toLocaleString()}</p>
+                  <div className="bg-amber-50 p-2 sm:p-4 rounded-2xl border border-amber-100 shadow-sm">
+                    <p className="text-[8px] sm:text-[10px] font-black text-amber-600 uppercase tracking-tight sm:tracking-widest truncate">Other Funds</p>
+                    <p className="text-xs sm:text-xl font-black text-amber-700">Rs. {stats.totalOther.toLocaleString()}</p>
                   </div>
                 </div>
               );
@@ -2836,6 +2894,23 @@ export default function PrincipalDashboard({
                           ))}
                         </div>
                       </div>
+
+                      {/* Manual Reminder Card */}
+                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2 flex items-center gap-2">
+                          <Send size={14} className="text-emerald-500" /> Dispatch Alerts
+                        </h3>
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                          <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Outstanding</p>
+                          <p className="text-2xl font-black text-rose-600 italic">Rs. {getTotalPending(student) + getTotalOtherFunds(student)}</p>
+                        </div>
+                        <button 
+                          onClick={() => handleSendFeeNotification(student, 'reminder', 0, '')}
+                          className="w-full py-3.5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                        >
+                          <Send size={16} /> Send WhatsApp Reminder
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -2881,8 +2956,8 @@ export default function PrincipalDashboard({
                                 return;
                               }
                               
-                              const allPending = account.yearlyBreakdown.reduce((sum, curr) => sum + curr.pending, 0);
-                              const previousArrears = allPending - m.pending;
+                              const allMonthlyPending = account.yearlyBreakdown.reduce((sum, curr) => sum + curr.pending, 0);
+                              const previousArrears = allMonthlyPending - m.pending + account.otherFundsTotal;
 
                               setFeePaymentModal({
                                 isOpen: true,
@@ -4310,29 +4385,29 @@ export default function PrincipalDashboard({
       {/* ========== STUDENT DETAIL REPORT MODAL ========== */}
       <AnimatePresence>
         {selectedStudentReport && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300 print:static print:bg-white print:p-0">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:border-none print:w-full"
             >
-              <div className="p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+              <div className="p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden print:bg-white print:text-slate-950 print:border-b print:p-4">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl print:hidden"></div>
                 <div className="relative z-10 flex items-center gap-6">
-                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-3xl font-black shadow-lg shadow-indigo-500/20 rotate-3">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-3xl font-black shadow-lg shadow-indigo-500/20 rotate-3 print:bg-slate-100 print:text-slate-900 print:shadow-none print:rotate-0 print:w-12 print:h-12 print:text-xl print:rounded-lg">
                     {selectedStudentReport.name.charAt(0)}
                   </div>
                   <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tight italic">{selectedStudentReport.name}</h2>
+                    <h2 className="text-2xl font-black uppercase tracking-tight italic print:text-xl print:not-italic">{selectedStudentReport.name}</h2>
                     <div className="flex flex-wrap gap-3 mt-2">
-                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5">
+                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5 print:bg-slate-50 print:text-slate-600 print:border-slate-200">
                         Class: {classes.find(c => c.id === selectedStudentReport.classId)?.className}
                       </span>
-                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5">
+                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5 print:bg-slate-50 print:text-slate-600 print:border-slate-200">
                         Roll: {selectedStudentReport.rollNumber}
                       </span>
-                      <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20">
+                      <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20 print:bg-slate-50 print:text-indigo-600 print:border-slate-200">
                         {selectedStudentReport.category}
                       </span>
                     </div>
@@ -4340,23 +4415,23 @@ export default function PrincipalDashboard({
                 </div>
                 <button 
                   onClick={() => setSelectedStudentReport(null)}
-                  className="relative z-10 p-2 hover:bg-white/10 rounded-full transition-all text-white/60 hover:text-white"
+                  className="relative z-10 p-2 hover:bg-white/10 rounded-full transition-all text-white/60 hover:text-white print:hidden"
                 >
                   <X size={24} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50">
+              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50 print:bg-white print:p-4 print:overflow-visible">
                 {/* Stats Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
                   {/* Attendance Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Attendance</span>
-                      <CalendarDays size={16} className="text-blue-500" />
+                      <CalendarDays size={16} className="text-blue-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900">
+                      <div className="text-3xl font-black text-slate-900 print:text-xl">
                         {(() => {
                           const stats = attendance.filter(a => a.studentId === selectedStudentReport.id);
                           if (stats.length === 0) return '0%';
@@ -4366,27 +4441,16 @@ export default function PrincipalDashboard({
                       </div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Average Presence</p>
                     </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-blue-500 h-full rounded-full transition-all duration-1000"
-                        style={{ width: `${(() => {
-                          const stats = attendance.filter(a => a.studentId === selectedStudentReport.id);
-                          if (stats.length === 0) return 0;
-                          const present = stats.filter(a => a.status === 'present' || a.status === 'leave').length;
-                          return Math.round((present / stats.length) * 100);
-                        })()}%` }}
-                      ></div>
-                    </div>
                   </div>
 
                   {/* Academics Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Academics</span>
-                      <Award size={16} className="text-indigo-500" />
+                      <Award size={16} className="text-indigo-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900">
+                      <div className="text-3xl font-black text-slate-900 print:text-xl">
                         {(() => {
                           const sMarks = marks.filter(m => m.studentId === selectedStudentReport.id);
                           if (sMarks.length === 0) return 'N/A';
@@ -4396,26 +4460,16 @@ export default function PrincipalDashboard({
                       </div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Test Performance</p>
                     </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-indigo-500 h-full rounded-full transition-all duration-1000"
-                        style={{ width: `${(() => {
-                          const sMarks = marks.filter(m => m.studentId === selectedStudentReport.id);
-                          if (sMarks.length === 0) return 0;
-                          return Math.round(sMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / sMarks.length);
-                        })()}%` }}
-                      ></div>
-                    </div>
                   </div>
 
                   {/* Financials Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Financials</span>
-                      <CreditCard size={16} className="text-emerald-500" />
+                      <CreditCard size={16} className="text-emerald-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900">
+                      <div className="text-3xl font-black text-slate-900 print:text-xl">
                         {(() => {
                           const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
                           if (!fData) return 'Rs. 0';
@@ -4424,21 +4478,15 @@ export default function PrincipalDashboard({
                       </div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Outstanding</p>
                     </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-emerald-500 h-full rounded-full transition-all duration-1000"
-                        style={{ width: '100%' }}
-                      ></div>
-                    </div>
                   </div>
                 </div>
 
                 {/* Detailed Sections */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:grid-cols-2">
                   {/* Test History */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
                     <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
-                      <BookOpen size={16} className="text-indigo-600" /> Recent Test Scores
+                      <BookOpen size={16} className="text-indigo-600 print:hidden" /> Recent Test Scores
                     </h3>
                     <div className="space-y-3">
                       {marks.filter(m => m.studentId === selectedStudentReport.id).length === 0 ? (
@@ -4448,14 +4496,13 @@ export default function PrincipalDashboard({
                           .filter(m => m.studentId === selectedStudentReport.id)
                           .slice(0, 5)
                           .map((m, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-slate-200">
                               <div>
                                 <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.subject}</p>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">{m.examType}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-xs font-black text-indigo-600">{m.marksObtained}/{m.maxMarks}</p>
-                                <p className="text-[9px] font-bold text-slate-400">{Math.round((Number(m.marksObtained)/Number(m.maxMarks))*100)}%</p>
                               </div>
                             </div>
                           ))
@@ -4464,9 +4511,9 @@ export default function PrincipalDashboard({
                   </div>
 
                   {/* Attendance Log */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
                     <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
-                      <Calendar size={16} className="text-blue-600" /> Monthly Attendance History
+                      <Calendar size={16} className="text-blue-600 print:hidden" /> Monthly Attendance
                     </h3>
                     <div className="space-y-2">
                       {MONTHS.map(month => {
@@ -4482,36 +4529,30 @@ export default function PrincipalDashboard({
                         const absent = monthLogs.filter(l => l.status === 'absent').length;
 
                         return (
-                          <div key={month} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                            <span className="text-xs font-black text-slate-800 uppercase">{month}</span>
-                            <div className="flex gap-2">
-                              <div className="text-center px-2">
-                                <p className="text-[8px] font-black text-emerald-500 uppercase">Pres</p>
-                                <p className="text-xs font-black">{present}</p>
+                          <div key={month} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-slate-200">
+                            <span className="text-[10px] font-black text-slate-800 uppercase">{month}</span>
+                            <div className="flex gap-4">
+                              <div className="text-center">
+                                <p className="text-[8px] font-black text-emerald-600 uppercase">P: {present}</p>
                               </div>
-                              <div className="text-center px-2 border-x border-slate-200">
-                                <p className="text-[8px] font-black text-amber-500 uppercase">Leave</p>
-                                <p className="text-xs font-black">{leave}</p>
+                              <div className="text-center">
+                                <p className="text-[8px] font-black text-amber-600 uppercase">L: {leave}</p>
                               </div>
-                              <div className="text-center px-2">
-                                <p className="text-[8px] font-black text-rose-500 uppercase">Abs</p>
-                                <p className="text-xs font-black">{absent}</p>
+                              <div className="text-center">
+                                <p className="text-[8px] font-black text-rose-600 uppercase">A: {absent}</p>
                               </div>
                             </div>
                           </div>
                         );
                       })}
-                      {!attendance.some(a => a.studentId === selectedStudentReport.id) && (
-                        <p className="text-xs text-slate-400 italic py-4 text-center">No attendance logs found.</p>
-                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Financial Ledger Section */}
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
                   <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-6 flex items-center gap-2 border-b pb-4">
-                    <CreditCard size={18} className="text-emerald-600" /> Complete Financial Ledger
+                    <CreditCard size={18} className="text-emerald-600 print:hidden" /> Financial Ledger
                   </h3>
                   <div className="space-y-4">
                     {(() => {
@@ -4519,47 +4560,39 @@ export default function PrincipalDashboard({
                       if (!fData) return <p className="text-center text-slate-400 italic">No financial data found.</p>;
 
                       return (
-                        <>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div>
-                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Monthly Payments</p>
-                              <div className="space-y-2">
-                                {fData.payments.map((p, i) => (
-                                  <div key={i} className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                                    <div>
-                                      <p className="text-xs font-black text-emerald-900 uppercase">{p.month} {p.year}</p>
-                                      <p className="text-[9px] font-bold text-emerald-600 uppercase">{p.date}</p>
-                                    </div>
-                                    <span className="text-xs font-black text-emerald-700">Rs. {p.amount}</span>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Payments</p>
+                            <div className="space-y-2">
+                              {fData.payments.slice(0, 5).map((p, i) => (
+                                <div key={i} className="flex items-center justify-between p-2 bg-emerald-50 rounded-xl border border-emerald-100 print:bg-white print:border-slate-200">
+                                  <div>
+                                    <p className="text-[10px] font-black text-emerald-900 uppercase">{p.month} {p.year}</p>
                                   </div>
-                                ))}
-                                {fData.payments.length === 0 && <p className="text-[10px] text-slate-400">No monthly payments recorded.</p>}
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Other Fund Charges</p>
-                              <div className="space-y-2">
-                                {fData.otherFunds.map((f, i) => (
-                                  <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                                    <div>
-                                      <p className="text-xs font-black text-slate-800 uppercase">{f.desc}</p>
-                                      <p className="text-[9px] font-bold text-slate-400 uppercase">{f.date}</p>
-                                    </div>
-                                    <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
-                                  </div>
-                                ))}
-                                {fData.otherFunds.length === 0 && <p className="text-[10px] text-slate-400">No additional charges recorded.</p>}
-                              </div>
+                                  <span className="text-[10px] font-black text-emerald-700">Rs. {p.amount}</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        </>
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Charges</p>
+                            <div className="space-y-2">
+                              {fData.otherFunds.slice(0, 5).map((f, i) => (
+                                <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-200 print:bg-white print:border-slate-200">
+                                  <p className="text-[10px] font-black text-slate-800 uppercase">{f.desc}</p>
+                                  <span className="text-[10px] font-black text-slate-900">Rs. {f.amount}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       );
                     })()}
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3">
+              <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3 print:hidden">
                 <button 
                   onClick={() => window.print()}
                   className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-300 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
@@ -5177,7 +5210,7 @@ export default function PrincipalDashboard({
                   <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                     <MessageSquare size={24} /> Bulk WhatsApp Dispatch
                   </h2>
-                  <p className="text-[10px] uppercase font-bold text-emerald-100 mt-1">Found {bulkWAModal.absents.length} absent students</p>
+                  <p className="text-[10px] uppercase font-bold text-emerald-100 mt-1">Total Absents: {bulkWAModal.absents.length} students</p>
                 </div>
                 <button 
                   onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
@@ -5186,31 +5219,57 @@ export default function PrincipalDashboard({
                   <X size={20} />
                 </button>
               </div>
+
+              {/* Class Filter Dropdown in Modal */}
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-4">
+                <div className="flex-1 relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <select 
+                    value={bulkWAClassFilter}
+                    onChange={(e) => setBulkWAClassFilter(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-emerald-500 appearance-none"
+                  >
+                    <option value="all">Filter by Class (All)</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               
               <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
-                {bulkWAModal.absents.length === 0 ? (
-                  <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No students to notify</p>
-                ) : (
-                  bulkWAModal.absents.map((st, idx) => (
-                    <div key={st.id || idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center font-black text-slate-600 text-sm">
-                          {idx + 1}
+                {(() => {
+                  const filtered = bulkWAModal.absents.filter(st => bulkWAClassFilter === 'all' || st.classId === bulkWAClassFilter);
+                  
+                  if (filtered.length === 0) {
+                    return <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No students matching filter</p>;
+                  }
+
+                  return filtered.map((st, idx) => {
+                    const sClass = classes.find(c => c.id === st.classId);
+                    return (
+                      <div key={st.id || idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center font-black text-slate-600 text-sm">
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">{st.name}</h4>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">
+                              {sClass ? `${sClass.className} - ${sClass.section}` : 'N/A'} | Roll: {st.rollNumber} | {st.parentPhone || 'No Phone'}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">{st.name}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">Roll: {st.rollNumber} | {st.parentPhone || 'No Phone'}</p>
-                        </div>
+                        <button 
+                            onClick={() => handleSendIndividualWhatsApp(st, st.attendanceDate)}
+                            className="px-5 py-2.5 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2 rounded-xl transition-all shadow-md active:scale-95"
+                        >
+                          <Send size={14} /> Send WA
+                        </button>
                       </div>
-                      <button 
-                          onClick={() => handleSendIndividualWhatsApp(st, st.attendanceDate)}
-                          className="px-5 py-2.5 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2 rounded-xl transition-all shadow-md active:scale-95"
-                      >
-                        <Send size={14} /> Send WA
-                      </button>
-                    </div>
-                  ))
-                )}
+                    );
+                  });
+                })()}
               </div>
 
               <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">

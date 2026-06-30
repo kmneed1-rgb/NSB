@@ -99,7 +99,7 @@ export default function App() {
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('acadamis_app_settings');
     return saved ? JSON.parse(saved) : {
-      absentTemplate: "Dear parent, your child {name} is absent today {date}. NSB 1 Academy.",
+      absentTemplate: "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.",
       feeTemplate: "Dear parent, your child {name}'s fee for {month} is Rs. {amount} which is due on {date}. NSB 1 Academy.",
       whatsAppAutoFee: true,
       whatsAppAutoAbsence: true,
