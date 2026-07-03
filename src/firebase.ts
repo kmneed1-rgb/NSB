@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
+import { getAnalytics, isSupported } from "firebase/analytics";
+import { initializeFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration verified from user's request details
@@ -10,23 +10,33 @@ const firebaseConfig = {
   projectId: "nsb1-64716",
   storageBucket: "nsb1-64716.firebasestorage.app",
   messagingSenderId: "821004745677",
-  appId: "1:821004745677:web:0bbb0bd176d7f22f9e6284",
-  measurementId: "G-65YS153DLF"
+  appId: "1:821004745677:web:0b09d8f7eeb6eb969e6284",
+  measurementId: ""
 };
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize main services
-export const db = getFirestore(app, "ai-studio-2dbc5800-6fd1-4ddd-a4ca-dc94aecfd377");
+// Initialize main services with long-polling backup enabled for iframe sandboxes
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+}, "ai-studio-2dbc5800-6fd1-4ddd-a4ca-dc94aecfd377");
 export const auth = getAuth(app);
 
 // Safe initialization for Analytics (may fail in sandboxed browser testing block)
-let analytics = null;
-try {
-  analytics = getAnalytics(app);
-} catch (error) {
-  console.warn("Firebase Analytics could not be initialized in this window context:", error);
+let analytics: any = null;
+if (typeof window !== "undefined" && firebaseConfig.measurementId) {
+  isSupported().then((supported) => {
+    if (supported) {
+      try {
+        analytics = getAnalytics(app);
+      } catch (error) {
+        console.warn("Firebase Analytics could not be initialized in this window context:", error);
+      }
+    }
+  }).catch((error) => {
+    console.warn("Firebase Analytics support check failed:", error);
+  });
 }
 
 export { analytics };

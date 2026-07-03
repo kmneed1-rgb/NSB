@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -148,7 +148,7 @@ export default function PrincipalDashboard({
 
   const handleExportJSON = () => {
     const exportData = {
-      version: "1.0",
+      version: "1.1",
       schoolName: "NSB Academic System",
       exportDate: new Date().toISOString(),
       teachers,
@@ -158,7 +158,9 @@ export default function PrincipalDashboard({
       fees,
       coordinators,
       marks,
-      timetable
+      timetable,
+      feeStudents,
+      appSettings
     };
     
     const jsonString = JSON.stringify(exportData, null, 2);
@@ -209,6 +211,8 @@ export default function PrincipalDashboard({
         if (data.coordinators) setCoordinators(data.coordinators);
         if (data.marks) setMarks(data.marks);
         if (data.timetable) setTimetable(data.timetable);
+        if (data.feeStudents) setFeeStudents(data.feeStudents);
+        if (data.appSettings) setAppSettings(data.appSettings);
 
         toast.success("System database restored successfully from backup!");
       } catch (err: any) {
@@ -1247,7 +1251,7 @@ export default function PrincipalDashboard({
         id="sidebar-principal" 
         className={`fixed md:sticky top-0 left-0 h-screen w-60 bg-white border-r border-slate-100 text-slate-900 flex flex-col justify-between z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        } font-sans ${selectedStudentReport ? 'print:hidden' : ''}`}
+        } font-sans print:hidden`}
       >
         <div>
           {/* Brand header - Minimalist */}
@@ -1293,15 +1297,13 @@ export default function PrincipalDashboard({
             })}
 
             {/* Install Button in Sidebar */}
-            {installPromptEvent && (
-              <button
-                onClick={onInstallApp}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
-              >
-                <Download size={14} className="text-indigo-600" />
-                Install App
-              </button>
-            )}
+            <button
+              onClick={onInstallApp}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+            >
+              <Download size={14} className="text-indigo-600" />
+              Install App
+            </button>
           </nav>
         </div>
 
@@ -2147,7 +2149,7 @@ export default function PrincipalDashboard({
                   Academic & Financial Analytics Hub
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
                 <select 
                   className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase outline-none focus:border-indigo-500 shadow-sm"
                   value={reportClassFilter}
@@ -2186,7 +2188,7 @@ export default function PrincipalDashboard({
                     <Users size={18} className="text-indigo-600" /> 
                     {reportClassFilter === 'all' ? 'All Classes' : `Class ${classes.find(c => c.id === reportClassFilter)?.className}`} Student Summary
                   </h2>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 print:hidden">
                     <button 
                       onClick={handleDownloadSummary}
                       className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
@@ -3124,18 +3126,23 @@ export default function PrincipalDashboard({
           <div id="panel-principal-settings" className="space-y-8 animate-fade-in font-sans bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
             
             {/* ========== MANUAL FIREBASE DATA SYNC ========== */}
-            <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-emerald-600 mt-8 mb-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-emerald-50 rounded-none border border-emerald-100">
-                  <Database size={24} className="text-emerald-600" />
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 my-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-emerald-600">
+                  <Database size={22} className="animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold font-sans text-slate-800">Cloud Data Synchronization</h3>
-                  <p className="text-sm text-slate-500">Manually push or pull all academic records to/from Firebase</p>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    Cloud Ledger Sync
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      CONNECTED
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">Sync all school records (teachers, classes, students, fees) with Firebase Cloud</p>
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={async () => {
@@ -3144,12 +3151,31 @@ export default function PrincipalDashboard({
                     
                     toast.info("Downloading data from Cloud...");
                     try {
-                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
-                      for (const col of collections) {
-                        const snapshot = await getDocs(collection(db, col));
-                        const items = [];
-                        snapshot.forEach(docSnap => items.push(docSnap.data()));
-                        localStorage.setItem('acadamis_' + col, JSON.stringify(items));
+                      const syncConfig = [
+                        { col: 'teachers', key: 'acadamis_teachers', type: 'list' },
+                        { col: 'classes', key: 'acadamis_classes', type: 'list' },
+                        { col: 'students', key: 'acadamis_students', type: 'list' },
+                        { col: 'timetable', key: 'acadamis_timetable', type: 'list' },
+                        { col: 'attendance', key: 'acadamis_attendance', type: 'list' },
+                        { col: 'marks', key: 'acadamis_marks', type: 'list' },
+                        { col: 'fees', key: 'acadamis_fees', type: 'list' },
+                        { col: 'coordinators', key: 'acadamis_coordinators', type: 'list' },
+                        { col: 'fee_data', key: 'school_fee_data', type: 'list' },
+                        { col: 'app_settings', key: 'acadamis_app_settings', type: 'object', docId: 'global' }
+                      ];
+
+                      for (const item of syncConfig) {
+                        if (item.type === 'list') {
+                          const snapshot = await getDocs(collection(db, item.col));
+                          const itemsList: any[] = [];
+                          snapshot.forEach(docSnap => itemsList.push(docSnap.data()));
+                          localStorage.setItem(item.key, JSON.stringify(itemsList));
+                        } else if (item.type === 'object' && item.docId) {
+                          const docSnap = await getDoc(doc(db, item.col, item.docId));
+                          if (docSnap.exists()) {
+                            localStorage.setItem(item.key, JSON.stringify(docSnap.data()));
+                          }
+                        }
                       }
                       toast.success("Successfully downloaded all data from cloud!");
                       setTimeout(() => window.location.reload(), 1500);
@@ -3157,10 +3183,10 @@ export default function PrincipalDashboard({
                       toast.error("Error downloading data: " + error.message);
                     }
                   }}
-                  className="bg-sky-600 hover:bg-sky-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                  className="bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-sky-600 border border-slate-200 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm"
                 >
-                  <DownloadCloud size={18} />
-                  Download from Firebase
+                  <DownloadCloud size={14} />
+                  Download
                 </button>
 
                 <button
@@ -3171,15 +3197,32 @@ export default function PrincipalDashboard({
 
                     toast.info("Uploading data to Cloud...");
                     try {
-                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
-                      for (const col of collections) {
-                        const localData = localStorage.getItem('acadamis_' + col);
+                      const syncConfig = [
+                        { col: 'teachers', key: 'acadamis_teachers', type: 'list' },
+                        { col: 'classes', key: 'acadamis_classes', type: 'list' },
+                        { col: 'students', key: 'acadamis_students', type: 'list' },
+                        { col: 'timetable', key: 'acadamis_timetable', type: 'list' },
+                        { col: 'attendance', key: 'acadamis_attendance', type: 'list' },
+                        { col: 'marks', key: 'acadamis_marks', type: 'list' },
+                        { col: 'fees', key: 'acadamis_fees', type: 'list' },
+                        { col: 'coordinators', key: 'acadamis_coordinators', type: 'list' },
+                        { col: 'fee_data', key: 'school_fee_data', type: 'list' },
+                        { col: 'app_settings', key: 'acadamis_app_settings', type: 'object', docId: 'global' }
+                      ];
+
+                      for (const item of syncConfig) {
+                        const localData = localStorage.getItem(item.key);
                         if (localData) {
-                          const items = JSON.parse(localData);
-                          for (const item of items) {
-                            if(item.id) {
-                              await setDoc(doc(db, col, item.id), item);
+                          if (item.type === 'list') {
+                            const listItems = JSON.parse(localData);
+                            for (const listItem of listItems) {
+                              if (listItem.id) {
+                                await setDoc(doc(db, item.col, String(listItem.id)), listItem);
+                              }
                             }
+                          } else if (item.type === 'object' && item.docId) {
+                            const objData = JSON.parse(localData);
+                            await setDoc(doc(db, item.col, item.docId), objData);
                           }
                         }
                       }
@@ -3188,11 +3231,13 @@ export default function PrincipalDashboard({
                       toast.error("Error uploading data: " + error.message);
                     }
                   }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-emerald-500/10"
                 >
-                  <UploadCloud size={18} />
-                  Upload to Firebase
+                  <UploadCloud size={14} />
+                  Upload
                 </button>
+
+                <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>
 
                 <button
                   type="button"
@@ -3209,7 +3254,7 @@ export default function PrincipalDashboard({
 
                     toast.info("Nuking database...");
                     try {
-                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators'];
+                      const collections = ['teachers', 'classes', 'students', 'timetable', 'attendance', 'marks', 'fees', 'coordinators', 'fee_data', 'app_settings'];
                       for (const col of collections) {
                         const snapshot = await getDocs(collection(db, col));
                         for (const d of snapshot.docs) {
@@ -3221,10 +3266,10 @@ export default function PrincipalDashboard({
                       toast.error("Error nuking database: " + error.message);
                     }
                   }}
-                  className="bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-lg font-bold shadow-md flex-1 text-center flex items-center justify-center gap-2"
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-100 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm"
                 >
-                  <Trash2 size={18} />
-                  Clear Cloud Data
+                  <Trash2 size={14} />
+                  Clear Cloud
                 </button>
               </div>
             </div>
@@ -4747,7 +4792,7 @@ export default function PrincipalDashboard({
       </AnimatePresence>
 
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
-      <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none">
+      <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none print:hidden">
         <div className="flex justify-around items-center h-16">
           {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
             <div className="flex-1 flex justify-center -translate-y-4">
@@ -4804,17 +4849,6 @@ export default function PrincipalDashboard({
             >
               <Database size={16} className={activeTab === 'registers' || activeTab === 'fees' ? 'text-emerald-400' : 'text-slate-400'} />
               <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Records</span>
-            </button>
-          )}
-
-          {/* Install Button for Mobile Navigation */}
-          {installPromptEvent && (
-            <button
-              onClick={onInstallApp}
-              className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none"
-            >
-              <Download size={16} className="text-indigo-600" />
-              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider text-indigo-600">Install</span>
             </button>
           )}
 

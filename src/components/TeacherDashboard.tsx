@@ -713,15 +713,13 @@ export default function TeacherDashboard({
             ))}
 
             {/* Install Button in Teacher Sidebar */}
-            {installPromptEvent && (
-              <button
-                onClick={onInstallApp}
-                className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
-              >
-                <Download size={14} className="text-indigo-600" />
-                Install App
-              </button>
-            )}
+            <button
+              onClick={onInstallApp}
+              className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+            >
+              <Download size={14} className="text-indigo-600" />
+              Install App
+            </button>
           </nav>
         </div>
 
@@ -2400,17 +2398,6 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
             <CheckSquare size={18} />
             <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Attendance</span>
           </button>
-
-          {/* Install Button for Mobile Navigation */}
-          {installPromptEvent && (
-            <button
-              onClick={onInstallApp}
-              className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none"
-            >
-              <Download size={18} className="text-indigo-400" />
-              <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider text-indigo-400">Install</span>
-            </button>
-          )}
 
         </div>
       </div>

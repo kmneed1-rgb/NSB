@@ -154,6 +154,11 @@ export default function App() {
         setInstallPromptEvent(null);
         setShowInstallModal(false);
       });
+    } else {
+      toast.info(
+        "To install NSB 1 ACADEMY, click the install icon (desktop) in your browser's address bar or select 'Add to Home Screen' from the browser menu (e.g., Safari iOS Share menu).",
+        { duration: 6000 }
+      );
     }
   };
 
@@ -183,7 +188,29 @@ export default function App() {
     async function initFirebaseAndSync() {
       try {
         console.log("Checking Firestore collections state on mount...");
-        const teachersSnapshot = await getDocs(collection(db, "teachers"));
+        
+        // Fetch all collections concurrently on startup
+        const [
+          teachersSnapshot,
+          classesSnapshot,
+          studentsSnapshot,
+          timetableSnapshot,
+          attendanceSnapshot,
+          marksSnapshot,
+          feesSnapshot,
+          coordinatorsSnapshot,
+          feeDataSnapshot
+        ] = await Promise.all([
+          getDocs(collection(db, "teachers")),
+          getDocs(collection(db, "classes")),
+          getDocs(collection(db, "students")),
+          getDocs(collection(db, "timetable")),
+          getDocs(collection(db, "attendance")),
+          getDocs(collection(db, "marks")),
+          getDocs(collection(db, "fees")),
+          getDocs(collection(db, "coordinators")),
+          getDocs(collection(db, "fee_data"))
+        ]);
         
         // Detect if previously seeded fake/mock data is present in Firestore
         const hasFakeData = !teachersSnapshot.empty && teachersSnapshot.docs.some(doc => ['t1', 't2', 't3'].includes(doc.id));
@@ -208,6 +235,8 @@ export default function App() {
           await deleteCollectionDocs("attendance");
           await deleteCollectionDocs("marks");
           await deleteCollectionDocs("fees");
+          await deleteCollectionDocs("coordinators");
+          await deleteCollectionDocs("fee_data");
 
           // Clear local storage completely for school states
           localStorage.removeItem('acadamis_teachers');
@@ -217,6 +246,8 @@ export default function App() {
           localStorage.removeItem('acadamis_attendance');
           localStorage.removeItem('acadamis_marks');
           localStorage.removeItem('acadamis_fees');
+          localStorage.removeItem('acadamis_coordinators');
+          localStorage.removeItem('school_fee_data');
 
           // Reset school states to empty
           setTeachers([]);
@@ -226,6 +257,8 @@ export default function App() {
           setAttendance([]);
           setMarks([]);
           setFees([]);
+          setCoordinators([]);
+          setFeeStudents([]);
 
           prevTeachers.current = JSON.stringify([]);
           prevClasses.current = JSON.stringify([]);
@@ -234,98 +267,98 @@ export default function App() {
           prevAttendance.current = JSON.stringify([]);
           prevMarks.current = JSON.stringify([]);
           prevFees.current = JSON.stringify([]);
+          prevCoordinators.current = JSON.stringify([]);
+          prevFeeStudents.current = JSON.stringify([]);
 
           toast.success("ScholarSync cleared of all fake data! Ready for custom setup.");
-        } else if (teachersSnapshot.empty) {
-          console.log("Firestore database is empty. Ready for actual school setup.");
-          
-          setTeachers([]);
-          setClasses([]);
-          setStudents([]);
-          setTimetable([]);
-          setAttendance([]);
-          setMarks([]);
-          setFees([]);
-
-          prevTeachers.current = JSON.stringify([]);
-          prevClasses.current = JSON.stringify([]);
-          prevStudents.current = JSON.stringify([]);
-          prevTimetable.current = JSON.stringify([]);
-          prevAttendance.current = JSON.stringify([]);
-          prevMarks.current = JSON.stringify([]);
-          prevFees.current = JSON.stringify([]);
-          
-          toast.success("Connected with fresh, clean Cloud Firestore database!");
         } else {
-          console.log("Loading datasets from active Cloud Firestore...");
-          
-          const classesSnapshot = await getDocs(collection(db, "classes"));
-          const studentsSnapshot = await getDocs(collection(db, "students"));
-          const timetableSnapshot = await getDocs(collection(db, "timetable"));
-          const attendanceSnapshot = await getDocs(collection(db, "attendance"));
-          const marksSnapshot = await getDocs(collection(db, "marks"));
-          const feesSnapshot = await getDocs(collection(db, "fees"));
-          const coordinatorsSnapshot = await getDocs(collection(db, "coordinators"));
+          // Check if ALL collections are empty in Cloud Firestore
+          const isDbEmpty = teachersSnapshot.empty &&
+                            classesSnapshot.empty &&
+                            studentsSnapshot.empty &&
+                            timetableSnapshot.empty &&
+                            attendanceSnapshot.empty &&
+                            marksSnapshot.empty &&
+                            feesSnapshot.empty &&
+                            coordinatorsSnapshot.empty &&
+                            feeDataSnapshot.empty;
 
-          const loadedTeachers: Teacher[] = [];
-          teachersSnapshot.forEach(docSnap => loadedTeachers.push(docSnap.data() as Teacher));
+          if (isDbEmpty) {
+            console.log("Firestore database is empty. Keeping local data and preparing to sync up.");
+            
+            // Set prev values to empty array so if there is local data, it will trigger sync UP to Firestore.
+            prevTeachers.current = JSON.stringify([]);
+            prevClasses.current = JSON.stringify([]);
+            prevStudents.current = JSON.stringify([]);
+            prevTimetable.current = JSON.stringify([]);
+            prevAttendance.current = JSON.stringify([]);
+            prevMarks.current = JSON.stringify([]);
+            prevFees.current = JSON.stringify([]);
+            prevCoordinators.current = JSON.stringify([]);
+            prevFeeStudents.current = JSON.stringify([]);
 
-          const loadedClasses: Class[] = [];
-          classesSnapshot.forEach(docSnap => loadedClasses.push(docSnap.data() as Class));
+            toast.success("Connected to Firestore! Any local offline records will now sync up.");
+          } else {
+            console.log("Loading datasets from active Cloud Firestore...");
+            
+            const loadedTeachers: Teacher[] = [];
+            teachersSnapshot.forEach(docSnap => loadedTeachers.push(docSnap.data() as Teacher));
 
-          const loadedStudents: Student[] = [];
-          studentsSnapshot.forEach(docSnap => loadedStudents.push(docSnap.data() as Student));
+            const loadedClasses: Class[] = [];
+            classesSnapshot.forEach(docSnap => loadedClasses.push(docSnap.data() as Class));
 
-          const loadedTimetable: TimetableEntry[] = [];
-          timetableSnapshot.forEach(docSnap => loadedTimetable.push(docSnap.data() as TimetableEntry));
+            const loadedStudents: Student[] = [];
+            studentsSnapshot.forEach(docSnap => loadedStudents.push(docSnap.data() as Student));
 
-          const loadedAttendance: Attendance[] = [];
-          attendanceSnapshot.forEach(docSnap => loadedAttendance.push(docSnap.data() as Attendance));
+            const loadedTimetable: TimetableEntry[] = [];
+            timetableSnapshot.forEach(docSnap => loadedTimetable.push(docSnap.data() as TimetableEntry));
 
-          const loadedMarks: Mark[] = [];
-          marksSnapshot.forEach(docSnap => loadedMarks.push(docSnap.data() as Mark));
+            const loadedAttendance: Attendance[] = [];
+            attendanceSnapshot.forEach(docSnap => loadedAttendance.push(docSnap.data() as Attendance));
 
-          const loadedFees: FeeRecord[] = [];
-          feesSnapshot.forEach(docSnap => loadedFees.push(docSnap.data() as FeeRecord));
+            const loadedMarks: Mark[] = [];
+            marksSnapshot.forEach(docSnap => loadedMarks.push(docSnap.data() as Mark));
 
-          const loadedCoordinators: Coordinator[] = [];
-          coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
+            const loadedFees: FeeRecord[] = [];
+            feesSnapshot.forEach(docSnap => loadedFees.push(docSnap.data() as FeeRecord));
 
-          // Load StudentFeeData (new engine)
-          const feeDataSnapshot = await getDocs(collection(db, "fee_data"));
-          const loadedFeeStudents: StudentFeeData[] = [];
-          feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
+            const loadedCoordinators: Coordinator[] = [];
+            coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
 
-          // Load App Settings
-          const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
-          let loadedSettings: AppSettings | null = null;
-          if (settingsSnap.exists()) {
-            loadedSettings = settingsSnap.data() as AppSettings;
+            const loadedFeeStudents: StudentFeeData[] = [];
+            feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
+
+            // Load App Settings
+            const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
+            let loadedSettings: AppSettings | null = null;
+            if (settingsSnap.exists()) {
+              loadedSettings = settingsSnap.data() as AppSettings;
+            }
+
+            setTeachers(loadedTeachers);
+            setClasses(loadedClasses);
+            setStudents(loadedStudents);
+            setTimetable(loadedTimetable);
+            setAttendance(loadedAttendance);
+            setMarks(loadedMarks);
+            setFees(loadedFees);
+            setCoordinators(loadedCoordinators);
+            setFeeStudents(loadedFeeStudents);
+            if (loadedSettings) setAppSettings(loadedSettings);
+
+            prevTeachers.current = JSON.stringify(loadedTeachers);
+            prevClasses.current = JSON.stringify(loadedClasses);
+            prevStudents.current = JSON.stringify(loadedStudents);
+            prevTimetable.current = JSON.stringify(loadedTimetable);
+            prevAttendance.current = JSON.stringify(loadedAttendance);
+            prevMarks.current = JSON.stringify(loadedMarks);
+            prevFees.current = JSON.stringify(loadedFees);
+            prevCoordinators.current = JSON.stringify(loadedCoordinators);
+            prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
+            if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
+
+            toast.success("ScholarSync connected with Cloud Firestore Ledger!");
           }
-
-          setTeachers(loadedTeachers);
-          setClasses(loadedClasses);
-          setStudents(loadedStudents);
-          setTimetable(loadedTimetable);
-          setAttendance(loadedAttendance);
-          setMarks(loadedMarks);
-          setFees(loadedFees);
-          setCoordinators(loadedCoordinators);
-          if (loadedFeeStudents.length > 0) setFeeStudents(loadedFeeStudents);
-          if (loadedSettings) setAppSettings(loadedSettings);
-
-          prevTeachers.current = JSON.stringify(loadedTeachers);
-          prevClasses.current = JSON.stringify(loadedClasses);
-          prevStudents.current = JSON.stringify(loadedStudents);
-          prevTimetable.current = JSON.stringify(loadedTimetable);
-          prevAttendance.current = JSON.stringify(loadedAttendance);
-          prevMarks.current = JSON.stringify(loadedMarks);
-          prevFees.current = JSON.stringify(loadedFees);
-          prevCoordinators.current = JSON.stringify(loadedCoordinators);
-          prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
-          if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
-
-          toast.success("ScholarSync connected with Cloud Firestore Ledger!");
         }
         isSyncComplete.current = true;
         setIsSyncing(false);
