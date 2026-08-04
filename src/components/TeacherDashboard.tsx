@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
-import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek } from '../types';
+import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, getStudentPhoto } from '../types';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -30,6 +30,8 @@ interface TeacherDashboardProps {
 }
 
 type TabType = 'dashboard' | 'students' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'settings';
+
+import { safeStorage } from '../lib/safeStorage';
 
 export default function TeacherDashboard({
   userSession,
@@ -181,7 +183,7 @@ export default function TeacherDashboard({
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]); // Initialize to current date YYYY-MM-DD
   // Local scratchpad for managing attendance edits before saving
   const [scratchAttendance, setScratchAttendance] = useState<{ [studentId: string]: 'present' | 'absent' | 'late' | 'leave' }>({});
-  const [attendanceMode, setAttendanceMode] = useState<'list' | 'swipe'>('list');
+  const [attendanceMode, setAttendanceMode] = useState<'grid' | 'list' | 'swipe'>('grid');
   const [activeSwipeIndex, setActiveSwipeIndex] = useState<number>(0);
   const [feeSearch, setFeeSearch] = useState('');
   const [expandedFeeId, setExpandedFeeId] = useState<string | null>(null);
@@ -252,12 +254,12 @@ export default function TeacherDashboard({
 
   // Theme support
   const [darkTheme, setDarkTheme] = useState<boolean>(() => {
-    return localStorage.getItem('acadamis_dark_theme') === 'true';
+    return safeStorage.getItem('acadamis_dark_theme') === 'true';
   });
 
   useEffect(() => {
     const syncTheme = () => {
-      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+      setDarkTheme(safeStorage.getItem('acadamis_dark_theme') === 'true');
     };
     window.addEventListener('acadamis_toggle_theme', syncTheme);
     return () => window.removeEventListener('acadamis_toggle_theme', syncTheme);
@@ -266,7 +268,7 @@ export default function TeacherDashboard({
   const handleToggleTheme = () => {
     const nextVal = !darkTheme;
     setDarkTheme(nextVal);
-    localStorage.setItem('acadamis_dark_theme', String(nextVal));
+    safeStorage.setItem('acadamis_dark_theme', String(nextVal));
     window.dispatchEvent(new Event('acadamis_toggle_theme'));
     toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
   };
@@ -554,8 +556,8 @@ export default function TeacherDashboard({
   const getPeriodsList = () => {
     const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
     try {
-      const saved = localStorage.getItem('acadamis_extra_periods');
-      const deletedSaved = localStorage.getItem('acadamis_deleted_periods');
+      const saved = safeStorage.getItem('acadamis_extra_periods');
+      const deletedSaved = safeStorage.getItem('acadamis_deleted_periods');
       
       const extra = saved ? JSON.parse(saved) : {};
       const deleted = deletedSaved ? JSON.parse(deletedSaved) : {};
@@ -1349,7 +1351,14 @@ export default function TeacherDashboard({
                       viewClassStudents.map(s => (
                         <tr key={s.id} className="hover:bg-gray-50/40 transition-colors">
                           <td className="px-6 py-4 font-mono font-bold text-gray-700">#{s.rollNumber}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            {s.photo ? (
+                              <img src={s.photo} alt={s.name} className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200">
+                                <Users size={12} />
+                              </div>
+                            )}
                             <span className="font-semibold text-slate-900">{s.name}</span>
                           </td>
                           <td className="px-6 py-4 text-xs font-medium text-gray-600">{s.email}</td>
@@ -1421,17 +1430,28 @@ export default function TeacherDashboard({
             </div>
 
             {/* Attendance mode selection */}
-            <div className="flex items-center gap-4 border-b border-gray-200 pb-1.5 font-sans">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 border-b border-gray-200 pb-2 font-sans">
+              <button
+                type="button"
+                onClick={() => setAttendanceMode('grid')}
+                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
+                  attendanceMode === 'grid' 
+                    ? 'bg-indigo-600 text-white shadow-sm' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                🎴 Student Cards Grid
+              </button>
               <button
                 type="button"
                 onClick={() => setAttendanceMode('list')}
-                className={`py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
                   attendanceMode === 'list' 
-                    ? 'border-emerald-600 text-emerald-800' 
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                    ? 'bg-indigo-600 text-white shadow-sm' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                 }`}
               >
-                📋 Spreadsheet List View
+                📋 Spreadsheet List
               </button>
               <button
                 type="button"
@@ -1439,20 +1459,175 @@ export default function TeacherDashboard({
                   setAttendanceMode('swipe');
                   setActiveSwipeIndex(0);
                 }}
-                className={`py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 ${
+                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
                   attendanceMode === 'swipe' 
-                    ? 'border-emerald-600 text-emerald-800' 
-                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                    ? 'bg-indigo-600 text-white shadow-sm' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                 }`}
               >
-                ✨ Swipe Card Mode (Modern)
+                ✨ Swipe Card Mode
               </button>
             </div>
 
             {/* Notification */}
 
-            {/* Conditional Views: List vs Swipe Card Block */}
-            {attendanceMode === 'list' ? (
+            {/* Conditional Views: Grid Cards vs List vs Swipe */}
+            {attendanceMode === 'grid' ? (
+              /* CARD GRID ATTENDANCE VIEW */
+              <div className="space-y-4">
+                {/* Batch Actions Bar */}
+                {viewClassStudents.length > 0 && (
+                  <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Batch Mark:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated: { [id: string]: 'present' | 'absent' | 'late' | 'leave' } = { ...scratchAttendance };
+                          viewClassStudents.forEach(s => { updated[s.id] = 'present'; });
+                          setScratchAttendance(updated);
+                          toast.success("Marked all students as Present");
+                        }}
+                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border border-emerald-200"
+                      >
+                        ✅ All Present
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated: { [id: string]: 'present' | 'absent' | 'late' | 'leave' } = { ...scratchAttendance };
+                          viewClassStudents.forEach(s => { updated[s.id] = 'absent'; });
+                          setScratchAttendance(updated);
+                          toast.success("Marked all students as Absent");
+                        }}
+                        className="px-2.5 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border border-rose-200"
+                      >
+                        ❌ All Absent
+                      </button>
+                    </div>
+
+                    <button
+                      id="save-attendance-btn-grid"
+                      onClick={handleSaveAttendance}
+                      className="flex items-center gap-2 py-2 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold tracking-wide shadow-md transition-all cursor-pointer ml-auto"
+                    >
+                      <Save size={14} />
+                      Save & Commit Attendance
+                    </button>
+                  </div>
+                )}
+
+                {/* Grid of Student Cards */}
+                {viewClassStudents.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {viewClassStudents.map(student => {
+                      const status = scratchAttendance[student.id] || 'present';
+                      const photoUrl = getStudentPhoto(student);
+                      const studentFees = fees.filter(f => f.studentId === student.id);
+                      const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
+                      const isPaid = totalPaid >= 5000;
+
+                      return (
+                        <div 
+                          key={student.id} 
+                          className={`bg-white border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative overflow-hidden ${
+                            status === 'present' ? 'border-emerald-200 bg-emerald-50/10' :
+                            status === 'absent' ? 'border-rose-200 bg-rose-50/10' :
+                            status === 'late' ? 'border-amber-200 bg-amber-50/10' :
+                            'border-indigo-200 bg-indigo-50/10'
+                          }`}
+                        >
+                          {/* Card Header: Roll & Status Badge */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                              Roll #{student.rollNumber}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
+                              status === 'present' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                              status === 'absent' ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                              status === 'late' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                              'bg-indigo-100 text-indigo-800 border-indigo-300'
+                            }`}>
+                              {status.toUpperCase()}
+                            </span>
+                          </div>
+
+                          {/* Student Photo & Details */}
+                          <div className="text-center my-2">
+                            <div className="relative w-20 h-20 mx-auto mb-3">
+                              <img 
+                                src={photoUrl} 
+                                alt={student.name} 
+                                className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
+                              />
+                              <span className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold border-2 border-white shadow-xs ${
+                                status === 'present' ? 'bg-emerald-500' :
+                                status === 'absent' ? 'bg-rose-500' :
+                                status === 'late' ? 'bg-amber-500' :
+                                'bg-indigo-500'
+                              }`}>
+                                {status === 'present' ? 'P' : status === 'absent' ? 'A' : status === 'late' ? 'L' : 'LV'}
+                              </span>
+                            </div>
+
+                            <h4 className="font-black text-slate-900 text-sm tracking-tight truncate">{student.name}</h4>
+                            <p className="text-[10px] text-slate-400 font-mono truncate">{student.email}</p>
+
+                            <div className="mt-2 flex justify-center">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                                isPaid 
+                                  ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                                  : 'bg-amber-50 text-amber-600 border-amber-200'
+                              }`}>
+                                {isPaid ? 'Fee Paid' : 'Fee Pending'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Attendance Status Toggle Buttons */}
+                          <div className="grid grid-cols-4 gap-1 mt-4 pt-3 border-t border-slate-100">
+                            {(['present', 'absent', 'late', 'leave'] as const).map((st) => (
+                              <button
+                                key={st}
+                                type="button"
+                                onClick={() => handleSetStatus(student.id, st)}
+                                className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                  status === st
+                                    ? st === 'present' ? 'bg-emerald-600 text-white shadow-sm' :
+                                      st === 'absent' ? 'bg-rose-600 text-white shadow-sm' :
+                                      st === 'late' ? 'bg-amber-500 text-white shadow-sm' :
+                                      'bg-indigo-600 text-white shadow-sm'
+                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+                                }`}
+                              >
+                                {st === 'present' ? 'P' : st === 'absent' ? 'A' : st === 'late' ? 'L' : 'LV'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl text-slate-400 italic font-medium">
+                    No students enrolled in this class group.
+                  </div>
+                )}
+
+                {/* Bottom Save Action */}
+                {viewClassStudents.length > 0 && (
+                  <div className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-end shadow-xs">
+                    <button
+                      onClick={handleSaveAttendance}
+                      className="flex items-center gap-2 py-2.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold tracking-wide shadow-md transition-all cursor-pointer"
+                    >
+                      <Save size={14} />
+                      Commit and Save Attendance Logs
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : attendanceMode === 'list' ? (
               /* Attendance Roster list panel */
               <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
                 <div className="overflow-x-auto">
@@ -1468,35 +1643,41 @@ export default function TeacherDashboard({
                       {viewClassStudents.length > 0 ? (
                         viewClassStudents.map(student => {
                           const status = scratchAttendance[student.id] || 'present';
+                          const photoUrl = getStudentPhoto(student);
                           return (
                             <tr key={student.id} className="hover:bg-gray-50/20">
                               <td className="px-6 py-4 font-mono text-gray-700 font-bold">#{student.rollNumber}</td>
                               <td className="px-6 py-4">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-900 block">{student.name}</span>
-                                  {(() => {
-                                    const studentFees = fees.filter(f => f.studentId === student.id);
-                                    const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
-                                    const isPaid = totalPaid >= 5000; // Assuming 5000 is the target for this month
-                                    return (
-                                      <button 
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setActiveTab('fees');
-                                        }}
-                                        className={`px-1.5 py-0.5 rounded-none text-[7px] font-black uppercase tracking-tighter border transition-all ${
-                                          isPaid 
-                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                            : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
-                                        }`}
-                                      >
-                                        {isPaid ? 'Fee Paid' : 'Fee Pending'}
-                                      </button>
-                                    );
-                                  })()}
+                                <div className="flex items-center gap-3">
+                                  <img src={photoUrl} alt={student.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100" />
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-slate-900 block">{student.name}</span>
+                                      {(() => {
+                                        const studentFees = fees.filter(f => f.studentId === student.id);
+                                        const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
+                                        const isPaid = totalPaid >= 5000; // Assuming 5000 is the target for this month
+                                        return (
+                                          <button 
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveTab('fees');
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded-none text-[7px] font-black uppercase tracking-tighter border transition-all ${
+                                              isPaid 
+                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                                : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
+                                            }`}
+                                          >
+                                            {isPaid ? 'Fee Paid' : 'Fee Pending'}
+                                          </button>
+                                        );
+                                      })()}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 font-mono">{student.email}</span>
+                                  </div>
                                 </div>
-                                <span className="text-[10px] text-gray-400 font-mono">{student.email}</span>
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center justify-center gap-1.5 p-1 bg-gray-100/50 rounded-xl">
@@ -1554,102 +1735,96 @@ export default function TeacherDashboard({
                     (() => {
                       const currentStudent = viewClassStudents[activeSwipeIndex];
                       const currentStatus = scratchAttendance[currentStudent.id] || 'present';
+                      const photoUrl = getStudentPhoto(currentStudent);
+
                       return (
-                        <div className="w-full max-w-sm space-y-6">
+                        <div className="w-full max-w-sm space-y-5">
                           {/* Progress indicators */}
-                          <div className="flex justify-between items-center text-xs text-slate-500 font-bold px-1">
-                            <span>Swipe Progress: {activeSwipeIndex + 1} / {viewClassStudents.length} Students</span>
-                            <span className="font-mono bg-slate-100 px-2 py-0.5 rounded-sm">{Math.round((activeSwipeIndex / viewClassStudents.length) * 100)}% Marked</span>
+                          <div className="flex justify-between items-center text-xs text-slate-600 font-bold px-1">
+                            <span>Student {activeSwipeIndex + 1} of {viewClassStudents.length}</span>
+                            <span className="font-mono bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-indigo-100">
+                              {Math.round((activeSwipeIndex / viewClassStudents.length) * 100)}% Complete
+                            </span>
                           </div>
                           
-                          <div className="w-full bg-slate-100 h-1 rounded-none overflow-hidden border border-slate-200">
-                            <div className="bg-emerald-600 h-full transition-all duration-300" style={{ width: `${(activeSwipeIndex / viewClassStudents.length) * 100}%` }}></div>
+                          <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-indigo-600 h-full transition-all duration-300 rounded-full" 
+                              style={{ width: `${((activeSwipeIndex + 1) / viewClassStudents.length) * 100}%` }}
+                            ></div>
                           </div>
 
-                          {/* Tinder Card Stage */}
-                          <div className="relative h-96 w-full flex items-center justify-center bg-slate-50/50 border border-dashed border-slate-200 p-4 rounded-none overflow-hidden">
+                          {/* Tinder-style Card Stage */}
+                          <div className="relative h-[22rem] w-full flex items-center justify-center bg-slate-100/70 border-2 border-dashed border-slate-200 p-3 rounded-3xl overflow-hidden">
                             <AnimatePresence mode="popLayout">
                               <motion.div
                                 key={currentStudent.id}
                                 drag="x"
                                 dragConstraints={{ left: -160, right: 160 }}
                                 onDragEnd={(event, info) => {
-                                  if (info.offset.x > 110) {
+                                  if (info.offset.x > 100) {
                                     // Swipe right -> Present
                                     setScratchAttendance(prev => ({ ...prev, [currentStudent.id]: 'present' }));
                                     setActiveSwipeIndex(idx => idx + 1);
-                                  } else if (info.offset.x < -110) {
+                                    toast.success(`Marked ${currentStudent.name} as Present`);
+                                  } else if (info.offset.x < -100) {
                                     // Swipe left -> Absent
                                     setScratchAttendance(prev => ({ ...prev, [currentStudent.id]: 'absent' }));
                                     setActiveSwipeIndex(idx => idx + 1);
+                                    toast.error(`Marked ${currentStudent.name} as Absent`);
                                   }
                                 }}
                                 whileTap={{ scale: 1.02 }}
-                                initial={{ scale: 0.95, y: 15, opacity: 0 }}
+                                initial={{ scale: 0.92, y: 15, opacity: 0 }}
                                 animate={{ scale: 1, y: 0, opacity: 1 }}
                                 exit={{
-                                  x: scratchAttendance[currentStudent.id] === 'present' ? 240 : -240,
+                                  x: scratchAttendance[currentStudent.id] === 'present' ? 260 : -260,
                                   opacity: 0,
-                                  scale: 0.95,
-                                  rotate: scratchAttendance[currentStudent.id] === 'present' ? 12 : -12
+                                  scale: 0.9,
+                                  rotate: scratchAttendance[currentStudent.id] === 'present' ? 15 : -15
                                 }}
                                 transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-                                className="bg-white border border-slate-200 shadow-md p-6 rounded-none w-full h-80 flex flex-col justify-between cursor-grab active:cursor-grabbing text-slate-800 relative select-none"
+                                className="bg-white border border-slate-200/90 shadow-xl p-5 rounded-3xl w-full h-80 flex flex-col justify-between cursor-grab active:cursor-grabbing text-slate-800 relative select-none"
                               >
                                 <div>
                                   <div className="flex justify-between items-center">
-                                    <span className="font-mono text-[10px] font-bold text-indigo-100 bg-indigo-700 px-1.5 py-0.5">Roll #{currentStudent.rollNumber}</span>
-                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider font-mono">Drag Left/Right</span>
+                                    <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                                      Roll #{currentStudent.rollNumber}
+                                    </span>
+                                    <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded-md">
+                                      👈 Swipe Left (A) | Swipe Right (P) 👉
+                                    </span>
                                   </div>
 
-                                  <div className="text-center mt-10">
-                                    <div className="w-16 h-16 bg-slate-100 border-2 border-indigo-200 rounded-full flex items-center justify-center text-indigo-700 font-bold text-xl uppercase mx-auto mb-3 shadow-sm select-none">
-                                      {currentStudent.name.charAt(0)}
+                                  <div className="text-center mt-3">
+                                    <div className="relative w-24 h-24 mx-auto mb-2">
+                                      <img 
+                                        src={photoUrl} 
+                                        alt={currentStudent.name} 
+                                        className="w-24 h-24 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
+                                      />
                                     </div>
-                                    <h3 className="text-lg font-black text-slate-900 tracking-tight font-display uppercase leading-tight">{currentStudent.name}</h3>
-                                    <p className="text-xs text-slate-400 font-mono mt-1">{currentStudent.email}</p>
-                                    <div className="mt-4 flex justify-center">
-                                      {(() => {
-                                        const studentFees = fees.filter(f => f.studentId === currentStudent.id);
-                                        const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
-                                        const isPaid = totalPaid >= 5000;
-                                        return (
-                                          <button 
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setActiveTab('fees');
-                                            }}
-                                            className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest border transition-all ${
-                                              isPaid 
-                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                                : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
-                                            }`}
-                                          >
-                                            {isPaid ? 'Verification: Paid' : 'Verification: Pending'}
-                                          </button>
-                                        );
-                                      })()}
-                                    </div>
+                                    <h3 className="text-lg font-black text-slate-900 tracking-tight leading-tight">{currentStudent.name}</h3>
+                                    <p className="text-xs text-slate-400 font-mono mt-0.5">{currentStudent.email}</p>
                                   </div>
                                 </div>
 
                                 {/* Active Badge Indicator Hints inside card */}
-                                <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-widest mt-6 pt-4 border-t border-slate-100">
-                                  <div className="text-rose-500 font-black flex items-center gap-1">
-                                    &larr; ABSENT
+                                <div className="flex items-center justify-between text-[11px] font-bold tracking-wider pt-3 border-t border-slate-100">
+                                  <div className="text-rose-600 font-black flex items-center gap-1 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                                    👈 ABSENT
                                   </div>
-                                  <span className="text-slate-300 font-medium">Swipe Option</span>
-                                  <div className="text-emerald-500 font-black flex items-center gap-1">
-                                    PRESENT &rarr;
+                                  <span className="text-slate-400 text-[10px] uppercase font-semibold">Or tap buttons</span>
+                                  <div className="text-emerald-600 font-black flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                                    PRESENT 👉
                                   </div>
                                 </div>
                               </motion.div>
                             </AnimatePresence>
                           </div>
 
-                          {/* Quick swipe controls */}
-                          <div className="grid grid-cols-2 gap-2 w-full font-sans">
+                          {/* Quick tap controls */}
+                          <div className="grid grid-cols-4 gap-2 w-full font-sans">
                             {(['present', 'absent', 'late', 'leave'] as const).map((st) => (
                               <button
                                 key={st}
@@ -1658,79 +1833,78 @@ export default function TeacherDashboard({
                                   handleSetStatus(currentStudent.id, st);
                                   setActiveSwipeIndex(idx => idx + 1);
                                 }}
-                                className={`py-3 text-[10px] font-black tracking-widest uppercase text-center rounded-xl transition-all border shadow-sm ${
+                                className={`py-3 text-[11px] font-black tracking-wider uppercase text-center rounded-xl transition-all border shadow-xs cursor-pointer ${
                                   st === 'present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white' :
                                   st === 'absent' ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-600 hover:text-white' :
                                   st === 'late' ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-600 hover:text-white' :
                                   'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
                                 }`}
                               >
-                                {st} {st === 'present' ? '✅' : st === 'absent' ? '❌' : st === 'late' ? '⏰' : '📄'}
+                                {st === 'present' ? '✅ Present' : st === 'absent' ? '❌ Absent' : st === 'late' ? '⏰ Late' : '📄 Leave'}
                               </button>
                             ))}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (activeSwipeIndex > 0) setActiveSwipeIndex(idx => idx - 1);
-                              }}
-                              disabled={activeSwipeIndex === 0}
-                              className="col-span-2 py-2.5 bg-slate-50 text-slate-500 hover:bg-slate-200 border border-slate-200 text-[10px] font-black uppercase tracking-widest disabled:opacity-40 rounded-xl cursor-pointer mt-2"
-                            >
-                              ⏪ Rewind Previous Student
-                            </button>
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeSwipeIndex > 0) setActiveSwipeIndex(idx => idx - 1);
+                            }}
+                            disabled={activeSwipeIndex === 0}
+                            className="w-full py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 text-xs font-bold uppercase tracking-wider disabled:opacity-40 rounded-xl cursor-pointer"
+                          >
+                            ⏪ Rewind Previous Student
+                          </button>
                         </div>
                       );
                     })()
                   ) : (
                     /* Swiped roster collection complete */
-                    <div className="bg-white border border-slate-200 p-8 text-center rounded-none shadow-sm max-w-sm w-full space-y-6">
-                      <div className="w-12 h-12 bg-emerald-50 border-2 border-emerald-300 text-emerald-600 rounded-full flex items-center justify-center text-lg mx-auto shadow-xs">
+                    <div className="bg-white border border-slate-200 p-8 text-center rounded-3xl shadow-lg max-w-sm w-full space-y-6">
+                      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-2xl mx-auto shadow-inner">
                         ✓
                       </div>
                       <div>
-                        <h3 className="text-base font-bold text-slate-900 font-display uppercase tracking-tight">Roster Cards Swiped!</h3>
-                        <p className="text-xs text-slate-500 mt-1">You have evaluated all active student registers for this date stamp.</p>
+                        <h3 className="text-xl font-black text-slate-900 tracking-tight">All Student Cards Swiped!</h3>
+                        <p className="text-xs text-slate-500 mt-1">You have reviewed all student attendance records for this date.</p>
                       </div>
 
                       {/* Summary statistics */}
-                      <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 border border-slate-100 text-center">
+                      <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                         <div>
-                          <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest font-mono">Present Swipes</p>
-                          <span className="text-xl font-bold text-emerald-900 font-display">
-                            {Object.values(scratchAttendance).filter(v => v === 'present').length} Pupils
+                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider font-mono">Present</p>
+                          <span className="text-2xl font-black text-emerald-800">
+                            {Object.values(scratchAttendance).filter(v => v === 'present').length}
                           </span>
                         </div>
                         <div>
-                          <p className="text-[9px] font-bold text-rose-500 uppercase tracking-widest font-mono">Absent Swipes</p>
-                          <span className="text-xl font-bold text-rose-950 font-display">
-                            {Object.values(scratchAttendance).filter(v => v === 'absent').length} Pupils
+                          <p className="text-[10px] font-bold text-rose-500 uppercase tracking-wider font-mono">Absent</p>
+                          <span className="text-2xl font-black text-rose-800">
+                            {Object.values(scratchAttendance).filter(v => v === 'absent').length}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex gap-2.5 font-sans">
-                        <button
-                          type="button"
-                          onClick={() => setActiveSwipeIndex(0)}
-                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-none text-xs font-bold uppercase transition-all cursor-pointer"
-                        >
-                          🔄 Re-Swipe
-                        </button>
+                      <div className="flex flex-col gap-2 font-sans">
                         <button
                           type="button"
                           onClick={handleSaveAttendance}
-                          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-none text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
                         >
-                          💾 Commit Logs
+                          <Save size={16} /> Save & Commit Attendance
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveSwipeIndex(0)}
+                          className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase transition-all cursor-pointer"
+                        >
+                          🔄 Review & Re-Swipe Cards
                         </button>
                       </div>
                     </div>
                   )
                 ) : (
-                  <p className="text-xs text-slate-400 text-center py-12 italic bg-white w-full border border-slate-200 rounded-none">
-                    No student profiles enrolled inside this class register scope.
-                  </p>
+                  <div className="p-12 text-center text-slate-400 italic">No students in this class.</div>
                 )}
               </div>
             )}
@@ -2088,7 +2262,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                 
                                 let col = '#10b981'; // default emerald
                                 try {
-                                  const savedColors = localStorage.getItem('acadamis_period_colors');
+                                  const savedColors = safeStorage.getItem('acadamis_period_colors');
                                   if (savedColors) {
                                     const parsedColors = JSON.parse(savedColors);
                                     col = parsedColors[`${entry.classId}_${p}`] || '#10b981';
@@ -2412,24 +2586,24 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 shadow-2xl rounded-none"
+              className="bg-white w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 shadow-2xl rounded-3xl"
             >
               {/* Modal Header */}
               <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-600 flex items-center justify-center text-xl font-black italic">
-                    {selectedStudentProfile.name.charAt(0)}
+                  <div className="w-20 h-20 bg-slate-800 rounded-2xl flex items-center justify-center border-2 border-indigo-300/30 overflow-hidden shrink-0 shadow-lg">
+                    <img src={getStudentPhoto(selectedStudentProfile)} alt={selectedStudentProfile.name} className="w-full h-full object-cover" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black uppercase tracking-tight">{selectedStudentProfile.name}</h2>
-                    <p className="text-xs text-indigo-300 font-bold tracking-widest uppercase mt-0.5">
+                    <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">{selectedStudentProfile.name}</h2>
+                    <p className="text-xs text-indigo-300 font-bold tracking-widest uppercase mt-1">
                       Roll #{selectedStudentProfile.rollNumber} • {getClassLabel(selectedStudentProfile.classId)}
                     </p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setShowProfileModal(false)}
-                  className="p-2 hover:bg-white/10 transition-colors text-slate-300 hover:text-white"
+                  className="p-2 hover:bg-white/10 transition-colors text-slate-300 hover:text-white rounded-xl cursor-pointer"
                 >
                   <X size={24} />
                 </button>

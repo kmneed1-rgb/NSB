@@ -10,9 +10,11 @@ export interface PortalNotification {
   isUnread?: boolean;
 }
 
+import { safeStorage } from './safeStorage';
+
 export const getNotifications = (): PortalNotification[] => {
   try {
-    const saved = localStorage.getItem('acadamis_notifications');
+    const saved = safeStorage.getItem('acadamis_notifications');
     return saved ? JSON.parse(saved) : [];
   } catch (e) {
     return [];
@@ -20,11 +22,7 @@ export const getNotifications = (): PortalNotification[] => {
 };
 
 export const saveNotifications = (notifications: PortalNotification[]) => {
-  try {
-    localStorage.setItem('acadamis_notifications', JSON.stringify(notifications));
-  } catch (e) {
-    console.error(e);
-  }
+  safeStorage.setItem('acadamis_notifications', JSON.stringify(notifications));
 };
 
 export const addNotification = (notif: Omit<PortalNotification, 'id' | 'timestamp' | 'isUnread'>): PortalNotification => {

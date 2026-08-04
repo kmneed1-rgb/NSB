@@ -3,7 +3,7 @@ import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, onSnapshot } from 'firebase/firestore';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData } from './types';
 import { 
   INITIAL_TEACHERS, 
@@ -20,85 +20,101 @@ import PrincipalDashboard from './components/PrincipalDashboard';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
 
+import { safeStorage } from './lib/safeStorage';
+
+function safeParse<T>(key: string, fallback: T): T {
+  try {
+    const saved = safeStorage.getItem(key);
+    if (!saved || saved === 'undefined' || saved === 'null') return fallback;
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(fallback)) {
+      if (!Array.isArray(parsed) || parsed.length === 0) return fallback;
+    }
+    return parsed ?? fallback;
+  } catch (err) {
+    console.warn(`Error parsing localStorage key "${key}":`, err);
+    return fallback;
+  }
+}
+
 export default function App() {
   // Navigation level for landing vs portal
   const [viewPortal, setViewPortal] = useState<boolean>(() => {
-    const saved = localStorage.getItem('acadamis_session');
-    return saved ? true : false;
+    const saved = safeStorage.getItem('acadamis_session');
+    return Boolean(saved && saved !== 'undefined' && saved !== 'null');
   });
 
   // Theme support
   const [darkTheme, setDarkTheme] = useState<boolean>(() => {
-    return localStorage.getItem('acadamis_dark_theme') === 'true';
+    return safeStorage.getItem('acadamis_dark_theme') === 'true';
   });
 
   useEffect(() => {
     if (darkTheme) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('acadamis_dark_theme', 'true');
+      safeStorage.setItem('acadamis_dark_theme', 'true');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('acadamis_dark_theme', 'false');
+      safeStorage.setItem('acadamis_dark_theme', 'false');
     }
   }, [darkTheme]);
 
   useEffect(() => {
     const handleThemeToggle = () => {
-      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+      setDarkTheme(safeStorage.getItem('acadamis_dark_theme') === 'true');
     };
     window.addEventListener('acadamis_toggle_theme', handleThemeToggle);
     return () => window.removeEventListener('acadamis_toggle_theme', handleThemeToggle);
   }, []);
 
   // --- STATE DEFAULTS & INITIALIZATION ---
-  const [teachers, setTeachers] = useState<Teacher[]>(() => {
-    const saved = localStorage.getItem('acadamis_teachers');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [teachers, setTeachers] = useState<Teacher[]>(() => 
+    safeParse('acadamis_teachers', INITIAL_TEACHERS)
+  );
 
-  const [classes, setClasses] = useState<Class[]>(() => {
-    const saved = localStorage.getItem('acadamis_classes');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [classes, setClasses] = useState<Class[]>(() => 
+    safeParse('acadamis_classes', INITIAL_CLASSES)
+  );
 
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem('acadamis_students');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [students, setStudents] = useState<Student[]>(() => 
+    safeParse('acadamis_students', INITIAL_STUDENTS)
+  );
 
-  const [timetable, setTimetable] = useState<TimetableEntry[]>(() => {
-    const saved = localStorage.getItem('acadamis_timetable');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [timetable, setTimetable] = useState<TimetableEntry[]>(() => 
+    safeParse('acadamis_timetable', INITIAL_TIMETABLE)
+  );
 
-  const [attendance, setAttendance] = useState<Attendance[]>(() => {
-    const saved = localStorage.getItem('acadamis_attendance');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [attendance, setAttendance] = useState<Attendance[]>(() => 
+    safeParse('acadamis_attendance', INITIAL_ATTENDANCE)
+  );
 
-  const [marks, setMarks] = useState<Mark[]>(() => {
-    const saved = localStorage.getItem('acadamis_marks');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [marks, setMarks] = useState<Mark[]>(() => 
+    safeParse('acadamis_marks', INITIAL_MARKS)
+  );
 
-  const [fees, setFees] = useState<FeeRecord[]>(() => {
-    const saved = localStorage.getItem('acadamis_fees');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [fees, setFees] = useState<FeeRecord[]>(() => 
+    safeParse('acadamis_fees', INITIAL_FEES)
+  );
 
-  const [coordinators, setCoordinators] = useState<Coordinator[]>(() => {
-    const saved = localStorage.getItem('acadamis_coordinators');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [coordinators, setCoordinators] = useState<Coordinator[]>(() => 
+    safeParse('acadamis_coordinators', [])
+  );
 
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => {
-    const saved = localStorage.getItem('school_fee_data');
-    return saved ? JSON.parse(saved) : [];
+    const saved = safeParse('school_fee_data', []);
+    if (saved && saved.length > 0) return saved;
+    return INITIAL_STUDENTS.map(s => ({
+      id: s.id,
+      name: s.name,
+      class: s.classId === 'c1' ? 'Grade 10 A' : 'Grade 11 B',
+      monthlyFee: 2500,
+      payments: [],
+      otherFunds: []
+    }));
   });
 
-  const [appSettings, setAppSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('acadamis_app_settings');
-    return saved ? JSON.parse(saved) : {
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => 
+    safeParse('acadamis_app_settings', {
       absentTemplate: "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.",
       feeTemplate: "Dear parent, your child {name}'s fee for {month} is Rs. {amount} which is due on {date}. NSB 1 Academy.",
       whatsAppAutoFee: true,
@@ -108,8 +124,8 @@ export default function App() {
       extraPeriods: {},
       deletedPeriods: {},
       periodColors: {}
-    };
-  });
+    })
+  );
 
   // --- PWA INSTALL PROMPT LOGIC ---
   const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
@@ -164,12 +180,18 @@ export default function App() {
 
   // User session state
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
-    const saved = localStorage.getItem('acadamis_session');
-    return saved ? JSON.parse(saved) : null;
+    const saved = safeStorage.getItem('acadamis_session');
+    if (!saved || saved === 'undefined' || saved === 'null') return null;
+    try {
+      const parsed = JSON.parse(saved);
+      return parsed && parsed.role ? parsed : null;
+    } catch {
+      return null;
+    }
   });
 
   // --- FIRESTORE SYNCHRONIZATION SYSTEM ---
-  const [isSyncing, setIsSyncing] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const isSyncComplete = useRef<boolean>(false);
 
@@ -189,7 +211,12 @@ export default function App() {
       try {
         console.log("Checking Firestore collections state on mount...");
         
-        // Fetch all collections concurrently on startup
+        // Timeout to ensure offline fallback if network fails
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Firestore sync timeout")), 8000)
+        );
+
+        // Fetch all collections concurrently with a timeout fallback
         const [
           teachersSnapshot,
           classesSnapshot,
@@ -200,175 +227,125 @@ export default function App() {
           feesSnapshot,
           coordinatorsSnapshot,
           feeDataSnapshot
-        ] = await Promise.all([
-          getDocs(collection(db, "teachers")),
-          getDocs(collection(db, "classes")),
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "timetable")),
-          getDocs(collection(db, "attendance")),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "fees")),
-          getDocs(collection(db, "coordinators")),
-          getDocs(collection(db, "fee_data"))
-        ]);
+        ] = await Promise.race([
+          Promise.all([
+            getDocs(collection(db, "teachers")),
+            getDocs(collection(db, "classes")),
+            getDocs(collection(db, "students")),
+            getDocs(collection(db, "timetable")),
+            getDocs(collection(db, "attendance")),
+            getDocs(collection(db, "marks")),
+            getDocs(collection(db, "fees")),
+            getDocs(collection(db, "coordinators")),
+            getDocs(collection(db, "fee_data"))
+          ]),
+          timeoutPromise
+        ]) as any;
         
-        // Detect if previously seeded fake/mock data is present in Firestore
-        const hasFakeData = !teachersSnapshot.empty && teachersSnapshot.docs.some(doc => ['t1', 't2', 't3'].includes(doc.id));
-        
-        if (hasFakeData) {
-          console.log("Detected seeded fake data in Firestore. Purging all collections...");
+        // Check if collections exist in Cloud Firestore
+        const isDbEmpty = teachersSnapshot.empty &&
+                          classesSnapshot.empty &&
+                          studentsSnapshot.empty;
+
+        if (isDbEmpty) {
+          console.log("Firestore database is empty. Seeding initial datasets into Cloud Firestore...");
           
-          const deleteCollectionDocs = async (collectionName: string) => {
-            const snapshot = await getDocs(collection(db, collectionName));
-            if (snapshot.empty) return;
-            const batch = writeBatch(db);
-            snapshot.docs.forEach(docSnap => {
-              batch.delete(doc(db, collectionName, docSnap.id));
-            });
-            await batch.commit();
-          };
+          try {
+            await Promise.all([
+              ...INITIAL_TEACHERS.map(t => setDoc(doc(db, "teachers", t.id), sanitizeForFirestore(t))),
+              ...INITIAL_CLASSES.map(c => setDoc(doc(db, "classes", c.id), sanitizeForFirestore(c))),
+              ...INITIAL_STUDENTS.map(s => setDoc(doc(db, "students", s.id), sanitizeForFirestore(s))),
+              ...INITIAL_TIMETABLE.map(tm => setDoc(doc(db, "timetable", tm.id), sanitizeForFirestore(tm))),
+              ...INITIAL_ATTENDANCE.map(a => setDoc(doc(db, "attendance", a.id), sanitizeForFirestore(a))),
+              ...INITIAL_MARKS.map(m => setDoc(doc(db, "marks", m.id), sanitizeForFirestore(m))),
+              ...INITIAL_FEES.map(f => setDoc(doc(db, "fees", f.id), sanitizeForFirestore(f)))
+            ]);
+            console.log("Seeding to Firestore completed successfully.");
+          } catch (seedErr) {
+            console.warn("Seeding to Firestore encountered warning:", seedErr);
+          }
 
-          await deleteCollectionDocs("teachers");
-          await deleteCollectionDocs("classes");
-          await deleteCollectionDocs("students");
-          await deleteCollectionDocs("timetable");
-          await deleteCollectionDocs("attendance");
-          await deleteCollectionDocs("marks");
-          await deleteCollectionDocs("fees");
-          await deleteCollectionDocs("coordinators");
-          await deleteCollectionDocs("fee_data");
+          setTeachers(INITIAL_TEACHERS);
+          setClasses(INITIAL_CLASSES);
+          setStudents(INITIAL_STUDENTS);
+          setTimetable(INITIAL_TIMETABLE);
+          setAttendance(INITIAL_ATTENDANCE);
+          setMarks(INITIAL_MARKS);
+          setFees(INITIAL_FEES);
 
-          // Clear local storage completely for school states
-          localStorage.removeItem('acadamis_teachers');
-          localStorage.removeItem('acadamis_classes');
-          localStorage.removeItem('acadamis_students');
-          localStorage.removeItem('acadamis_timetable');
-          localStorage.removeItem('acadamis_attendance');
-          localStorage.removeItem('acadamis_marks');
-          localStorage.removeItem('acadamis_fees');
-          localStorage.removeItem('acadamis_coordinators');
-          localStorage.removeItem('school_fee_data');
-
-          // Reset school states to empty
-          setTeachers([]);
-          setClasses([]);
-          setStudents([]);
-          setTimetable([]);
-          setAttendance([]);
-          setMarks([]);
-          setFees([]);
-          setCoordinators([]);
-          setFeeStudents([]);
-
-          prevTeachers.current = JSON.stringify([]);
-          prevClasses.current = JSON.stringify([]);
-          prevStudents.current = JSON.stringify([]);
-          prevTimetable.current = JSON.stringify([]);
-          prevAttendance.current = JSON.stringify([]);
-          prevMarks.current = JSON.stringify([]);
-          prevFees.current = JSON.stringify([]);
+          prevTeachers.current = JSON.stringify(INITIAL_TEACHERS);
+          prevClasses.current = JSON.stringify(INITIAL_CLASSES);
+          prevStudents.current = JSON.stringify(INITIAL_STUDENTS);
+          prevTimetable.current = JSON.stringify(INITIAL_TIMETABLE);
+          prevAttendance.current = JSON.stringify(INITIAL_ATTENDANCE);
+          prevMarks.current = JSON.stringify(INITIAL_MARKS);
+          prevFees.current = JSON.stringify(INITIAL_FEES);
           prevCoordinators.current = JSON.stringify([]);
           prevFeeStudents.current = JSON.stringify([]);
-
-          toast.success("ScholarSync cleared of all fake data! Ready for custom setup.");
         } else {
-          // Check if ALL collections are empty in Cloud Firestore
-          const isDbEmpty = teachersSnapshot.empty &&
-                            classesSnapshot.empty &&
-                            studentsSnapshot.empty &&
-                            timetableSnapshot.empty &&
-                            attendanceSnapshot.empty &&
-                            marksSnapshot.empty &&
-                            feesSnapshot.empty &&
-                            coordinatorsSnapshot.empty &&
-                            feeDataSnapshot.empty;
+          console.log("Loading datasets from active Cloud Firestore...");
+          
+          const loadedTeachers: Teacher[] = [];
+          teachersSnapshot.forEach(docSnap => loadedTeachers.push(docSnap.data() as Teacher));
 
-          if (isDbEmpty) {
-            console.log("Firestore database is empty. Keeping local data and preparing to sync up.");
-            
-            // Set prev values to empty array so if there is local data, it will trigger sync UP to Firestore.
-            prevTeachers.current = JSON.stringify([]);
-            prevClasses.current = JSON.stringify([]);
-            prevStudents.current = JSON.stringify([]);
-            prevTimetable.current = JSON.stringify([]);
-            prevAttendance.current = JSON.stringify([]);
-            prevMarks.current = JSON.stringify([]);
-            prevFees.current = JSON.stringify([]);
-            prevCoordinators.current = JSON.stringify([]);
-            prevFeeStudents.current = JSON.stringify([]);
+          const loadedClasses: Class[] = [];
+          classesSnapshot.forEach(docSnap => loadedClasses.push(docSnap.data() as Class));
 
-            toast.success("Connected to Firestore! Any local offline records will now sync up.");
-          } else {
-            console.log("Loading datasets from active Cloud Firestore...");
-            
-            const loadedTeachers: Teacher[] = [];
-            teachersSnapshot.forEach(docSnap => loadedTeachers.push(docSnap.data() as Teacher));
+          const loadedStudents: Student[] = [];
+          studentsSnapshot.forEach(docSnap => loadedStudents.push(docSnap.data() as Student));
 
-            const loadedClasses: Class[] = [];
-            classesSnapshot.forEach(docSnap => loadedClasses.push(docSnap.data() as Class));
+          const loadedTimetable: TimetableEntry[] = [];
+          timetableSnapshot.forEach(docSnap => loadedTimetable.push(docSnap.data() as TimetableEntry));
 
-            const loadedStudents: Student[] = [];
-            studentsSnapshot.forEach(docSnap => loadedStudents.push(docSnap.data() as Student));
+          const loadedAttendance: Attendance[] = [];
+          attendanceSnapshot.forEach(docSnap => loadedAttendance.push(docSnap.data() as Attendance));
 
-            const loadedTimetable: TimetableEntry[] = [];
-            timetableSnapshot.forEach(docSnap => loadedTimetable.push(docSnap.data() as TimetableEntry));
+          const loadedMarks: Mark[] = [];
+          marksSnapshot.forEach(docSnap => loadedMarks.push(docSnap.data() as Mark));
 
-            const loadedAttendance: Attendance[] = [];
-            attendanceSnapshot.forEach(docSnap => loadedAttendance.push(docSnap.data() as Attendance));
+          const loadedFees: FeeRecord[] = [];
+          feesSnapshot.forEach(docSnap => loadedFees.push(docSnap.data() as FeeRecord));
 
-            const loadedMarks: Mark[] = [];
-            marksSnapshot.forEach(docSnap => loadedMarks.push(docSnap.data() as Mark));
+          const loadedCoordinators: Coordinator[] = [];
+          coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
 
-            const loadedFees: FeeRecord[] = [];
-            feesSnapshot.forEach(docSnap => loadedFees.push(docSnap.data() as FeeRecord));
+          const loadedFeeStudents: StudentFeeData[] = [];
+          feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
 
-            const loadedCoordinators: Coordinator[] = [];
-            coordinatorsSnapshot.forEach(docSnap => loadedCoordinators.push(docSnap.data() as Coordinator));
-
-            const loadedFeeStudents: StudentFeeData[] = [];
-            feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
-
-            // Load App Settings
-            const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
-            let loadedSettings: AppSettings | null = null;
-            if (settingsSnap.exists()) {
-              loadedSettings = settingsSnap.data() as AppSettings;
-            }
-
-            setTeachers(loadedTeachers);
-            setClasses(loadedClasses);
-            setStudents(loadedStudents);
-            setTimetable(loadedTimetable);
-            setAttendance(loadedAttendance);
-            setMarks(loadedMarks);
-            setFees(loadedFees);
-            setCoordinators(loadedCoordinators);
-            setFeeStudents(loadedFeeStudents);
-            if (loadedSettings) setAppSettings(loadedSettings);
-
-            prevTeachers.current = JSON.stringify(loadedTeachers);
-            prevClasses.current = JSON.stringify(loadedClasses);
-            prevStudents.current = JSON.stringify(loadedStudents);
-            prevTimetable.current = JSON.stringify(loadedTimetable);
-            prevAttendance.current = JSON.stringify(loadedAttendance);
-            prevMarks.current = JSON.stringify(loadedMarks);
-            prevFees.current = JSON.stringify(loadedFees);
-            prevCoordinators.current = JSON.stringify(loadedCoordinators);
-            prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
-            if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
-
-            toast.success("ScholarSync connected with Cloud Firestore Ledger!");
+          // Load App Settings
+          const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
+          let loadedSettings: AppSettings | null = null;
+          if (settingsSnap.exists()) {
+            loadedSettings = settingsSnap.data() as AppSettings;
           }
+
+          setTeachers(loadedTeachers);
+          setClasses(loadedClasses);
+          setStudents(loadedStudents);
+          setTimetable(loadedTimetable);
+          setAttendance(loadedAttendance);
+          setMarks(loadedMarks);
+          setFees(loadedFees);
+          if (loadedCoordinators.length > 0) setCoordinators(loadedCoordinators);
+          if (loadedFeeStudents.length > 0) setFeeStudents(loadedFeeStudents);
+          if (loadedSettings) setAppSettings(loadedSettings);
+
+          prevTeachers.current = JSON.stringify(loadedTeachers);
+          prevClasses.current = JSON.stringify(loadedClasses);
+          prevStudents.current = JSON.stringify(loadedStudents);
+          prevTimetable.current = JSON.stringify(loadedTimetable);
+          prevAttendance.current = JSON.stringify(loadedAttendance);
+          prevMarks.current = JSON.stringify(loadedMarks);
+          prevFees.current = JSON.stringify(loadedFees);
+          prevCoordinators.current = JSON.stringify(loadedCoordinators);
+          prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
+          if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
         }
         isSyncComplete.current = true;
-        setIsSyncing(false);
       } catch (err: any) {
-        console.error("Firebase synchronization failure, offline backup active:", err);
-        setSyncError(err.message || "Failed connection");
-        setIsSyncing(false);
-        // Fallback to offline compatibility
+        console.warn("Firestore sync running in background/offline fallback mode:", err?.message);
+        setSyncError(err?.message || "Offline fallback");
         isSyncComplete.current = true;
-        toast.warning("Cloud database offline. Local safety mode active.");
       }
     }
 
@@ -441,7 +418,7 @@ export default function App() {
     });
 
     prevCoordinators.current = currentStr;
-    localStorage.setItem('acadamis_coordinators', currentStr);
+    safeStorage.setItem('acadamis_coordinators', currentStr);
   }, [coordinators]);
 
   // --- UTILS ---
@@ -695,8 +672,43 @@ export default function App() {
     });
 
     prevFeeStudents.current = currentStr;
-    localStorage.setItem('school_fee_data', currentStr);
+    safeStorage.setItem('school_fee_data', currentStr);
   }, [feeStudents]);
+
+  // Ensure students list stays synced into feeStudents data
+  useEffect(() => {
+    if (!students || students.length === 0) return;
+    setFeeStudents(prevFee => {
+      let changed = false;
+      const updated = [...prevFee];
+      
+      students.forEach(s => {
+        const cls = classes.find(c => c.id === s.classId);
+        const classNameStr = cls ? `${cls.className} ${cls.section}`.trim() : (s.classId || 'Class 10');
+        const existingIdx = updated.findIndex(f => String(f.id) === String(s.id));
+        if (existingIdx === -1) {
+          updated.push({
+            id: s.id,
+            name: s.name,
+            class: classNameStr,
+            monthlyFee: 2500,
+            payments: [],
+            otherFunds: []
+          });
+          changed = true;
+        } else if (updated[existingIdx].name !== s.name || updated[existingIdx].class !== classNameStr) {
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            name: s.name,
+            class: classNameStr
+          };
+          changed = true;
+        }
+      });
+
+      return changed ? updated : prevFee;
+    });
+  }, [students, classes]);
 
   // App Settings Sync
   useEffect(() => {
@@ -708,7 +720,7 @@ export default function App() {
       try {
         await setDoc(doc(db, "app_settings", "global"), sanitizeForFirestore(appSettings));
         prevAppSettings.current = currentStr;
-        localStorage.setItem('acadamis_app_settings', currentStr);
+        safeStorage.setItem('acadamis_app_settings', currentStr);
       } catch (e) {
         console.error("Firestore Settings Sync Error:", e);
       }
@@ -757,38 +769,38 @@ export default function App() {
 
   // --- LOCALSTORAGE CACHING EFFECTS ---
   useEffect(() => {
-    localStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
+    safeStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
   }, [teachers]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_classes', JSON.stringify(classes));
+    safeStorage.setItem('acadamis_classes', JSON.stringify(classes));
   }, [classes]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_students', JSON.stringify(students));
+    safeStorage.setItem('acadamis_students', JSON.stringify(students));
   }, [students]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_timetable', JSON.stringify(timetable));
+    safeStorage.setItem('acadamis_timetable', JSON.stringify(timetable));
   }, [timetable]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_attendance', JSON.stringify(attendance));
+    safeStorage.setItem('acadamis_attendance', JSON.stringify(attendance));
   }, [attendance]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_marks', JSON.stringify(marks));
+    safeStorage.setItem('acadamis_marks', JSON.stringify(marks));
   }, [marks]);
 
   useEffect(() => {
-    localStorage.setItem('acadamis_fees', JSON.stringify(fees));
+    safeStorage.setItem('acadamis_fees', JSON.stringify(fees));
   }, [fees]);
 
   useEffect(() => {
     if (userSession) {
-      localStorage.setItem('acadamis_session', JSON.stringify(userSession));
+      safeStorage.setItem('acadamis_session', JSON.stringify(userSession));
     } else {
-      localStorage.removeItem('acadamis_session');
+      safeStorage.removeItem('acadamis_session');
     }
   }, [userSession]);
 
@@ -803,81 +815,6 @@ export default function App() {
   };
 
   // --- RENDER ROUTING ENGINE ---
-  if (isSyncing) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-center font-sans select-none">
-        <Toaster position="top-right" richColors />
-        
-        {/* PWA Install Modal Popup */}
-        <AnimatePresence>
-          {showInstallModal && (
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-              <motion.div 
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200"
-              >
-                <div className="p-8 text-center space-y-6">
-                  <div className="w-20 h-20 bg-indigo-600 text-white rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-indigo-500/20 rotate-6">
-                    <Download size={40} strokeWidth={2.5} />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight italic text-slate-900">Install Portal</h3>
-                    <p className="text-xs font-bold text-slate-500 leading-relaxed uppercase tracking-wide">
-                      Add to your home screen for quick access and a better mobile experience.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3 pt-4">
-                    <button 
-                      onClick={handleInstallClick}
-                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
-                    >
-                      Install Now
-                    </button>
-                    <button 
-                      onClick={() => setShowInstallModal(false)}
-                      className="w-full py-4 bg-white border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
-                    >
-                      Maybe Later
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
-                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Smart School Management System</p>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        <div className="space-y-6 max-w-sm w-full animate-fade-in">
-          {/* Animated Spinner with school academic icon */}
-          <div className="relative w-16 h-16 mx-auto">
-            <div className="absolute inset-0 rounded-full border-4 border-slate-900"></div>
-            <div className="absolute inset-x-0 inset-y-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
-            <span className="absolute inset-0 flex items-center justify-center text-xl">🏫</span>
-          </div>
-
-          <div className="space-y-2">
-            <h1 className="text-sm font-black uppercase tracking-widest text-slate-100">
-              ScholarSync Cloud Security
-            </h1>
-            <p className="text-[10px] text-slate-400 font-mono tracking-wider animate-pulse uppercase">
-              Establishing real-time ledger synchronization...
-            </p>
-          </div>
-
-          <p className="text-[10px] text-slate-500 leading-relaxed font-mono">
-            Scanning academic class structures, teachers rosters, dynamic timetables, and billing accounts from active Firestore cloud databases...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
@@ -990,7 +927,7 @@ export default function App() {
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
         />
-      ) : (
+      ) : userSession.role === 'student' ? (
         <StudentDashboard
           userSession={userSession}
           teachers={teachers}
@@ -1006,6 +943,14 @@ export default function App() {
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
+        />
+      ) : (
+        <Login 
+          teachers={teachers} 
+          students={students} 
+          coordinators={coordinators}
+          onLogin={handleLogin} 
+          onBackToLanding={() => setViewPortal(false)}
         />
       )}
     </div>

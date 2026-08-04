@@ -7,7 +7,7 @@ import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, 
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData } from '../types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, getStudentPhoto } from '../types';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -61,6 +61,8 @@ const STANDARD_SUBJECTS_LIST = [
   'History', 'General Science', 'Art', 'Physical Education'
 ];
 
+import { safeStorage } from '../lib/safeStorage';
+
 export default function PrincipalDashboard({
   userSession,
   teachers,
@@ -102,13 +104,13 @@ export default function PrincipalDashboard({
 
   // Theme support
   const [darkTheme, setDarkTheme] = useState<boolean>(() => {
-    return localStorage.getItem('acadamis_dark_theme') === 'true';
+    return safeStorage.getItem('acadamis_dark_theme') === 'true';
   });
 
   // Track global theme triggers in case theme toggles else where
   useEffect(() => {
     const syncTheme = () => {
-      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+      setDarkTheme(safeStorage.getItem('acadamis_dark_theme') === 'true');
     };
     window.addEventListener('acadamis_toggle_theme', syncTheme);
     return () => window.removeEventListener('acadamis_toggle_theme', syncTheme);
@@ -117,7 +119,7 @@ export default function PrincipalDashboard({
   const handleToggleTheme = () => {
     const nextVal = !darkTheme;
     setDarkTheme(nextVal);
-    localStorage.setItem('acadamis_dark_theme', String(nextVal));
+    safeStorage.setItem('acadamis_dark_theme', String(nextVal));
     window.dispatchEvent(new Event('acadamis_toggle_theme'));
     toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
   };
@@ -133,7 +135,7 @@ export default function PrincipalDashboard({
   const [attendanceShowAllDates, setAttendanceShowAllDates] = useState(false);
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
   const [markAttendanceClassId, setMarkAttendanceClassId] = useState('');
-  const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late'}[]>([]);
+  const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late' | 'leave'}[]>([]);
 
   // PRINCIPAL ATTENDANCE MARKING ENGINE
   useEffect(() => {
@@ -284,22 +286,21 @@ export default function PrincipalDashboard({
       window.open(waUrl, '_blank');
       toast.success(`Opening WhatsApp for ${student.name}'s parent`);
     } else {
-      toast(
+      toast.custom(
         (t) => (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 bg-white text-slate-900 p-4 rounded-xl shadow-xl border border-slate-200">
             <span className="text-xs font-bold">Message ready for {student.name}</span>
             <button 
               onClick={() => {
                 window.open(waUrl, '_blank');
-                toast.dismiss(t.id);
+                toast.dismiss(t);
               }}
-              className="bg-emerald-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase"
+              className="bg-emerald-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase cursor-pointer"
             >
               Send
             </button>
           </div>
-        ),
-        { duration: 6000 }
+        )
       );
     }
   };
@@ -385,22 +386,21 @@ export default function PrincipalDashboard({
       window.open(waUrl, '_blank');
       toast.success(`Opening WhatsApp for ${student.name}'s fee notification`);
     } else {
-      toast(
+      toast.custom(
         (t) => (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 bg-white text-slate-900 p-4 rounded-xl shadow-xl border border-slate-200">
             <span className="text-xs font-bold">Fee alert ready for {student.name}</span>
             <button 
               onClick={() => {
                 window.open(waUrl, '_blank');
-                toast.dismiss(t.id);
+                toast.dismiss(t);
               }}
-              className="bg-indigo-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase"
+              className="bg-indigo-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase cursor-pointer"
             >
               Send
             </button>
           </div>
-        ),
-        { duration: 6000 }
+        )
       );
     }
   };
@@ -481,6 +481,7 @@ export default function PrincipalDashboard({
 
   // Validation state
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [formStep, setFormStep] = useState(1);
 
   // Individual Form Fields
   // Teacher
@@ -504,6 +505,8 @@ export default function PrincipalDashboard({
   const [sUsername, setSUsername] = useState('');
   const [sIsAcademy, setSIsAcademy] = useState(false);
   const [sAcademySubjects, setSAcademySubjects] = useState('');
+  const [sPhoto, setSPhoto] = useState<string | undefined>(undefined);
+  const [isConvertingPhoto, setIsConvertingPhoto] = useState(false);
 
   // Class
   const [cClassName, setCClassName] = useState('');
@@ -574,6 +577,57 @@ export default function PrincipalDashboard({
   const getPeriodColor = (period: string) => {
     const key = `${selectedTimetableClass}_${period}`;
     return appSettings.periodColors[key] || '#4f46e5'; // default Indigo color
+  };
+
+  const convertToWebP = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject('Failed to get canvas context');
+
+          // Limit size to save Firestore bandwidth and storage
+          const maxWidth = 300;
+          const scale = Math.min(1, maxWidth / img.width);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // 0.7 quality is excellent for mobile displays while keeping size minimal
+          const webpBase64 = canvas.toDataURL('image/webp', 0.7);
+          resolve(webpBase64);
+        };
+        img.onerror = () => reject('Image load error');
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject('File read error');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB");
+      return;
+    }
+
+    try {
+      setIsConvertingPhoto(true);
+      const webpData = await convertToWebP(file);
+      setSPhoto(webpData);
+      toast.success("Photo compressed and converted to WebP successfully!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to process image");
+    } finally {
+      setIsConvertingPhoto(false);
+    }
   };
 
   const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
@@ -672,6 +726,8 @@ export default function PrincipalDashboard({
     setSUsername('');
     setSIsAcademy(false);
     setSAcademySubjects('');
+    setSPhoto(undefined);
+    setIsConvertingPhoto(false);
 
     setCClassName('');
     setCSection('');
@@ -756,6 +812,7 @@ export default function PrincipalDashboard({
         setSUsername(match.username || '');
         setSIsAcademy(match.category === 'Academy');
         setSAcademySubjects(match.academySubjects?.join(', ') || '');
+        setSPhoto(match.photo);
       }
     } else if (type === 'class') {
       const match = classes.find(c => c.id === id);
@@ -951,7 +1008,8 @@ export default function PrincipalDashboard({
           baseFee: Number(sBaseFee) || 0,
           category: sIsAcademy ? 'Academy' : 'Regular',
           academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
-          enrollmentMonth: sEnrollmentMonth
+          enrollmentMonth: sEnrollmentMonth,
+          photo: sPhoto,
         };
         setStudents([...students, newStudent]);
         toast.success("Student profile added successfully!");
@@ -969,7 +1027,8 @@ export default function PrincipalDashboard({
           username: sUsername,
           category: sIsAcademy ? 'Academy' : 'Regular',
           academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
-          enrollmentMonth: sEnrollmentMonth
+          enrollmentMonth: sEnrollmentMonth,
+          photo: sPhoto,
         } : s));
         toast.success("Student profile updated successfully!");
       }
@@ -1690,6 +1749,13 @@ export default function PrincipalDashboard({
                             className="p-4 flex items-center justify-between cursor-pointer group-hover:bg-slate-50/50"
                           >
                             <div className="flex items-center gap-3">
+                              {s.photo ? (
+                                <img src={s.photo} alt={s.name} className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-[10px] border border-slate-800">
+                                  {s.name.charAt(0)}
+                                </div>
+                              )}
                               <div className="min-w-0">
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate leading-none mb-1">{s.name}</h3>
                                 <div className="flex items-center gap-2">
@@ -2244,9 +2310,18 @@ export default function PrincipalDashboard({
                             className="hover:bg-slate-50 transition-colors group cursor-pointer"
                           >
                             <td className="px-1.5 py-2">
-                              <div>
-                                <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors leading-tight">{s.name}</p>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
+                              <div className="flex items-center gap-2">
+                                {s.photo ? (
+                                  <img src={s.photo} alt={s.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-[8px] border border-slate-800">
+                                    {s.name.charAt(0)}
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors leading-tight">{s.name}</p>
+                                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
+                                </div>
                               </div>
                             </td>
                             <td className="px-1.5 py-2 text-center">
@@ -2485,8 +2560,19 @@ export default function PrincipalDashboard({
                                 <td className="px-6 py-4 font-mono text-[10px] text-slate-300 font-bold">#{fee.id.slice(-6)}</td>
                                 <td className="px-6 py-4 text-xs font-bold text-slate-400 tabular-nums uppercase">{fee.paidDate || 'N/A'}</td>
                                 <td className="px-6 py-4">
-                                  <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic">{student?.name || 'Unknown'}</span>
-                                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student?.rollNumber}</span>
+                                  <div className="flex items-center gap-3">
+                                    {student?.photo ? (
+                                      <img src={student.photo} alt={student.name} className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-[10px] border border-slate-800 shrink-0">
+                                        {student?.name?.charAt(0) || '?'}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic leading-tight">{student?.name || 'Unknown'}</span>
+                                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student?.rollNumber}</span>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest italic">{(() => { const cls = classes.find(c => c.id === student?.classId); return cls ? `${cls.className} - ${cls.section}` : student?.classId || 'N/A'; })()}</td>
                                 <td className="px-6 py-4">
@@ -2635,7 +2721,12 @@ export default function PrincipalDashboard({
                              const st = students.find(s => s.id === acc.studentId);
                              if (!st) return null;
                              return (
-                               <div key={acc.id} className="group bg-white border border-rose-100 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-sm hover:border-rose-400 transition-all">
+                               <div key={acc.id} className="group bg-white border border-rose-100 pl-1 pr-3 py-1 rounded-lg flex items-center gap-2 shadow-sm hover:border-rose-400 transition-all">
+                                 {st.photo ? (
+                                   <img src={st.photo} alt={st.name} className="w-6 h-6 rounded-full object-cover" />
+                                 ) : (
+                                   <div className="w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-[8px]">{st.name.charAt(0)}</div>
+                                 )}
                                  <span className="text-[10px] font-black text-slate-900 uppercase italic">{st.name}</span>
                                  <button 
                                    onClick={() => handleSendIndividualWhatsApp(st, acc.date)}
@@ -2685,13 +2776,18 @@ export default function PrincipalDashboard({
                                return (
                                  <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
                                    <td className="px-6 py-4">
-                                     <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic">{student?.name || 'Unknown'}</span>
-                                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student?.rollNumber}</span>
-                                     {attendanceShowAllDates && (
-                                       <span className="text-[8px] text-emerald-600 font-black flex items-center gap-1 mt-1">
-                                         <Calendar size={8} /> {record.date} (HISTORIC)
-                                       </span>
-                                     )}
+                                     <div className="flex items-center gap-3">
+                                       <img src={getStudentPhoto(student)} alt={student?.name || 'Student'} className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0 shadow-xs" />
+                                       <div>
+                                         <span className="font-black text-slate-900 block truncate uppercase tracking-tight italic leading-tight">{student?.name || 'Unknown'}</span>
+                                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">Roll #{student?.rollNumber}</span>
+                                         {attendanceShowAllDates && (
+                                           <span className="text-[8px] text-emerald-600 font-black flex items-center gap-1 mt-1">
+                                             <Calendar size={8} /> {record.date}
+                                           </span>
+                                         )}
+                                       </div>
+                                     </div>
                                    </td>
                                    <td className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest italic">
                                      {student?.classId ? getClassName(student.classId) : 'N/A'}
@@ -2712,7 +2808,7 @@ export default function PrincipalDashboard({
                                      <select
                                        value={record.status}
                                        onChange={(e) => {
-                                         const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'excused';
+                                         const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave';
                                          setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
                                          toast.success(`Status updated to ${newStatus.toUpperCase()} for ${student?.name}`);
                                        }}
@@ -2833,6 +2929,8 @@ export default function PrincipalDashboard({
 
             {(() => {
               const student = feeStudents.find(s => String(s.id) === selectedStudentForFee);
+              const studentProfile = students.find(s => String(s.id) === String(selectedStudentForFee));
+              
               if (!student) {
                 return (
                   <div className="p-20 text-center bg-slate-50 border border-dashed border-slate-300 rounded-3xl">
@@ -2848,6 +2946,34 @@ export default function PrincipalDashboard({
 
               return (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  
+                  {/* Selected Student Identity Header Card */}
+                  <div className="lg:col-span-12">
+                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center gap-6">
+                      <div className="w-24 h-24 rounded-3xl bg-slate-100 border-4 border-indigo-50 overflow-hidden shadow-inner flex items-center justify-center shrink-0">
+                        {studentProfile?.photo ? (
+                          <img src={studentProfile.photo} alt={student.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-4xl font-black text-slate-300 uppercase">{student.name.charAt(0)}</span>
+                        )}
+                      </div>
+                      <div className="flex-1 text-center sm:text-left space-y-1">
+                        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name}</h2>
+                          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest">Roll: {studentProfile?.rollNumber || 'N/A'}</span>
+                        </div>
+                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-2">
+                          <Users size={14} /> {student.class}
+                        </p>
+                        <div className="flex items-center justify-center sm:justify-start gap-3 pt-2">
+                           <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 rounded-full border border-emerald-100">
+                             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                             <span className="text-[10px] font-black text-emerald-700 uppercase">Active Profile</span>
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   
                   {/* Left Column: Recording & Quick Actions */}
                   <div className="lg:col-span-4 space-y-6">
@@ -3169,11 +3295,11 @@ export default function PrincipalDashboard({
                           const snapshot = await getDocs(collection(db, item.col));
                           const itemsList: any[] = [];
                           snapshot.forEach(docSnap => itemsList.push(docSnap.data()));
-                          localStorage.setItem(item.key, JSON.stringify(itemsList));
+                          safeStorage.setItem(item.key, JSON.stringify(itemsList));
                         } else if (item.type === 'object' && item.docId) {
                           const docSnap = await getDoc(doc(db, item.col, item.docId));
                           if (docSnap.exists()) {
-                            localStorage.setItem(item.key, JSON.stringify(docSnap.data()));
+                            safeStorage.setItem(item.key, JSON.stringify(docSnap.data()));
                           }
                         }
                       }
@@ -3211,7 +3337,7 @@ export default function PrincipalDashboard({
                       ];
 
                       for (const item of syncConfig) {
-                        const localData = localStorage.getItem(item.key);
+                        const localData = safeStorage.getItem(item.key);
                         if (localData) {
                           if (item.type === 'list') {
                             const listItems = JSON.parse(localData);
@@ -4000,165 +4126,296 @@ export default function PrincipalDashboard({
 
               {/* ============ STUDENT FORM FIELDS ============ */}
               {modalType === 'student' && (
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={sName}
-                      onChange={(e) => setSName(e.target.value)}
-                      placeholder="e.g. Billy Davidson"
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                    />
+                <div className="space-y-6">
+                  {/* Step Progress Indicator */}
+                  <div className="flex items-center justify-between mb-8 px-4">
+                    {[
+                      { step: 1, label: 'Identity', icon: User },
+                      { step: 2, label: 'Academic', icon: BookOpen },
+                      { step: 3, label: 'Account', icon: CreditCard }
+                    ].map((s, i) => (
+                      <React.Fragment key={s.step}>
+                        <div className="flex flex-col items-center gap-2 group">
+                          <div 
+                            onClick={() => setFormStep(s.step)}
+                            className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-all cursor-pointer ${
+                              formStep === s.step 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 scale-110' 
+                                : formStep > s.step 
+                                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100'
+                                  : 'bg-slate-100 text-slate-400 grayscale hover:grayscale-0'
+                            }`}
+                          >
+                            <s.icon size={18} strokeWidth={2.5} />
+                          </div>
+                          <span className={`text-[9px] font-black uppercase tracking-widest ${formStep === s.step ? 'text-indigo-600' : 'text-slate-400'}`}>
+                            {s.label}
+                          </span>
+                        </div>
+                        {i < 2 && (
+                          <div className={`flex-1 h-0.5 mx-2 rounded-full transition-colors ${formStep > s.step + 1 ? 'bg-emerald-500' : 'bg-slate-100'}`}></div>
+                        )}
+                      </React.Fragment>
+                    ))}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Username</label>
-                      <input
-                        type="text"
-                        required
-                        value={sUsername}
-                        onChange={(e) => setSUsername(e.target.value)}
-                        placeholder="Login ID / Username"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  {/* STEP 1: PERSONAL IDENTITY */}
+                  {formStep === 1 && (
+                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+                      <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-center gap-4">
+                        <div className="relative group">
+                          <div className="w-16 h-16 bg-white rounded-2xl border-2 border-dashed border-indigo-200 flex items-center justify-center overflow-hidden shadow-sm transition-all group-hover:border-indigo-400">
+                            {sPhoto ? (
+                              <img src={sPhoto} alt="Profile" className="w-full h-full object-cover" />
+                            ) : (
+                              <User size={24} className="text-indigo-300" />
+                            )}
+                          </div>
+                          <label className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all border-2 border-white">
+                            <Upload size={12} strokeWidth={3} />
+                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                          </label>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Student Profile Image</h4>
+                          <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">A clear photo helps in identification</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Full Student Name</label>
+                          <input
+                            type="text"
+                            required
+                            value={sName}
+                            onChange={(e) => setSName(e.target.value)}
+                            placeholder="e.g. Muhammad Ali"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Username</label>
+                            <input
+                              type="text"
+                              required
+                              value={sUsername}
+                              onChange={(e) => setSUsername(e.target.value)}
+                              placeholder="login_id"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Password</label>
+                            <input
+                              type="text"
+                              required
+                              value={sPassword}
+                              onChange={(e) => setSPassword(e.target.value)}
+                              placeholder="nsb123"
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Parent's WhatsApp Number</label>
+                          <div className="relative">
+                            <Phone size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              required
+                              value={sParentPhone}
+                              onChange={(e) => setSParentPhone(e.target.value)}
+                              placeholder="e.g. 03001234567"
+                              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 flex justify-end">
+                        <button 
+                          type="button" 
+                          onClick={() => setFormStep(2)}
+                          className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-2"
+                        >
+                          Continue to Academic <ArrowUpRight size={14} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* STEP 2: ACADEMIC DETAILS */}
+                  {formStep === 2 && (
+                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Assigned Class</label>
+                          <select
+                            value={sClassId}
+                            onChange={(e) => setSClassId(e.target.value)}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          >
+                            <option value="">-- Choose Class --</option>
+                            {classes.map(cl => (
+                              <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Roll Number</label>
+                          <input
+                            type="text"
+                            required
+                            value={sRoll}
+                            onChange={(e) => setSRoll(e.target.value)}
+                            placeholder="e.g. 101"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Student Contact (Optional)</label>
+                          <input
+                            type="text"
+                            value={sStudentPhone}
+                            onChange={(e) => setSStudentPhone(e.target.value)}
+                            placeholder="e.g. 03217654321"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Email Address</label>
+                          <input
+                            type="email"
+                            value={sEmail}
+                            onChange={(e) => setSEmail(e.target.value)}
+                            placeholder="e.g. ali@school.com"
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1 pt-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Enrollment Date</label>
+                        <select
+                          value={sEnrollmentMonth}
+                          onChange={(e) => setSEnrollmentMonth(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                        >
+                          {MONTHS.map(m => (
+                            <option key={m} value={m}>{m} 2026</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="pt-6 flex justify-between gap-4">
+                        <button 
+                          type="button" 
+                          onClick={() => setFormStep(1)}
+                          className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
+                        >
+                          Back to Identity
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setFormStep(3)}
+                          className="flex-1 py-3 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
+                        >
+                          Next: Fee & Academy
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* STEP 3: FINANCIAL & ACADEMY */}
+                  {formStep === 3 && (
+                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+                      <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-3xl space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-white text-emerald-600 rounded-xl shadow-sm">
+                            <CreditCard size={20} />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-emerald-900 uppercase tracking-tight italic">Fee Management</h4>
+                            <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Set the monthly base fee for this student</p>
+                          </div>
+                        </div>
                         
-                      />
-                      
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
-                      <input
-                        type="text"
-                        required
-                        value={sPassword}
-                        onChange={(e) => setSPassword(e.target.value)}
-                        placeholder="nsb123"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Email (Optional)</label>
-                    <input
-                      type="email"
-                      value={sEmail}
-                      onChange={(e) => setSEmail(e.target.value)}
-                      placeholder="e.g. billy.d@school.com"
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Class Assigned</label>
-                      <select
-                        value={sClassId}
-                        onChange={(e) => setSClassId(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="">Choose Class</option>
-                        {classes.map(cl => (
-                          <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Roll Number</label>
-                      <input
-                        type="text"
-                        required
-                        value={sRoll}
-                        onChange={(e) => setSRoll(e.target.value)}
-                        placeholder="e.g. 104"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Student Contact (Mobile)</label>
-                      <input
-                        type="text"
-                        value={sStudentPhone}
-                        onChange={(e) => setSStudentPhone(e.target.value)}
-                        placeholder="e.g. +1-555-0000"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Parent Phone Contact</label>
-                      <input
-                        type="text"
-                        required
-                        value={sParentPhone}
-                        onChange={(e) => setSParentPhone(e.target.value)}
-                        placeholder="e.g. +1-555-4321"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Monthly Fee (Rs.)</label>
-                      <input
-                        type="number"
-                        required
-                        value={sBaseFee}
-                        onChange={(e) => setSBaseFee(e.target.value)}
-                        placeholder="e.g. 1500"
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Enrollment Month</label>
-                      <select
-                        value={sEnrollmentMonth}
-                        onChange={(e) => setSEnrollmentMonth(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      >
-                        {MONTHS.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Academy Student Toggle & Subject Management */}
-                  <div className="p-4 bg-slate-50 border border-slate-200 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <label className="block text-xs font-black text-slate-800 uppercase tracking-tight">Academy Enrollment</label>
-                        <p className="text-[10px] text-slate-500">Enable if student is part of the specialized tutorial academy.</p>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-emerald-700 ml-1">Monthly School Fee (Rs.)</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 font-black text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              required
+                              value={sBaseFee}
+                              onChange={(e) => setSBaseFee(e.target.value)}
+                              placeholder="e.g. 2000"
+                              className="w-full pl-12 pr-4 py-4 bg-white border border-emerald-200 rounded-2xl text-xl font-black text-emerald-950 focus:ring-4 focus:ring-emerald-200/50 outline-none transition-all placeholder:text-emerald-200"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <button 
-                        type="button" 
-                        onClick={() => setSIsAcademy(!sIsAcademy)}
-                        className={`w-12 h-6 rounded-full flex items-center px-1 transition-colors ${sIsAcademy ? 'bg-indigo-600' : 'bg-slate-300'}`}
-                      >
-                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${sIsAcademy ? 'translate-x-6' : 'translate-x-0'}`}></div>
-                      </button>
-                    </div>
 
-                    {sIsAcademy && (
-                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Academy Subjects</label>
-                        <input
-                          type="text"
-                          value={sAcademySubjects}
-                          onChange={(e) => setSAcademySubjects(e.target.value)}
-                          placeholder="e.g. Mathematics, Physics, Chemistry"
-                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-indigo-500"
-                        />
-                        <p className="text-[9px] text-slate-400 italic">Separate multiple subjects with commas.</p>
+                      <div className="p-6 bg-indigo-950 text-white rounded-3xl space-y-6 shadow-xl shadow-indigo-200 border-l-8 border-indigo-500">
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-1">
+                            <h4 className="text-sm font-black uppercase tracking-tight italic flex items-center gap-2">
+                              <Zap size={18} className="text-amber-400" /> Academy Enrollment
+                            </h4>
+                            <p className="text-[10px] text-indigo-300 font-medium leading-relaxed max-w-[200px]">
+                              Is this student also attending evening academy classes?
+                            </p>
+                          </div>
+                          <button 
+                            type="button" 
+                            onClick={() => setSIsAcademy(!sIsAcademy)}
+                            className={`w-14 h-7 rounded-full flex items-center px-1 transition-all ${sIsAcademy ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                          >
+                            <div className={`w-5 h-5 bg-white rounded-full shadow-lg transition-transform ${sIsAcademy ? 'translate-x-7' : 'translate-x-0'}`}></div>
+                          </button>
+                        </div>
+
+                        {sIsAcademy && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2 pt-2 border-t border-white/10">
+                            <label className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Select Academy Subjects</label>
+                            <input
+                              type="text"
+                              value={sAcademySubjects}
+                              onChange={(e) => setSAcademySubjects(e.target.value)}
+                              placeholder="e.g. Physics, Chemistry, Biology"
+                              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-2xl text-sm font-bold text-white placeholder:text-white/20 focus:bg-white/20 outline-none transition-all"
+                            />
+                          </motion.div>
+                        )}
                       </div>
-                    )}
-                  </div>
+
+                      <div className="pt-4 flex flex-col gap-3">
+                        <div className="flex gap-4">
+                          <button 
+                            type="button" 
+                            onClick={() => setFormStep(2)}
+                            className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
+                          >
+                            Back to Academic
+                          </button>
+                          <button 
+                            type="submit"
+                            className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <Save size={16} /> Complete Registration
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest">Ensure all data is correct before committing to cloud ledger</p>
+                      </div>
+                    </motion.div>
+                  )}
                 </div>
               )}
 
@@ -4430,53 +4687,79 @@ export default function PrincipalDashboard({
       {/* ========== STUDENT DETAIL REPORT MODAL ========== */}
       <AnimatePresence>
         {selectedStudentReport && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[150] animate-in fade-in duration-300 print:static print:bg-white print:p-0">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 z-[150] animate-in fade-in duration-300 print:static print:bg-white print:p-0">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:border-none print:w-full"
+              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:border-none print:w-full"
             >
-              <div className="p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden print:bg-white print:text-slate-950 print:border-b print:p-4">
+              {/* Modal Top Banner & Student Info */}
+              <div className="p-6 sm:p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden print:bg-white print:text-slate-950 print:border-b print:p-4">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl print:hidden"></div>
-                <div className="relative z-10 flex items-center gap-6">
-                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-3xl font-black shadow-lg shadow-indigo-500/20 rotate-3 print:bg-slate-100 print:text-slate-900 print:shadow-none print:rotate-0 print:w-12 print:h-12 print:text-xl print:rounded-lg">
-                    {selectedStudentReport.name.charAt(0)}
+                
+                <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                  <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-indigo-300/40 shadow-xl bg-slate-800 shrink-0">
+                    <img 
+                      src={getStudentPhoto(selectedStudentReport)} 
+                      alt={selectedStudentReport.name} 
+                      className="w-full h-full object-cover" 
+                    />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-black uppercase tracking-tight italic print:text-xl print:not-italic">{selectedStudentReport.name}</h2>
-                    <div className="flex flex-wrap gap-3 mt-2">
-                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5 print:bg-slate-50 print:text-slate-600 print:border-slate-200">
-                        Class: {classes.find(c => c.id === selectedStudentReport.classId)?.className}
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-1.5">
+                      Student Official Report
+                    </span>
+                    <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight">{selectedStudentReport.name}</h2>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <span className="bg-white/10 text-white/90 px-3 py-1 rounded-lg text-xs font-bold border border-white/10">
+                        Class: {classes.find(c => c.id === selectedStudentReport.classId)?.className || selectedStudentReport.classId || 'N/A'}
                       </span>
-                      <span className="bg-white/10 text-white/80 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/5 print:bg-slate-50 print:text-slate-600 print:border-slate-200">
-                        Roll: {selectedStudentReport.rollNumber}
+                      <span className="bg-white/10 text-white/90 px-3 py-1 rounded-lg text-xs font-mono font-bold border border-white/10">
+                        Roll #{selectedStudentReport.rollNumber}
                       </span>
-                      <span className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-500/20 print:bg-slate-50 print:text-indigo-600 print:border-slate-200">
-                        {selectedStudentReport.category}
+                      <span className="bg-indigo-500/30 text-indigo-200 px-3 py-1 rounded-lg text-xs font-bold border border-indigo-400/20">
+                        {selectedStudentReport.category || 'General'}
                       </span>
                     </div>
                   </div>
                 </div>
+
                 <button 
                   onClick={() => setSelectedStudentReport(null)}
-                  className="relative z-10 p-2 hover:bg-white/10 rounded-full transition-all text-white/60 hover:text-white print:hidden"
+                  className="relative z-10 p-2 hover:bg-white/10 rounded-xl transition-all text-white/70 hover:text-white print:hidden cursor-pointer"
                 >
                   <X size={24} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50 print:bg-white print:p-4 print:overflow-visible">
+              <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 bg-slate-50/60 print:bg-white print:p-4 print:overflow-visible">
+                {/* Contact & Profile Quick Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Parent Phone</p>
+                    <p className="text-sm font-mono font-bold text-slate-800 mt-1">{selectedStudentReport.parentPhone || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Guardian Name</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{selectedStudentReport.guardianName || 'N/A'}</p>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Academic Email</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1 truncate">{selectedStudentReport.email || 'N/A'}</p>
+                  </div>
+                </div>
+
                 {/* Stats Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:grid-cols-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print:grid-cols-3">
                   {/* Attendance Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Attendance</span>
-                      <CalendarDays size={16} className="text-blue-500 print:hidden" />
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Attendance Rate</span>
+                      <CalendarDays size={18} className="text-blue-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900 print:text-xl">
+                      <div className="text-3xl font-black text-slate-900">
                         {(() => {
                           const stats = attendance.filter(a => a.studentId === selectedStudentReport.id);
                           if (stats.length === 0) return '0%';
@@ -4484,18 +4767,18 @@ export default function PrincipalDashboard({
                           return `${Math.round((present / stats.length) * 100)}%`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Average Presence</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Presence</p>
                     </div>
                   </div>
 
                   {/* Academics Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Academics</span>
-                      <Award size={16} className="text-indigo-500 print:hidden" />
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Academic Score</span>
+                      <Award size={18} className="text-indigo-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900 print:text-xl">
+                      <div className="text-3xl font-black text-slate-900">
                         {(() => {
                           const sMarks = marks.filter(m => m.studentId === selectedStudentReport.id);
                           if (sMarks.length === 0) return 'N/A';
@@ -4503,37 +4786,37 @@ export default function PrincipalDashboard({
                           return `${avg}%`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Test Performance</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Marks</p>
                     </div>
                   </div>
 
                   {/* Financials Card */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 print:rounded-xl print:p-4 print:border-slate-300">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Financials</span>
-                      <CreditCard size={16} className="text-emerald-500 print:hidden" />
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fee Balance</span>
+                      <CreditCard size={18} className="text-emerald-500 print:hidden" />
                     </div>
                     <div>
-                      <div className="text-3xl font-black text-slate-900 print:text-xl">
+                      <div className="text-3xl font-black text-slate-900">
                         {(() => {
                           const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
                           if (!fData) return 'Rs. 0';
                           return `Rs. ${getTotalPending(fData) + getTotalOtherFunds(fData)}`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Outstanding</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Total Pending Dues</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Detailed Sections */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:grid-cols-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
                   {/* Test History */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
-                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
-                      <BookOpen size={16} className="text-indigo-600 print:hidden" /> Recent Test Scores
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-4 flex items-center gap-2">
+                      <BookOpen size={16} className="text-indigo-600 print:hidden" /> Recent Exam Marks
                     </h3>
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {marks.filter(m => m.studentId === selectedStudentReport.id).length === 0 ? (
                         <p className="text-xs text-slate-400 italic py-4 text-center">No academic records found for this student.</p>
                       ) : (
@@ -4541,13 +4824,13 @@ export default function PrincipalDashboard({
                           .filter(m => m.studentId === selectedStudentReport.id)
                           .slice(0, 5)
                           .map((m, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-slate-200">
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                               <div>
                                 <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.subject}</p>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">{m.examType}</p>
                               </div>
                               <div className="text-right">
-                                <p className="text-xs font-black text-indigo-600">{m.marksObtained}/{m.maxMarks}</p>
+                                <p className="text-xs font-black text-indigo-600">{m.marksObtained} / {m.maxMarks}</p>
                               </div>
                             </div>
                           ))
@@ -4556,9 +4839,9 @@ export default function PrincipalDashboard({
                   </div>
 
                   {/* Attendance Log */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
-                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-4 flex items-center gap-2">
-                      <Calendar size={16} className="text-blue-600 print:hidden" /> Monthly Attendance
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+                    <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-4 flex items-center gap-2">
+                      <Calendar size={16} className="text-blue-600 print:hidden" /> Monthly Attendance Summary
                     </h3>
                     <div className="space-y-2">
                       {MONTHS.map(month => {
@@ -4574,18 +4857,12 @@ export default function PrincipalDashboard({
                         const absent = monthLogs.filter(l => l.status === 'absent').length;
 
                         return (
-                          <div key={month} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100 print:bg-white print:border-slate-200">
-                            <span className="text-[10px] font-black text-slate-800 uppercase">{month}</span>
-                            <div className="flex gap-4">
-                              <div className="text-center">
-                                <p className="text-[8px] font-black text-emerald-600 uppercase">P: {present}</p>
-                              </div>
-                              <div className="text-center">
-                                <p className="text-[8px] font-black text-amber-600 uppercase">L: {leave}</p>
-                              </div>
-                              <div className="text-center">
-                                <p className="text-[8px] font-black text-rose-600 uppercase">A: {absent}</p>
-                              </div>
+                          <div key={month} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="text-xs font-bold text-slate-800 uppercase">{month}</span>
+                            <div className="flex gap-3 text-xs">
+                              <span className="font-bold text-emerald-600">P: {present}</span>
+                              <span className="font-bold text-amber-600">L: {leave}</span>
+                              <span className="font-bold text-rose-600">A: {absent}</span>
                             </div>
                           </div>
                         );
@@ -4595,39 +4872,45 @@ export default function PrincipalDashboard({
                 </div>
 
                 {/* Financial Ledger Section */}
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm print:rounded-xl print:p-4 print:border-slate-300">
-                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-widest mb-6 flex items-center gap-2 border-b pb-4">
-                    <CreditCard size={18} className="text-emerald-600 print:hidden" /> Financial Ledger
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+                  <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <CreditCard size={18} className="text-emerald-600 print:hidden" /> Financial Payments & Ledger
                   </h3>
-                  <div className="space-y-4">
+                  <div>
                     {(() => {
                       const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
-                      if (!fData) return <p className="text-center text-slate-400 italic">No financial data found.</p>;
+                      if (!fData) return <p className="text-center text-slate-400 italic py-3 text-xs">No financial record on file.</p>;
 
                       return (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
-                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Payments</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">Paid History</p>
                             <div className="space-y-2">
-                              {fData.payments.slice(0, 5).map((p, i) => (
-                                <div key={i} className="flex items-center justify-between p-2 bg-emerald-50 rounded-xl border border-emerald-100 print:bg-white print:border-slate-200">
-                                  <div>
-                                    <p className="text-[10px] font-black text-emerald-900 uppercase">{p.month} {p.year}</p>
+                              {fData.payments.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic">No payments recorded.</p>
+                              ) : (
+                                fData.payments.slice(0, 5).map((p, i) => (
+                                  <div key={i} className="flex items-center justify-between p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100">
+                                    <span className="text-xs font-bold text-emerald-900 uppercase">{p.month} {p.year}</span>
+                                    <span className="text-xs font-black text-emerald-700">Rs. {p.amount}</span>
                                   </div>
-                                  <span className="text-[10px] font-black text-emerald-700">Rs. {p.amount}</span>
-                                </div>
-                              ))}
+                                ))
+                              )}
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Charges</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">Other Charges</p>
                             <div className="space-y-2">
-                              {fData.otherFunds.slice(0, 5).map((f, i) => (
-                                <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-200 print:bg-white print:border-slate-200">
-                                  <p className="text-[10px] font-black text-slate-800 uppercase">{f.desc}</p>
-                                  <span className="text-[10px] font-black text-slate-900">Rs. {f.amount}</span>
-                                </div>
-                              ))}
+                              {fData.otherFunds.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic">No extra charges on record.</p>
+                              ) : (
+                                fData.otherFunds.slice(0, 5).map((f, i) => (
+                                  <div key={i} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                                    <span className="text-xs font-bold text-slate-800 uppercase">{f.desc}</span>
+                                    <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                                  </div>
+                                ))
+                              )}
                             </div>
                           </div>
                         </div>
@@ -4637,18 +4920,19 @@ export default function PrincipalDashboard({
                 </div>
               </div>
 
-              <div className="p-6 bg-slate-100 border-t border-slate-200 flex justify-end gap-3 print:hidden">
+              {/* Modal Footer Actions */}
+              <div className="p-4 sm:p-5 bg-slate-100 border-t border-slate-200 flex justify-end gap-3 print:hidden">
                 <button 
                   onClick={() => window.print()}
-                  className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-300 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all active:scale-95"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 transition-all cursor-pointer"
                 >
-                  <Printer size={16} /> Print Full Report
+                  <Printer size={16} /> Print Report
                 </button>
                 <button 
                   onClick={() => setSelectedStudentReport(null)}
-                  className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl active:scale-95"
+                  className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-800 transition-all shadow-md cursor-pointer"
                 >
-                  Close Profile
+                  Close
                 </button>
               </div>
             </motion.div>
@@ -4737,7 +5021,7 @@ export default function PrincipalDashboard({
                         return (
                           <div key={rec.studentId} className="flex items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors">
                             <div className="flex items-center gap-3">
-                              <span className="w-8 h-8 bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">{idx + 1}</span>
+                              <img src={getStudentPhoto(student)} alt={student?.name || 'Student'} className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0" />
                               <div>
                                 <p className="text-xs font-black text-slate-900 uppercase italic leading-none">{student?.name}</p>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll #{student?.rollNumber}</p>
@@ -4996,9 +5280,13 @@ export default function PrincipalDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   {students.filter(s => s.classId === selectedClassForDetails.id).map(s => (
                     <div key={s.id} className="p-4 bg-white border border-slate-100 shadow-sm flex items-center gap-3">
-                      <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs border border-slate-800">
-                        {s.name.charAt(0)}
-                      </div>
+                      {s.photo ? (
+                        <img src={s.photo} alt={s.name} className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-sm" />
+                      ) : (
+                        <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs border border-slate-800">
+                          {s.name.charAt(0)}
+                        </div>
+                      )}
                       <div>
                         <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight truncate leading-none mb-0.5">{s.name}</p>
                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Roll #{s.rollNumber}</p>

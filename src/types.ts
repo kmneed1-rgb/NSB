@@ -34,6 +34,9 @@ export interface Student {
   category?: string;
   academySubjects?: string[];
   enrollmentMonth?: string;
+  photo?: string;
+  idCardTheme?: string;
+  idCardColor?: string;
 }
 
 export interface ClassFeeConfig {
@@ -133,3 +136,12 @@ export interface UserSession {
   id?: string; // links to student or teacher, or undefined for principal
   name: string;
 }
+
+export function getStudentPhoto(student?: { id?: string; name?: string; photo?: string } | null): string {
+  if (student?.photo && student.photo.trim().length > 0) {
+    return student.photo;
+  }
+  const seed = student?.name || student?.id || 'Student';
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
+}
+

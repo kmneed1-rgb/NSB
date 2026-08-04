@@ -1,3 +1,5 @@
+import { db } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -29,7 +31,9 @@ interface StudentDashboardProps {
   onInstallApp: () => void;
 }
 
-type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees';
+type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'id_card';
+
+import { safeStorage } from '../lib/safeStorage';
 
 export default function StudentDashboard({
   userSession,
@@ -63,12 +67,12 @@ export default function StudentDashboard({
 
   // Theme support
   const [darkTheme, setDarkTheme] = useState<boolean>(() => {
-    return localStorage.getItem('acadamis_dark_theme') === 'true';
+    return safeStorage.getItem('acadamis_dark_theme') === 'true';
   });
 
   useEffect(() => {
     const syncTheme = () => {
-      setDarkTheme(localStorage.getItem('acadamis_dark_theme') === 'true');
+      setDarkTheme(safeStorage.getItem('acadamis_dark_theme') === 'true');
     };
     window.addEventListener('acadamis_toggle_theme', syncTheme);
     return () => window.removeEventListener('acadamis_toggle_theme', syncTheme);
@@ -77,7 +81,7 @@ export default function StudentDashboard({
   const handleToggleTheme = () => {
     const nextVal = !darkTheme;
     setDarkTheme(nextVal);
-    localStorage.setItem('acadamis_dark_theme', String(nextVal));
+    safeStorage.setItem('acadamis_dark_theme', String(nextVal));
     window.dispatchEvent(new Event('acadamis_toggle_theme'));
     toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
   };
@@ -209,6 +213,28 @@ export default function StudentDashboard({
   const [isAttendanceOverlayOpen, setIsAttendanceOverlayOpen] = useState(false);
   const [feeChallanPrint, setFeeChallanPrint] = useState<FeeRecord | null>(null);
 
+  const handleUpdateIDCard = async (theme: string, color: string) => {
+    if (!studentProfile) return;
+    
+    const updatedStudent: Student = {
+      ...studentProfile,
+      idCardTheme: theme,
+      idCardColor: color
+    };
+    
+    setStudents(prev => prev.map(s => s.id === studentProfile.id ? updatedStudent : s));
+    
+    // Also save to database
+    try {
+      const studentRef = doc(db, 'students', studentProfile.id);
+      await setDoc(studentRef, updatedStudent, { merge: true });
+      toast.success("ID Card design saved permanently!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Saved locally, but failed to sync with cloud.");
+    }
+  };
+
   const handleCompletePayment = () => {
     if (!selectedPayFee) return;
     
@@ -255,8 +281,8 @@ export default function StudentDashboard({
   const getPeriodsList = () => {
     const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
     try {
-      const saved = localStorage.getItem('acadamis_extra_periods');
-      const deletedSaved = localStorage.getItem('acadamis_deleted_periods');
+      const saved = safeStorage.getItem('acadamis_extra_periods');
+      const deletedSaved = safeStorage.getItem('acadamis_deleted_periods');
       const deleted = deletedSaved ? JSON.parse(deletedSaved) : {};
       const classDeleted = (currentClassId ? (deleted[currentClassId] || []) : []) as string[];
 
@@ -385,7 +411,8 @@ export default function StudentDashboard({
               { id: 'attendance', label: 'Presence', icon: CheckSquare },
               { id: 'marks', label: 'Grades', icon: Award },
               { id: 'timetable', label: 'Classes', icon: Calendar },
-              { id: 'fees', label: 'Payments', icon: CreditCard }
+              { id: 'fees', label: 'Payments', icon: CreditCard },
+              { id: 'id_card', label: 'ID Card', icon: Award }
             ].map((item) => (
               <button
                 key={item.id}
@@ -600,7 +627,7 @@ export default function StudentDashboard({
               
               {/* Attendance Card widget - Geometric style */}
               <motion.div 
-                draggable="x"
+                drag="x"
                 dragConstraints={{ left: 0, right: 0 }}
                 onDragEnd={(_, info) => {
                   if (info.offset.x > 100 || info.offset.x < -100) {
@@ -1135,7 +1162,7 @@ export default function StudentDashboard({
                                 
                                 let col = '#6366f1'; // default indigo
                                 try {
-                                  const savedColors = localStorage.getItem('acadamis_period_colors');
+                                  const savedColors = safeStorage.getItem('acadamis_period_colors');
                                   if (savedColors) {
                                     const parsedColors = JSON.parse(savedColors);
                                     col = parsedColors[`${entry.classId}_${p}`] || '#6366f1';
@@ -1338,6 +1365,147 @@ export default function StudentDashboard({
           );
         })()}
 
+        {activeTab === 'id_card' && (
+          <div className="space-y-8 animate-fade-in">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <span className={`text-[10px] px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-amber-950 text-amber-400 border border-amber-900' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>
+                  Student Identity Designer
+                </span>
+                <h1 className={`text-2xl font-black uppercase font-display tracking-tight mt-1 flex items-center gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>
+                  <Award size={24} className="text-amber-500" />
+                  Design Your ID Card
+                </h1>
+                <p className={`text-xs mt-1 leading-relaxed ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Customize your academic identity card with themes and colors.
+                </p>
+              </div>
+              <button 
+                onClick={() => window.print()}
+                className="flex items-center justify-center gap-2 bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+              >
+                <Download size={14} />
+                Download / Print Card
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Preview Section */}
+              <div className="flex flex-col items-center justify-center space-y-6">
+                <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card Preview</h3>
+                
+                {/* THE CARD */}
+                <div 
+                  id="printable-id-card"
+                  className={`w-full max-w-[320px] aspect-[1.6/1] rounded-3xl shadow-2xl relative overflow-hidden transition-all duration-500 p-6 border-4 ${
+                    studentProfile?.idCardTheme === 'dark' 
+                      ? 'bg-slate-900 text-white border-slate-800' 
+                      : studentProfile?.idCardTheme === 'vibrant'
+                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      : 'bg-white text-slate-900 border-slate-100'
+                  }`}
+                  style={{ borderColor: studentProfile?.idCardColor || undefined }}
+                >
+                  {/* Decorative blobs */}
+                  <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
+                  <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-white/5 rounded-full blur-xl" />
+
+                  <div className="flex justify-between items-start h-full relative z-10">
+                    <div className="flex flex-col justify-between h-full">
+                      <div>
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${studentProfile?.idCardTheme === 'classic' ? 'bg-slate-900 text-white' : 'bg-white/20'}`}>
+                            <Award size={18} />
+                          </div>
+                          <span className="text-[10px] font-black tracking-widest uppercase">NSB1</span>
+                        </div>
+                        <h2 className="text-xl font-black uppercase tracking-tight leading-none truncate max-w-[180px]">
+                          {studentProfile?.name}
+                        </h2>
+                        <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">
+                          {assignedClass?.className} ({assignedClass?.section}) • Roll: {studentProfile?.rollNumber}
+                        </p>
+                      </div>
+
+                      <div className="mt-auto">
+                        <p className="text-[8px] font-black uppercase tracking-[0.2em] opacity-50">Student Identity</p>
+                        <p className="text-[10px] font-mono font-bold mt-0.5">#{studentProfile?.id.substring(2, 10).toUpperCase()}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <div className="w-24 h-24 rounded-2xl border-2 border-white/20 overflow-hidden bg-slate-100 shadow-xl">
+                        {studentProfile?.photo ? (
+                          <img src={studentProfile.photo} alt="Student" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400 bg-slate-50">
+                            <User size={40} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[9px] text-slate-400 font-medium italic">Note: Card displays your official WebP profile photo for data efficiency.</p>
+              </div>
+
+              {/* Controls Section */}
+              <div className={`p-6 rounded-3xl border ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <h3 className={`text-xs font-black uppercase tracking-widest mb-6 border-b pb-2 ${darkTheme ? 'text-slate-200 border-slate-800' : 'text-slate-900 border-slate-100'}`}>
+                  Design Controls
+                </h3>
+
+                <div className="space-y-6">
+                  {/* Theme Selection */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Theme</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {['classic', 'dark', 'vibrant'].map((theme) => (
+                        <button
+                          key={theme}
+                          onClick={() => handleUpdateIDCard(theme, studentProfile?.idCardColor || '')}
+                          className={`px-3 py-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${
+                            studentProfile?.idCardTheme === theme 
+                              ? 'border-indigo-500 bg-indigo-50/50 text-indigo-700' 
+                              : 'border-slate-100 text-slate-500 hover:border-slate-200'
+                          }`}
+                        >
+                          <div className={`w-8 h-4 rounded-sm ${theme === 'dark' ? 'bg-slate-900' : theme === 'vibrant' ? 'bg-indigo-600' : 'bg-slate-200 border border-slate-300'}`} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">{theme}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Accent Color Selection */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Accent Color</label>
+                    <div className="flex flex-wrap gap-3">
+                      {['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#0ea5e9', '#d946ef', '#f97316'].map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => handleUpdateIDCard(studentProfile?.idCardTheme || 'classic', color)}
+                          className={`w-8 h-8 rounded-full border-2 transition-all ${
+                            studentProfile?.idCardColor === color ? 'border-slate-900 scale-110 shadow-lg' : 'border-transparent hover:scale-105'
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 mt-4">
+                    <p className="text-[10px] text-amber-700 leading-relaxed font-medium">
+                      <strong className="block mb-1">💡 Professional Tip:</strong>
+                      Dark themes look best with vibrant accent colors (Cyan, Pink). Classic theme works perfectly with Indigo or Emerald for a corporate academic feel.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
@@ -1385,6 +1553,17 @@ export default function StudentDashboard({
           >
             <Calendar size={18} />
             <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Schedule</span>
+          </button>
+
+          <button
+            id="mobile-nav-idcard"
+            onClick={() => { setActiveTab('id_card'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
+              activeTab === 'id_card' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Award size={18} />
+            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">ID Card</span>
           </button>
 
         </div>

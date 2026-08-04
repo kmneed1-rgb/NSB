@@ -55,6 +55,7 @@ export const INITIAL_STUDENTS: Student[] = [
     classId: 'c1',
     rollNumber: '101',
     parentPhone: '+1-555-9001',
+    photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
   },
   {
     id: 's2',
@@ -65,6 +66,7 @@ export const INITIAL_STUDENTS: Student[] = [
     classId: 'c1',
     rollNumber: '102',
     parentPhone: '+1-555-9002',
+    photo: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80',
   },
   {
     id: 's3',
@@ -75,6 +77,7 @@ export const INITIAL_STUDENTS: Student[] = [
     classId: 'c1',
     rollNumber: '103',
     parentPhone: '+1-555-9003',
+    photo: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80',
   },
   {
     id: 's4',
@@ -85,6 +88,7 @@ export const INITIAL_STUDENTS: Student[] = [
     classId: 'c2',
     rollNumber: '201',
     parentPhone: '+1-555-9004',
+    photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
   },
   {
     id: 's5',
@@ -95,6 +99,7 @@ export const INITIAL_STUDENTS: Student[] = [
     classId: 'c2',
     rollNumber: '202',
     parentPhone: '+1-555-9005',
+    photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
   }
 ];
 

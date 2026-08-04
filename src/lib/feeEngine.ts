@@ -244,13 +244,15 @@ export const getGlobalStats = (students: StudentFeeData[]) => {
   };
 };
 
+import { safeStorage } from './safeStorage';
+
 // Persistence
 export const saveToLocalStorage = (students: StudentFeeData[]) => {
-  localStorage.setItem('school_fee_data', JSON.stringify(students));
+  safeStorage.setItem('school_fee_data', JSON.stringify(students));
 };
 
 export const loadFromLocalStorage = (): StudentFeeData[] => {
-  const data = localStorage.getItem('school_fee_data');
+  const data = safeStorage.getItem('school_fee_data');
   if (!data) return [];
   try {
     const parsed: StudentFeeData[] = JSON.parse(data);
