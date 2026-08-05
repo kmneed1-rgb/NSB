@@ -51,13 +51,13 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         >
           <img 
             src="/logo.png" 
-            alt="NSB 1 ACADEMY" 
+            alt="NSB1 School" 
             className="h-10 w-auto object-contain"
             referrerPolicy="no-referrer"
           />
           <div className="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
           <span className="font-black text-slate-900 text-lg tracking-tighter uppercase flex flex-col leading-none">
-            NSB1 <span className="text-[10px] tracking-[0.3em] font-bold text-indigo-600">Academy</span>
+            NSB1 <span className="text-[10px] tracking-[0.3em] font-bold text-indigo-600">School</span>
           </span>
         </motion.div>
 
@@ -99,13 +99,13 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
               <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Excellence Redefined</span>
             </div>
 
-            <h1 className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-[0.8] text-slate-950 uppercase italic">
+            <h1 className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-[0.8] text-slate-950 uppercase ">
               Empowering<br/>
-              <span className="text-indigo-600 not-italic">Scholars.</span>
+              <span className="text-indigo-600 not-">Scholars.</span>
             </h1>
             
             <p className="text-slate-500 text-sm md:text-lg max-w-lg leading-relaxed font-medium mx-auto lg:mx-0">
-              NSB1 School & Academy delivers first-class academic excellence in Gujranwala. We combine digital portal efficiency with rigorous traditional standards to prepare the next generation.
+              NSB1 School delivers first-class academic excellence in Gujranwala. We combine digital portal efficiency with rigorous traditional standards to prepare the next generation.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center">

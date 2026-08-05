@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -52,6 +52,29 @@ export default function TeacherDashboard({
   onInstallApp
 }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+
+  // Browser Back Button Support for Tabs
+  useEffect(() => {
+    // Sync initial state
+    window.history.replaceState({ tab: activeTab }, '', '');
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.tab) {
+        setActiveTab(event.state.tab);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Update history when tab changes
+  const handleTabChange = (tab: TabType) => {
+    if (tab !== activeTab) {
+      window.history.pushState({ tab }, '', '');
+      setActiveTab(tab);
+    }
+  };
   const [timetableSubTab, setTimetableSubTab] = useState<'my' | 'class'>('my');
   const [timetableClassId, setTimetableClassId] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -97,7 +120,8 @@ export default function TeacherDashboard({
   }, [classId]);
   
   const myClassIds = myClasses.map(c => c.id);
-  const viewClassStudents = students.filter(s => myClassIds.includes(s.classId) && (activeClassId === 'all' || s.id === 'all' || s.classId === activeClassId));
+  const filteredClassStudents = students.filter(s => (myClassIds.length === 0 || myClassIds.includes(s.classId)) && (activeClassId === 'all' || !activeClassId || s.id === 'all' || s.classId === activeClassId));
+  const viewClassStudents = filteredClassStudents.length > 0 ? filteredClassStudents : students;
 
   const handleAddCashFee = () => {
     if (!newFeeStudentId || !newFeeAmount) {
@@ -613,8 +637,8 @@ export default function TeacherDashboard({
       {/* Mobile Top Bar */}
       <div id="mobile-teacher-top-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
         <div className="flex items-center gap-2">
-          <BookOpen className="text-emerald-600" size={20} />
-          <span className="font-bold text-gray-900 tracking-tight">Teacher Desk</span>
+          <Fingerprint className="text-emerald-600" size={20} />
+          <span className="font-bold text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xs">NSB1 School</span>
         </div>
         <div className="flex items-center gap-2 relative">
           {/* Mobile Bell Button */}
@@ -670,19 +694,16 @@ export default function TeacherDashboard({
           {/* Minimalist Brand header */}
           <div className="p-8 border-b border-slate-50 flex flex-col items-center gap-3">
             <div className="flex items-center justify-between w-full">
-              <img 
-                src="/logo.png" 
-                alt="NSB 1 ACADEMY" 
-                className="h-12 w-auto object-contain"
-                referrerPolicy="no-referrer"
-              />
+              <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xl">
+                <Fingerprint size={28} className="text-emerald-400" />
+              </div>
               <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
                 <X size={18} />
               </button>
             </div>
             <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase italic leading-none">NSB1 Academy</h1>
-              <p className="text-slate-400 font-bold text-[9px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
+              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase leading-none">NSB1 School</h1>
+              <p className="text-indigo-600 font-black text-[9px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
             </div>
           </div>
 
@@ -700,7 +721,7 @@ export default function TeacherDashboard({
                 key={item.id}
                 onClick={() => { 
                   if (item.action) item.action();
-                  setActiveTab(item.id as TabType); 
+                  handleTabChange(item.id as TabType); 
                   setSidebarOpen(false); 
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all ${
@@ -728,7 +749,7 @@ export default function TeacherDashboard({
         {/* Minimalist Profile section */}
         <div className="p-6 border-t border-slate-50">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] italic">
+            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] ">
               {userSession.name.charAt(0)}
             </div>
             <div className="truncate">
@@ -753,7 +774,7 @@ export default function TeacherDashboard({
         {/* Global Desktop Top Bar with Real-time Period Alert & Notification Bell */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
           <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Faculty portal</h1>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 School</h1>
             
             {/* Real-time active period locator */}
             {(() => {
@@ -854,7 +875,7 @@ export default function TeacherDashboard({
 
                       <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
                         {notifications.length === 0 ? (
-                          <div className="py-8 text-center text-slate-400 text-xs italic">
+                          <div className="py-8 text-center text-slate-400 text-xs ">
                             No notifications received yet
                           </div>
                         ) : (
@@ -896,7 +917,7 @@ export default function TeacherDashboard({
               <div>
                 <h1 className="text-xl font-black text-slate-900 tracking-tight font-display uppercase">{userSession.name}</h1>
                 <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <div className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider border border-emerald-100 italic">
+                  <div className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider border border-emerald-100 ">
                     Faculty Member
                   </div>
                   <div className="w-1 h-1 rounded-full bg-slate-300"></div>
@@ -1096,7 +1117,7 @@ export default function TeacherDashboard({
                                 type="button"
                                 onClick={() => {
                                   handleEnterAttendanceTab(item.classId, attendanceDate);
-                                  setActiveTab('attendance');
+                                  handleTabChange('attendance');
                                   window.scrollTo({ top: 0, behavior: 'smooth' });
                                 }}
                                 className={`text-[9px] font-extrabold uppercase py-1.5 px-3 transition-all cursor-pointer ${
@@ -1162,7 +1183,7 @@ export default function TeacherDashboard({
                                 </span>
                               </div>
                               <div>
-                                <p className="text-[10px] font-black text-slate-900 leading-tight group-hover:text-amber-700 transition-colors uppercase italic">{entry.subject}</p>
+                                <p className="text-[10px] font-black text-slate-900 leading-tight group-hover:text-amber-700 transition-colors uppercase ">{entry.subject}</p>
                                 <p className="text-[8px] text-slate-500 font-bold uppercase tracking-tight mt-0.5">{clsLabel}</p>
                               </div>
                             </div>
@@ -1174,7 +1195,7 @@ export default function TeacherDashboard({
                 })}
                 {timetable.filter(tt => tt.teacherId === teacherId).length === 0 && (
                   <div className="py-12 text-center">
-                    <p className="text-xs font-bold text-slate-400 uppercase italic">No sessions assigned in global timetable yet.</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase ">No sessions assigned in global timetable yet.</p>
                   </div>
                 )}
               </div>
@@ -1184,7 +1205,7 @@ export default function TeacherDashboard({
               <div 
                 onClick={() => {
                   handleEnterAttendanceTab(classId || classes[0]?.id || '', attendanceDate);
-                  setActiveTab('attendance');
+                  handleTabChange('attendance');
                 }}
                 className="bg-white p-6 border-b-4 border-emerald-500 shadow-sm rounded-none hover:shadow-md transition-all cursor-pointer group"
               >
@@ -1198,7 +1219,7 @@ export default function TeacherDashboard({
               <div 
                 onClick={() => {
                   handleEnterMarksTab(classId || classes[0]?.id || '', selectedSubject, selectedExamType);
-                  setActiveTab('marks');
+                  handleTabChange('marks');
                 }}
                 className="bg-white p-6 border-b-4 border-indigo-500 shadow-sm rounded-none hover:shadow-md transition-all cursor-pointer group"
               >
@@ -1258,7 +1279,7 @@ export default function TeacherDashboard({
                           placeholder="••••••••"
                           className="w-full bg-white border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-slate-900" 
                         />
-                        <p className="text-[9px] text-slate-400 italic">Minimum 8 characters recommended for robust security.</p>
+                        <p className="text-[9px] text-slate-400 ">Minimum 8 characters recommended for robust security.</p>
                       </div>
 
                       <button
@@ -1305,7 +1326,6 @@ export default function TeacherDashboard({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">My Students Roster</h1>
-                <p className="text-xs text-gray-500 mt-0.5">Inspect roster directory details for students belongs to classroom units.</p>
               </div>
               
               {/* Select Classroom */}
@@ -1379,7 +1399,7 @@ export default function TeacherDashboard({
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm italic">
+                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm ">
                           No student profiles enrolled inside this class register.
                         </td>
                       </tr>
@@ -1397,7 +1417,6 @@ export default function TeacherDashboard({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Mark Daily Attendance</h1>
-                <p className="text-xs text-gray-500 mt-0.5">Change dates and present status indicators. Click Save to commit registers.</p>
               </div>
 
               {/* Class & Date Controls */}
@@ -1429,44 +1448,23 @@ export default function TeacherDashboard({
               </div>
             </div>
 
-            {/* Attendance mode selection */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-4 border-b border-gray-200 pb-2 font-sans">
-              <button
-                type="button"
-                onClick={() => setAttendanceMode('grid')}
-                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
-                  attendanceMode === 'grid' 
-                    ? 'bg-indigo-600 text-white shadow-sm' 
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                🎴 Student Cards Grid
-              </button>
-              <button
-                type="button"
-                onClick={() => setAttendanceMode('list')}
-                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
-                  attendanceMode === 'list' 
-                    ? 'bg-indigo-600 text-white shadow-sm' 
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                📋 Spreadsheet List
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAttendanceMode('swipe');
-                  setActiveSwipeIndex(0);
-                }}
-                className={`py-2 px-3 text-xs font-bold uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${
-                  attendanceMode === 'swipe' 
-                    ? 'bg-indigo-600 text-white shadow-sm' 
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                ✨ Swipe Card Mode
-              </button>
+            <div className="flex items-center gap-2 border-b border-gray-200 pb-2 font-sans">
+              <div className="relative">
+                <select
+                  value={attendanceMode}
+                  onChange={(e) => {
+                    const mode = e.target.value as 'grid' | 'list' | 'swipe';
+                    setAttendanceMode(mode);
+                    if (mode === 'swipe') setActiveSwipeIndex(0);
+                  }}
+                  className="appearance-none pl-3 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer shadow-sm"
+                >
+                  <option value="grid">🎴 Student Cards Grid</option>
+                  <option value="list">📋 Spreadsheet List</option>
+                  <option value="swipe">✨ Swipe Card Mode</option>
+                </select>
+                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
             </div>
 
             {/* Notification */}
@@ -1543,10 +1541,7 @@ export default function TeacherDashboard({
                               Roll #{student.rollNumber}
                             </span>
                             <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
-                              status === 'present' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                              status === 'absent' ? 'bg-rose-100 text-rose-800 border-rose-300' :
-                              status === 'late' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                              'bg-indigo-100 text-indigo-800 border-indigo-300'
+                              status === "present" ? "bg-emerald-600 text-white font-black shadow-xs" : status === "absent" ? "bg-rose-600 text-white font-black shadow-xs animate-pulse" : status === "late" ? "bg-amber-500 text-white font-black shadow-xs" : "bg-blue-600 text-white font-black shadow-xs"
                             }`}>
                               {status.toUpperCase()}
                             </span>
@@ -1609,7 +1604,7 @@ export default function TeacherDashboard({
                     })}
                   </div>
                 ) : (
-                  <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl text-slate-400 italic font-medium">
+                  <div className="p-12 text-center bg-white border border-slate-200 rounded-2xl text-slate-400  font-medium">
                     No students enrolled in this class group.
                   </div>
                 )}
@@ -1662,7 +1657,7 @@ export default function TeacherDashboard({
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              setActiveTab('fees');
+                                              handleTabChange('fees');
                                             }}
                                             className={`px-1.5 py-0.5 rounded-none text-[7px] font-black uppercase tracking-tighter border transition-all ${
                                               isPaid 
@@ -1688,10 +1683,7 @@ export default function TeacherDashboard({
                                       onClick={() => handleSetStatus(student.id, st)}
                                       className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
                                         status === st
-                                          ? st === 'present' ? 'bg-emerald-600 text-white shadow-md' :
-                                            st === 'absent' ? 'bg-rose-600 text-white shadow-md' :
-                                            st === 'late' ? 'bg-amber-500 text-white shadow-md' :
-                                            'bg-indigo-600 text-white shadow-md'
+                                          ? st === "present" ? "bg-emerald-600 text-white font-bold shadow-md" : st === "absent" ? "bg-rose-600 text-white font-bold shadow-md animate-pulse" : st === "late" ? "bg-amber-500 text-white font-bold shadow-md" : "bg-blue-600 text-white font-bold shadow-md"
                                           : 'text-gray-400 hover:text-gray-900 hover:bg-white'
                                       }`}
                                     >
@@ -1705,7 +1697,7 @@ export default function TeacherDashboard({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={3} className="px-6 py-12 text-center text-gray-400 text-sm italic font-medium">
+                          <td colSpan={3} className="px-6 py-12 text-center text-gray-400 text-sm  font-medium">
                             No student profiles enrolled inside the class scope.
                           </td>
                         </tr>
@@ -1728,7 +1720,6 @@ export default function TeacherDashboard({
                 )}
               </div>
             ) : (
-              /* Swipe Card Mode Markup with Framer Motion */
               <div className="flex flex-col items-center py-4 font-sans">
                 {viewClassStudents.length > 0 ? (
                   activeSwipeIndex < viewClassStudents.length ? (
@@ -1904,7 +1895,7 @@ export default function TeacherDashboard({
                     </div>
                   )
                 ) : (
-                  <div className="p-12 text-center text-slate-400 italic">No students in this class.</div>
+                  <div className="p-12 text-center text-slate-400 ">No students in this class.</div>
                 )}
               </div>
             )}
@@ -1926,7 +1917,7 @@ export default function TeacherDashboard({
                     {absentsList.length > 0 && (
                       <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 flex items-center gap-2">
                          <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Read-Only View</span>
-                         <p className="text-[9px] text-slate-400 font-bold uppercase italic">Absence alerts must be approved and dispatched by the school coordinator.</p>
+                         <p className="text-[9px] text-slate-400 font-bold uppercase ">Absence alerts must be approved and dispatched by the school coordinator.</p>
                       </div>
                     )}
                   </div>
@@ -1966,7 +1957,6 @@ export default function TeacherDashboard({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Student Report Card Builder</h1>
-                <p className="text-xs text-gray-500 mt-0.5">Generate multi-subject report cards and dispatch them to parents via WhatsApp.</p>
               </div>
 
               {/* Filter tools */}
@@ -2110,7 +2100,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                         <tbody className="divide-y divide-gray-150 text-sm">
                           {reportSubjectsList.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm italic font-medium">
+                              <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm  font-medium">
                                 No subjects added to this report card yet. Select a subject above and press Add.
                               </td>
                             </tr>
@@ -2185,8 +2175,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
           <div id="panel-teacher-timetable" className="space-y-6 animate-fade-in bg-amber-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-amber-100 shadow-inner">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Pedagogical Timetable</h1>
-                <p className="text-xs text-gray-500 mt-0.5">Filter schedule blocks specifically looking for sessions registered to your instructor identity.</p>
+                <h1 className="text-2xl font-bold text-gray-900">Class Schedule Overview</h1>
               </div>
 
               {/* Sub-tabs for Timetable */}
@@ -2255,7 +2244,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                             <td key={p} className="px-3 py-3 text-center border-l border-gray-200 align-top min-w-36">
                               {(() => {
                                 if (!entry) return (
-                                  <span className="text-[11px] text-gray-300 font-medium italic block py-4 select-none">
+                                  <span className="text-[11px] text-gray-300 font-medium  block py-4 select-none">
                                     No Lecture
                                   </span>
                                 );
@@ -2322,7 +2311,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
           <div id="panel-teacher-fees" className="space-y-6 animate-fade-in bg-slate-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-100 shadow-inner">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase italic">Ledger & Financials</h1>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight uppercase ">Ledger & Financials</h1>
                 <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest font-bold">Class Fee Tracking & Collection Status (Digital Registrar)</p>
               </div>
               <button
@@ -2335,19 +2324,19 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white p-6 border border-slate-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 italic">Total Expected</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ">Total Expected</p>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tighter">
                   Rs. {students.length * 5500}
                 </h3>
               </div>
               <div className="bg-white p-6 border border-emerald-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1 italic">Cash Collected</p>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1 ">Cash Collected</p>
                 <h3 className="text-2xl font-black text-emerald-700 tracking-tighter">
                   Rs. {fees.reduce((acc, curr) => acc + curr.amount, 0)}
                 </h3>
               </div>
               <div className="bg-white p-6 border border-amber-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 italic">Pending Dues</p>
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 ">Pending Dues</p>
                 <h3 className="text-2xl font-black text-amber-700 tracking-tighter">
                   Rs. {(students.length * 5500) - fees.reduce((acc, curr) => acc + curr.amount, 0)}
                 </h3>
@@ -2374,13 +2363,15 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                   <tbody className="divide-y divide-slate-50 text-[11px]">
                     {fees.length > 0 ? (
                       fees.slice().reverse().map(fee => {
-                        const student = students.find(s => s.id === fee.studentId);
+                        const student = students.find(s => String(s.id) === String(fee.studentId));
+const sName = student?.name || (fee as any).studentName || ('Student #' + String(fee.studentId || '').slice(-4));
+const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student Record';
                         return (
                           <tr key={fee.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-6 py-4 font-mono font-bold text-slate-400">#{fee.id.slice(-6)}</td>
                             <td className="px-6 py-4">
-                              <span className="font-black text-slate-900 block tracking-tight uppercase italic">{student?.name || 'Unknown student'}</span>
-                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">Roll #{student?.rollNumber}</span>
+                              <span className="font-black text-slate-900 block tracking-tight uppercase">{sName}</span>
+                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">{sRoll}</span>
                             </td>
                             <td className="px-6 py-4 text-slate-500 font-bold tracking-widest text-[10px]">{fee.paidDate || fee.month}</td>
                             <td className="px-6 py-4 text-emerald-600 font-black tracking-tighter text-sm">Rs. {fee.amount}</td>
@@ -2392,7 +2383,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic font-bold uppercase tracking-widest text-[10px]">No collection records found in active period</td>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400  font-bold uppercase tracking-widest text-[10px]">No collection records found in active period</td>
                       </tr>
                     )}
                   </tbody>
@@ -2506,7 +2497,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
           
           <button
             id="mobile-nav-dashboard"
-            onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'dashboard' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -2519,7 +2510,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
             id="mobile-nav-marks"
             onClick={() => {
               handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType);
-              setActiveTab('marks');
+              handleTabChange('marks');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
@@ -2536,7 +2527,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
               id="mobile-nav-attendance"
               onClick={() => {
                 handleEnterAttendanceTab(activeClassId || classes[0]?.id || '', attendanceDate);
-                setActiveTab('attendance');
+                handleTabChange('attendance');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               style={{ minHeight: '52px', minWidth: '52px' }}
@@ -2553,7 +2544,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
           <button
             id="mobile-nav-students"
-            onClick={() => { setActiveTab('students'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('students'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'students' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -2564,7 +2555,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
           <button
             id="mobile-nav-attendance"
-            onClick={() => { setActiveTab('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'attendance' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -2655,7 +2646,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                   <div className="space-y-6">
                     <div className="flex items-center gap-2">
                        <Award className="text-indigo-600" size={20} />
-                       <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider italic">Direct Mark Management</h3>
+                       <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider ">Direct Mark Management</h3>
                     </div>
                     
                     <div className="bg-indigo-50/50 p-6 border border-indigo-100 space-y-4 shadow-sm">
@@ -2701,7 +2692,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                              placeholder="Score"
                              className="w-full px-4 py-3 bg-white border border-indigo-200 text-lg font-black text-indigo-900 focus:border-indigo-600 focus:outline-none"
                            />
-                           <span className="text-slate-400 font-black text-xl italic">/ {profileMarkMax}</span>
+                           <span className="text-slate-400 font-black text-xl ">/ {profileMarkMax}</span>
                          </div>
                       </div>
 
@@ -2733,7 +2724,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                 <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{m.subject}</p>
                               </div>
                               <div className="text-right">
-                                <span className={`text-base font-black italic ${ (m.marksObtained / Math.max(1, m.maxMarks)) >= 0.33 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                <span className={`text-base font-black  ${ (m.marksObtained / Math.max(1, m.maxMarks)) >= 0.33 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                   {m.marksObtained}
                                 </span>
                                 <span className="text-xs text-slate-300 font-bold"> / {m.maxMarks}</span>

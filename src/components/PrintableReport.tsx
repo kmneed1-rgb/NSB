@@ -17,7 +17,7 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
     <div id="printable-report" className="p-10 bg-white text-slate-900 font-sans max-w-4xl mx-auto border-2 border-slate-900 print:p-0 print:border-0 print:w-full">
       {/* School Header */}
       <div className="text-center border-b-2 border-slate-900 pb-6 mb-8">
-        <h1 className="text-3xl font-black uppercase tracking-tighter italic">NSB1 School & Academy</h1>
+        <h1 className="text-3xl font-black uppercase tracking-tighter ">NSB1 School</h1>
         <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">Official Student Performance & Account Statement</p>
         <div className="mt-4 flex justify-between items-end text-[10px] font-bold uppercase tracking-wider text-slate-400">
           <span>Date Issued: {new Date().toLocaleDateString()}</span>
@@ -73,7 +73,7 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-slate-400 italic">No academic marks recorded in the current session.</td>
+                <td colSpan={4} className="px-4 py-10 text-center text-slate-400 ">No academic marks recorded in the current session.</td>
               </tr>
             )}
           </tbody>
@@ -109,7 +109,7 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
               ))
             ) : (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-slate-400 italic">No financial transitions found in the student ledger.</td>
+                <td colSpan={3} className="px-4 py-10 text-center text-slate-400 ">No financial transitions found in the student ledger.</td>
               </tr>
             )}
           </tbody>
@@ -130,13 +130,13 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
         </div>
         <div className="text-right space-y-1">
           <p className="text-[10px] font-black uppercase text-slate-900 tracking-tighter">Verified Official Document</p>
-          <p className="text-[9px] font-bold text-slate-400 italic font-mono">MD-ID: {Math.random().toString(36).substr(2, 10).toUpperCase()}</p>
+          <p className="text-[9px] font-bold text-slate-400  font-mono">MD-ID: {Math.random().toString(36).substr(2, 10).toUpperCase()}</p>
         </div>
       </div>
 
       {/* Print Note */}
       <div className="mt-10 text-center">
-        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.5em] italic">System Generated Record • No Signature Required for Reference</p>
+        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.5em] ">System Generated Record • No Signature Required for Reference</p>
       </div>
     </div>
   );

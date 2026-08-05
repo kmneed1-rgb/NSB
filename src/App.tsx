@@ -319,32 +319,77 @@ export default function App() {
             loadedSettings = settingsSnap.data() as AppSettings;
           }
 
-          setTeachers(loadedTeachers);
-          setClasses(loadedClasses);
-          setStudents(loadedStudents);
-          setTimetable(loadedTimetable);
-          setAttendance(loadedAttendance);
-          setMarks(loadedMarks);
-          setFees(loadedFees);
+          const finalTeachers = loadedTeachers.length > 0 ? loadedTeachers : INITIAL_TEACHERS;
+          const finalClasses = loadedClasses.length > 0 ? loadedClasses : INITIAL_CLASSES;
+          const finalStudents = loadedStudents.length > 0 ? loadedStudents : INITIAL_STUDENTS;
+          const finalTimetable = loadedTimetable.length > 0 ? loadedTimetable : INITIAL_TIMETABLE;
+          const finalAttendance = loadedAttendance.length > 0 ? loadedAttendance : INITIAL_ATTENDANCE;
+          const finalMarks = loadedMarks.length > 0 ? loadedMarks : INITIAL_MARKS;
+          const finalFees = loadedFees.length > 0 ? loadedFees : INITIAL_FEES;
+
+          setTeachers(finalTeachers);
+          setClasses(finalClasses);
+          setStudents(finalStudents);
+          setTimetable(finalTimetable);
+          setAttendance(finalAttendance);
+          setMarks(finalMarks);
+          setFees(finalFees);
+
           if (loadedCoordinators.length > 0) setCoordinators(loadedCoordinators);
-          if (loadedFeeStudents.length > 0) setFeeStudents(loadedFeeStudents);
+          if (loadedFeeStudents.length > 0) {
+            setFeeStudents(loadedFeeStudents);
+          } else {
+            const defaultFeeStudents = finalStudents.map(s => ({
+              id: s.id,
+              name: s.name,
+              class: s.classId === 'c1' ? 'Grade 10 A' : 'Grade 11 B',
+              monthlyFee: 2500,
+              payments: [],
+              otherFunds: []
+            }));
+            setFeeStudents(defaultFeeStudents);
+          }
           if (loadedSettings) setAppSettings(loadedSettings);
 
-          prevTeachers.current = JSON.stringify(loadedTeachers);
-          prevClasses.current = JSON.stringify(loadedClasses);
-          prevStudents.current = JSON.stringify(loadedStudents);
-          prevTimetable.current = JSON.stringify(loadedTimetable);
-          prevAttendance.current = JSON.stringify(loadedAttendance);
-          prevMarks.current = JSON.stringify(loadedMarks);
-          prevFees.current = JSON.stringify(loadedFees);
+          // Background auto-seed if any collection was empty in Firestore
+          if (loadedStudents.length === 0) {
+            INITIAL_STUDENTS.forEach(s => setDoc(doc(db, "students", s.id), sanitizeForFirestore(s)).catch(() => {}));
+          }
+          if (loadedClasses.length === 0) {
+            INITIAL_CLASSES.forEach(c => setDoc(doc(db, "classes", c.id), sanitizeForFirestore(c)).catch(() => {}));
+          }
+          if (loadedTeachers.length === 0) {
+            INITIAL_TEACHERS.forEach(t => setDoc(doc(db, "teachers", t.id), sanitizeForFirestore(t)).catch(() => {}));
+          }
+          if (loadedAttendance.length === 0) {
+            INITIAL_ATTENDANCE.forEach(a => setDoc(doc(db, "attendance", a.id), sanitizeForFirestore(a)).catch(() => {}));
+          }
+          if (loadedFees.length === 0) {
+            INITIAL_FEES.forEach(f => setDoc(doc(db, "fees", f.id), sanitizeForFirestore(f)).catch(() => {}));
+          }
+
+          prevTeachers.current = JSON.stringify(finalTeachers);
+          prevClasses.current = JSON.stringify(finalClasses);
+          prevStudents.current = JSON.stringify(finalStudents);
+          prevTimetable.current = JSON.stringify(finalTimetable);
+          prevAttendance.current = JSON.stringify(finalAttendance);
+          prevMarks.current = JSON.stringify(finalMarks);
+          prevFees.current = JSON.stringify(finalFees);
           prevCoordinators.current = JSON.stringify(loadedCoordinators);
-          prevFeeStudents.current = JSON.stringify(loadedFeeStudents);
+          prevFeeStudents.current = JSON.stringify(loadedFeeStudents.length > 0 ? loadedFeeStudents : []);
           if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
         }
         isSyncComplete.current = true;
       } catch (err: any) {
         console.warn("Firestore sync running in background/offline fallback mode:", err?.message);
         setSyncError(err?.message || "Offline fallback");
+        setTeachers(prev => prev.length > 0 ? prev : INITIAL_TEACHERS);
+        setClasses(prev => prev.length > 0 ? prev : INITIAL_CLASSES);
+        setStudents(prev => prev.length > 0 ? prev : INITIAL_STUDENTS);
+        setTimetable(prev => prev.length > 0 ? prev : INITIAL_TIMETABLE);
+        setAttendance(prev => prev.length > 0 ? prev : INITIAL_ATTENDANCE);
+        setMarks(prev => prev.length > 0 ? prev : INITIAL_MARKS);
+        setFees(prev => prev.length > 0 ? prev : INITIAL_FEES);
         isSyncComplete.current = true;
       }
     }
@@ -835,7 +880,7 @@ export default function App() {
                 </div>
                 
                 <div className="space-y-2">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight italic">Install Portal</h3>
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight ">Install Portal</h3>
                   <p className="text-xs font-bold text-slate-500 leading-relaxed uppercase tracking-wide">
                     Add to your home screen for quick access and a better mobile experience.
                   </p>
@@ -857,7 +902,7 @@ export default function App() {
                 </div>
               </div>
               <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
-                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Smart School Management System</p>
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">NSB1 School Management System</p>
               </div>
             </motion.div>
           </div>

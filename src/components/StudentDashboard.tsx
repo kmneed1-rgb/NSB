@@ -52,6 +52,29 @@ export default function StudentDashboard({
   onInstallApp
 }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+
+  // Browser Back Button Support for Tabs
+  useEffect(() => {
+    // Sync initial state
+    window.history.replaceState({ tab: activeTab }, '', '');
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.tab) {
+        setActiveTab(event.state.tab);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Update history when tab changes
+  const handleTabChange = (tab: TabType) => {
+    if (tab !== activeTab) {
+      window.history.pushState({ tab }, '', '');
+      setActiveTab(tab);
+    }
+  };
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => loadFromLocalStorage());
 
@@ -399,7 +422,7 @@ export default function StudentDashboard({
               </button>
             </div>
             <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase italic leading-none">NSB1 Academy</h1>
+              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase  leading-none">NSB1 Academy</h1>
               <p className="text-slate-400 font-bold text-[9px] tracking-[0.3em] uppercase mt-1">Student Portal</p>
             </div>
           </div>
@@ -417,7 +440,7 @@ export default function StudentDashboard({
               <button
                 key={item.id}
                 onClick={() => { 
-                  setActiveTab(item.id as TabType); 
+                  handleTabChange(item.id as TabType); 
                   setSidebarOpen(false); 
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all ${
@@ -445,7 +468,7 @@ export default function StudentDashboard({
         {/* Minimalist Account Section */}
         <div className="p-6 border-t border-slate-50">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] italic">
+            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] ">
               {(userSession.name?.[0] || 'U').toUpperCase()}
             </div>
             <div className="truncate">
@@ -559,7 +582,7 @@ export default function StudentDashboard({
 
                       <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
                         {notifications.length === 0 ? (
-                          <div className="py-8 text-center text-slate-400 text-xs italic">
+                          <div className="py-8 text-center text-slate-400 text-xs ">
                             No notifications received yet
                           </div>
                         ) : (
@@ -638,12 +661,12 @@ export default function StudentDashboard({
                 whileTap={{ scale: 0.95 }}
                 className="bg-white p-6 border-b-4 border-indigo-500 shadow-sm rounded-none hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
-                <div onClick={() => setActiveTab('attendance')}>
+                <div onClick={() => handleTabChange('attendance')}>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-1.5">
                       <CheckCircle2 className="text-indigo-600" size={18} />
                       My Attendance Gauge
-                      <span className="text-[9px] text-gray-400 font-normal italic">(Swipe to open)</span>
+                      <span className="text-[9px] text-gray-400 font-normal ">(Swipe to open)</span>
                     </h3>
                     <span className="text-xs font-mono font-bold text-indigo-100 bg-indigo-700 px-1.5 py-0.5">{presentDays}/{totalDays} Days</span>
                   </div>
@@ -673,7 +696,7 @@ export default function StudentDashboard({
 
               {/* Marks Quick Peek Widget - Geometric style */}
               <div 
-                onClick={() => setActiveTab('marks')}
+                onClick={() => handleTabChange('marks')}
                 className="bg-white p-6 border-b-4 border-amber-500 shadow-sm rounded-none hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
@@ -699,11 +722,11 @@ export default function StudentDashboard({
                         );
                       })}
                       {myMarks.length > 3 && (
-                        <p className="text-[10px] text-indigo-600 text-right font-medium italic">+{myMarks.length - 3} more entries recorded...</p>
+                        <p className="text-[10px] text-indigo-600 text-right font-medium ">+{myMarks.length - 3} more entries recorded...</p>
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-400 py-4 italic font-sans text-center bg-slate-50/50 border border-slate-100">No academic grades has been entered by instructors yet.</p>
+                    <p className="text-xs text-slate-400 py-4  font-sans text-center bg-slate-50/50 border border-slate-100">No academic grades has been entered by instructors yet.</p>
                   )}
                 </div>
 
@@ -732,7 +755,7 @@ export default function StudentDashboard({
               </div>
 
               {uniqueSubjects.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850 italic text-xs font-medium">
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850  text-xs font-medium">
                   📚 No subject-wise statistics can be generated yet because your teachers have not uploaded any exam marks.
                 </div>
               ) : (
@@ -827,7 +850,7 @@ export default function StudentDashboard({
               </div>
 
               {trendChartData.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 bg-slate-50 border border-slate-100 italic text-xs font-medium">
+                <div className="py-12 text-center text-slate-400 bg-slate-50 border border-slate-100  text-xs font-medium">
                   📈 Academic trend graphs will automatically generate once scorecard details are populated by teachers.
                 </div>
               ) : (
@@ -951,9 +974,7 @@ export default function StudentDashboard({
                           <td className="px-6 py-4">
                             <div className="flex justify-center text-center">
                               <span className={`inline-flex px-3 py-1 text-xs font-extrabold rounded-full ${
-                                log.status === 'present'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-100'
+                                log.status === "present" ? "bg-emerald-600 text-white font-black shadow-xs" : log.status === "absent" ? "bg-rose-600 text-white font-black shadow-xs animate-pulse" : log.status === "late" ? "bg-amber-500 text-white font-black shadow-xs" : "bg-blue-600 text-white font-black shadow-xs"
                               }`}>
                                 {log.status.toUpperCase()}
                               </span>
@@ -963,7 +984,7 @@ export default function StudentDashboard({
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={3} className="px-6 py-12 text-center text-gray-400 italic text-sm font-medium">
+                        <td colSpan={3} className="px-6 py-12 text-center text-gray-400  text-sm font-medium">
                           No attendance records have been registered for your ID.
                         </td>
                       </tr>
@@ -1155,7 +1176,7 @@ export default function StudentDashboard({
                             <td key={p} className="px-3 py-3 text-center border-l border-gray-200 align-top min-w-36">
                               {(() => {
                                 if (!entry) return (
-                                  <span className="text-[11px] text-gray-300 font-medium italic block py-4 select-none">
+                                  <span className="text-[11px] text-gray-300 font-medium  block py-4 select-none">
                                     Free Period
                                   </span>
                                 );
@@ -1342,7 +1363,7 @@ export default function StudentDashboard({
                           </div>
                         ))
                       ) : (
-                        <div className="py-8 text-center text-[10px] text-slate-400 uppercase tracking-widest italic font-bold">
+                        <div className="py-8 text-center text-[10px] text-slate-400 uppercase tracking-widest  font-bold">
                           No extra fines or class funds recorded
                         </div>
                       )}
@@ -1447,7 +1468,7 @@ export default function StudentDashboard({
                   </div>
                 </div>
 
-                <p className="text-[9px] text-slate-400 font-medium italic">Note: Card displays your official WebP profile photo for data efficiency.</p>
+                <p className="text-[9px] text-slate-400 font-medium ">Note: Card displays your official WebP profile photo for data efficiency.</p>
               </div>
 
               {/* Controls Section */}
@@ -1514,7 +1535,7 @@ export default function StudentDashboard({
           
           <button
             id="mobile-nav-dashboard"
-            onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'dashboard' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -1525,7 +1546,7 @@ export default function StudentDashboard({
           
           <button
             id="mobile-nav-attendance"
-            onClick={() => { setActiveTab('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'attendance' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -1536,7 +1557,7 @@ export default function StudentDashboard({
 
           <button
             id="mobile-nav-marks"
-            onClick={() => { setActiveTab('marks'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('marks'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'marks' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -1546,7 +1567,7 @@ export default function StudentDashboard({
           </button>
           <button
             id="mobile-nav-timetable"
-            onClick={() => { setActiveTab('timetable'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('timetable'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'timetable' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}
@@ -1557,7 +1578,7 @@ export default function StudentDashboard({
 
           <button
             id="mobile-nav-idcard"
-            onClick={() => { setActiveTab('id_card'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            onClick={() => { handleTabChange('id_card'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
               activeTab === 'id_card' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
             }`}

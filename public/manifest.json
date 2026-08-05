@@ -1,6 +1,6 @@
 {
-  "name": "School Management System",
-  "short_name": "SMS",
+  "name": "NSB1 School",
+  "short_name": "NSB1",
   "description": "Comprehensive School Management Portal",
   "start_url": "/",
   "display": "standalone",

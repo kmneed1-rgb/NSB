@@ -141,11 +141,11 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
             referrerPolicy="no-referrer"
           />
           <div className="space-y-1">
-            <h2 id="login-title" className="text-3xl font-light tracking-tighter text-slate-950 dark:text-white uppercase italic text-center">
-              Portal <span className="font-extrabold not-italic">Login</span>
+            <h2 id="login-title" className="text-3xl font-light tracking-tighter text-slate-950 dark:text-white uppercase  text-center">
+              Portal <span className="font-extrabold not-">Login</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.4em] text-center">
-              NSB1 School & Academy
+              NSB1 School
             </p>
           </div>
         </div>
