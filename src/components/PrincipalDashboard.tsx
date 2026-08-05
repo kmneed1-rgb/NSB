@@ -3,7 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/fi
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -174,6 +174,92 @@ export default function PrincipalDashboard({
   const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late' | 'leave'}[]>([]);
   const [attendanceMode, setAttendanceMode] = useState<'grid' | 'list' | 'swipe'>('grid');
   const [activeSwipeIndex, setActiveSwipeIndex] = useState<number>(0);
+  const [attendanceDisplayLimit, setAttendanceDisplayLimit] = useState(50);
+  const [feesDisplayLimit, setFeesDisplayLimit] = useState(50);
+
+  // Memoized Data & Optimized Lookups for performance
+  const studentsMap = React.useMemo(() => {
+    const map = new Map<string, Student>();
+    students.forEach(s => map.set(String(s.id), s));
+    return map;
+  }, [students]);
+
+  const teachersMap = React.useMemo(() => {
+    const map = new Map<string, Teacher>();
+    teachers.forEach(t => map.set(String(t.id), t));
+    return map;
+  }, [teachers]);
+
+  const coordinatorsMap = React.useMemo(() => {
+    const map = new Map<string, Coordinator>();
+    coordinators.forEach(c => map.set(String(c.id), c));
+    return map;
+  }, [coordinators]);
+
+  const timetableMap = React.useMemo(() => {
+    const map = new Map<string, TimetableEntry>();
+    timetable.forEach(tt => map.set(String(tt.id), tt));
+    return map;
+  }, [timetable]);
+
+  const feeStudentsMap = React.useMemo(() => {
+    const map = new Map<string, StudentFeeData>();
+    feeStudents.forEach(fs => map.set(String(fs.id), fs));
+    return map;
+  }, [feeStudents]);
+
+  const classesMap = React.useMemo(() => {
+    const map = new Map<string, Class>();
+    classes.forEach(c => map.set(String(c.id), c));
+    return map;
+  }, [classes]);
+
+  const filteredAttendance = React.useMemo(() => {
+    return attendance.filter(record => {
+      const student = studentsMap.get(String(record.studentId));
+      const sName = (student?.name || (record as any).studentName || '').toLowerCase();
+      const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+      const matchesDate = attendanceShowAllDates || record.date === attendanceFilterDate;
+      const matchesSearch = !attendanceSearch || sName.includes(attendanceSearch.toLowerCase());
+      return matchesClass && matchesDate && matchesSearch;
+    }).slice().reverse();
+  }, [attendance, studentsMap, attendanceFilterClass, attendanceFilterDate, attendanceShowAllDates, attendanceSearch]);
+
+  const filteredFeesRoster = React.useMemo(() => {
+    return students.filter(s => {
+      if (recordsFeeClassFilter !== 'all' && s.classId !== recordsFeeClassFilter) return false;
+      if (recordsFeeSearch.trim()) {
+        const q = recordsFeeSearch.toLowerCase();
+        const classObj = classesMap.get(String(s.classId));
+        const classNameStr = classObj ? `${classObj.className} ${classObj.section}`.toLowerCase() : '';
+        return s.name.toLowerCase().includes(q) || (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) || classNameStr.includes(q);
+      }
+      return true;
+    });
+  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch]);
+
+  const filteredFeesReceipts = React.useMemo(() => {
+    return fees.filter(f => {
+      const student = studentsMap.get(String(f.studentId));
+      if (recordsFeeClassFilter !== 'all' && student && student.classId !== recordsFeeClassFilter) return false;
+      if (!recordsFeeSearch.trim()) return true;
+
+      const feeStudent = feeStudentsMap.get(String(f.studentId));
+      const sName = (student?.name || feeStudent?.name || (f as any).studentName || '').toLowerCase();
+      const sMonth = (f.month || '').toLowerCase();
+      const sId = String(f.id).toLowerCase();
+      const q = recordsFeeSearch.toLowerCase();
+      return sName.includes(q) || sMonth.includes(q) || sId.includes(q);
+    }).slice().reverse();
+  }, [fees, studentsMap, feeStudentsMap, recordsFeeClassFilter, recordsFeeSearch]);
+
+  const visibleAttendance = React.useMemo(() => {
+    return filteredAttendance.slice(0, attendanceDisplayLimit);
+  }, [filteredAttendance, attendanceDisplayLimit]);
+
+  const visibleFeesReceipts = React.useMemo(() => {
+    return filteredFeesReceipts.slice(0, feesDisplayLimit);
+  }, [filteredFeesReceipts, feesDisplayLimit]);
 
   const handleRecordQuickFee = () => {
     if (!quickCollectStudentId) {
@@ -1328,7 +1414,7 @@ export default function PrincipalDashboard({
   };
 
   const getClassName = (cId: string) => {
-    const c = classes.find(item => item.id === cId);
+    const c = classesMap.get(String(cId));
     return c ? `${c.className} - ${c.section}` : 'N/A';
   };
 
@@ -1369,7 +1455,7 @@ export default function PrincipalDashboard({
       {/* Mobile Top Header Indicator */}
       <div id="mobile-top-bar" className={`md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20 ${selectedStudentReport ? 'print:hidden' : ''}`}>
         <div className="flex items-center gap-2">
-          <Fingerprint className="text-emerald-600" size={20} />
+          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
           <span className="font-bold text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xs">NSB1 School</span>
         </div>
         <div className="flex items-center gap-2">
@@ -1409,8 +1495,8 @@ export default function PrincipalDashboard({
         <div>
           {/* Brand header - Minimalist */}
           <div className="p-8 pb-10 flex flex-col items-center border-b border-slate-50 mb-6">
-            <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xl mb-4">
-              <Fingerprint size={28} className="text-emerald-400" />
+            <div className="mb-4">
+              <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain" referrerPolicy="no-referrer" />
             </div>
             <div className="flex flex-col items-center gap-1">
               <h1 className="text-slate-900 font-black text-xs tracking-[0.2em] uppercase">NSB1 School</h1>
@@ -2707,16 +2793,7 @@ export default function PrincipalDashboard({
 
                 {/* Stat Summary Cards */}
                 {(() => {
-                  const filteredStudentsList = students.filter(s => {
-                    if (recordsFeeClassFilter !== 'all' && s.classId !== recordsFeeClassFilter) return false;
-                    if (recordsFeeSearch.trim()) {
-                      const q = recordsFeeSearch.toLowerCase();
-                      const classObj = classes.find(c => c.id === s.classId);
-                      const classNameStr = classObj ? `${classObj.className} ${classObj.section}`.toLowerCase() : '';
-                      return s.name.toLowerCase().includes(q) || (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) || classNameStr.includes(q);
-                    }
-                    return true;
-                  });
+                  const filteredStudentsList = filteredFeesRoster;
 
                   const totalExpected = filteredStudentsList.reduce((acc, s) => acc + (s.baseFee || 5500), 0);
                   const totalCollected = fees.filter(f => filteredStudentsList.some(s => String(s.id) === String(f.studentId)))
@@ -2769,18 +2846,7 @@ export default function PrincipalDashboard({
                     {/* MOBILE CARD VIEW (< md) */}
                     <div className="block md:hidden divide-y divide-slate-100">
                       {(() => {
-                        const list = students.filter(s => {
-                          if (recordsFeeClassFilter !== 'all' && s.classId !== recordsFeeClassFilter) return false;
-                          if (recordsFeeSearch.trim()) {
-                            const q = recordsFeeSearch.toLowerCase();
-                            const classObj = classes.find(c => c.id === s.classId);
-                            const classNameStr = classObj ? `${classObj.className} ${classObj.section}`.toLowerCase() : '';
-                            return s.name.toLowerCase().includes(q) || (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) || classNameStr.includes(q);
-                          }
-                          return true;
-                        });
-
-                        if (list.length === 0) {
+                        if (filteredFeesRoster.length === 0) {
                           return (
                             <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
                               No students found matching current class and search filters.
@@ -2788,7 +2854,7 @@ export default function PrincipalDashboard({
                           );
                         }
 
-                        return list.map(student => {
+                        return filteredFeesRoster.map(student => {
                           const sFees = fees.filter(f => String(f.studentId) === String(student.id));
                           const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
                           const monthlyFee = student.baseFee || 5500;
@@ -2805,11 +2871,15 @@ export default function PrincipalDashboard({
                                 className="flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/80 p-1.5 rounded-xl transition-colors"
                               >
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <img
-                                    src={photo}
-                                    alt={student.name}
-                                    className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                  />
+                                  {photo ? (
+                                    <img
+                                      src={photo}
+                                      alt={student.name}
+                                      className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                  )}
                                   <div className="min-w-0">
                                     <h4 className={`font-black uppercase tracking-tight text-xs truncate ${
                                       isPaidCurrent ? 'text-slate-900' : 'text-rose-600'
@@ -2964,18 +3034,7 @@ export default function PrincipalDashboard({
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {(() => {
-                            const list = students.filter(s => {
-                              if (recordsFeeClassFilter !== 'all' && s.classId !== recordsFeeClassFilter) return false;
-                              if (recordsFeeSearch.trim()) {
-                                const q = recordsFeeSearch.toLowerCase();
-                                const classObj = classes.find(c => c.id === s.classId);
-                                const classNameStr = classObj ? `${classObj.className} ${classObj.section}`.toLowerCase() : '';
-                                return s.name.toLowerCase().includes(q) || (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) || classNameStr.includes(q);
-                              }
-                              return true;
-                            });
-
-                            if (list.length === 0) {
+                            if (filteredFeesRoster.length === 0) {
                               return (
                                 <tr>
                                   <td colSpan={4} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
@@ -2985,7 +3044,7 @@ export default function PrincipalDashboard({
                               );
                             }
 
-                            return list.map(student => {
+                            return filteredFeesRoster.map(student => {
                               const sFees = fees.filter(f => String(f.studentId) === String(student.id));
                               const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
                               const monthlyFee = student.baseFee || 5500;
@@ -3002,11 +3061,15 @@ export default function PrincipalDashboard({
                                   >
                                     <td className="px-5 py-4">
                                       <div className="flex items-center gap-3">
-                                        <img
-                                          src={photo}
-                                          alt={student.name}
-                                          className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                        />
+                                        {photo ? (
+                                          <img
+                                            src={photo}
+                                            alt={student.name}
+                                            className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                          />
+                                        ) : (
+                                          <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                        )}
                                         <div>
                                           <span className={`block uppercase tracking-tight text-xs leading-tight ${
                                             isPaidCurrent ? 'text-slate-900 font-black' : 'text-rose-600 font-black'
@@ -3186,20 +3249,7 @@ export default function PrincipalDashboard({
                     {/* MOBILE RECEIPT CARDS (< md) */}
                     <div className="block md:hidden divide-y divide-slate-100">
                       {(() => {
-                        const list = fees.filter(f => {
-                          const student = students.find(s => String(s.id) === String(f.studentId));
-                          if (recordsFeeClassFilter !== 'all' && student && student.classId !== recordsFeeClassFilter) return false;
-                          if (!recordsFeeSearch.trim()) return true;
-
-                          const feeStudent = feeStudents.find(fs => String(fs.id) === String(f.studentId));
-                          const sName = (student?.name || feeStudent?.name || (f as any).studentName || '').toLowerCase();
-                          const sMonth = (f.month || '').toLowerCase();
-                          const sId = String(f.id).toLowerCase();
-                          const q = recordsFeeSearch.toLowerCase();
-                          return sName.includes(q) || sMonth.includes(q) || sId.includes(q);
-                        });
-
-                        if (list.length === 0) {
+                        if (filteredFeesReceipts.length === 0) {
                           return (
                             <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
                               No transaction receipts found matching current filters.
@@ -3207,81 +3257,99 @@ export default function PrincipalDashboard({
                           );
                         }
 
-                        return list.slice().reverse().map(fee => {
-                          const student = students.find(s => String(s.id) === String(fee.studentId));
-                          const feeStudent = feeStudents.find(fs => String(fs.id) === String(fee.studentId));
-                          const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
-                          const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
-                          const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
-                          const photo = getStudentPhoto(student || { name: sName });
+                        return (
+                          <>
+                            {visibleFeesReceipts.map(fee => {
+                              const student = studentsMap.get(String(fee.studentId));
+                              const feeStudent = feeStudentsMap.get(String(fee.studentId));
+                              const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
+                              const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
+                              const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
+                              const photo = getStudentPhoto(student || { name: sName });
 
-                          return (
-                            <div key={fee.id} className="p-4 space-y-2.5 bg-white">
-                              <div className="flex items-center justify-between">
-                                <span className="font-mono text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold">
-                                  #{String(fee.id).slice(-6)}
-                                </span>
-                                <span className="text-[10px] font-bold text-slate-400">{fee.paidDate || 'N/A'}</span>
-                              </div>
+                              return (
+                                <div key={fee.id} className="p-4 space-y-2.5 bg-white">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-mono text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold">
+                                      #{String(fee.id).slice(-6)}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-400">{fee.paidDate || 'N/A'}</span>
+                                  </div>
 
-                              <div className="flex items-center gap-3">
-                                <img
-                                  src={photo}
-                                  alt={sName}
-                                  className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
-                                    {sName}
-                                  </h4>
-                                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                                    {sRoll} • {sClass}
-                                  </p>
+                                  <div className="flex items-center gap-3">
+                                    {photo ? (
+                                      <img
+                                        src={photo}
+                                        alt={sName}
+                                        className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
+                                        {sName}
+                                      </h4>
+                                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                                        {sRoll} • {sClass}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between pt-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[9px] font-black tracking-wider border border-emerald-100 rounded uppercase">
+                                        {fee.month}
+                                      </span>
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                        {fee.paymentMethod || 'Cash'}
+                                      </span>
+                                    </div>
+                                    <span className="text-emerald-700 font-black text-sm">
+                                      Rs. {Number(fee.amount).toLocaleString()}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                                    {student?.parentPhone && (
+                                      <button
+                                        onClick={() => {
+                                          const text = `Fee Receipt: Received Rs. ${fee.amount} for ${student.name} (${fee.month}). Receipt #${fee.id}. Thank you! - NSB Academy`;
+                                          window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
+                                        }}
+                                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-lg flex items-center gap-1"
+                                      >
+                                        <MessageSquare size={12} /> WhatsApp
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm(`Delete fee record for ${sName}?`)) {
+                                          setFees(prev => prev.filter(f => f.id !== fee.id));
+                                          toast.success(`Fee record removed`);
+                                        }
+                                      }}
+                                      className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                                      title="Delete Record"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-
-                              <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[9px] font-black tracking-wider border border-emerald-100 rounded uppercase">
-                                    {fee.month}
-                                  </span>
-                                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                                    {fee.paymentMethod || 'Cash'}
-                                  </span>
-                                </div>
-                                <span className="text-emerald-700 font-black text-sm">
-                                  Rs. {Number(fee.amount).toLocaleString()}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
-                                {student?.parentPhone && (
-                                  <button
-                                    onClick={() => {
-                                      const text = `Fee Receipt: Received Rs. ${fee.amount} for ${student.name} (${fee.month}). Receipt #${fee.id}. Thank you! - NSB Academy`;
-                                      window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-                                    }}
-                                    className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-lg flex items-center gap-1"
-                                  >
-                                    <MessageSquare size={12} /> WhatsApp
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Delete fee record for ${sName}?`)) {
-                                      setFees(prev => prev.filter(f => f.id !== fee.id));
-                                      toast.success(`Fee record removed`);
-                                    }
-                                  }}
-                                  className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                                  title="Delete Record"
+                              );
+                            })}
+                            {filteredFeesReceipts.length > feesDisplayLimit && (
+                              <div className="p-6 flex justify-center">
+                                <button 
+                                  onClick={() => setFeesDisplayLimit(prev => prev + 100)}
+                                  className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md active:scale-95"
                                 >
-                                  <Trash2 size={15} />
+                                  Load More Records ({filteredFeesReceipts.length - feesDisplayLimit} remaining)
                                 </button>
                               </div>
-                            </div>
-                          );
-                        });
+                            )}
+                          </>
+                        );
                       })()}
                     </div>
 
@@ -3302,20 +3370,7 @@ export default function PrincipalDashboard({
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {(() => {
-                            const list = fees.filter(f => {
-                              const student = students.find(s => String(s.id) === String(f.studentId));
-                              if (recordsFeeClassFilter !== 'all' && student && student.classId !== recordsFeeClassFilter) return false;
-                              if (!recordsFeeSearch.trim()) return true;
-
-                              const feeStudent = feeStudents.find(fs => String(fs.id) === String(f.studentId));
-                              const sName = (student?.name || feeStudent?.name || (f as any).studentName || '').toLowerCase();
-                              const sMonth = (f.month || '').toLowerCase();
-                              const sId = String(f.id).toLowerCase();
-                              const q = recordsFeeSearch.toLowerCase();
-                              return sName.includes(q) || sMonth.includes(q) || sId.includes(q);
-                            });
-
-                            if (list.length === 0) {
+                            if (filteredFeesReceipts.length === 0) {
                               return (
                                 <tr>
                                   <td colSpan={8} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
@@ -3325,70 +3380,90 @@ export default function PrincipalDashboard({
                               );
                             }
 
-                            return list.slice().reverse().map(fee => {
-                              const student = students.find(s => String(s.id) === String(fee.studentId));
-                              const feeStudent = feeStudents.find(fs => String(fs.id) === String(fee.studentId));
-                              const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
-                              const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
-                              const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
-                              const photo = getStudentPhoto(student || { name: sName });
+                            return (
+                              <>
+                                {visibleFeesReceipts.map(fee => {
+                                  const student = studentsMap.get(String(fee.studentId));
+                                  const feeStudent = feeStudentsMap.get(String(fee.studentId));
+                                  const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
+                                  const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
+                                  const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
+                                  const photo = getStudentPhoto(student || { name: sName });
 
-                              return (
-                                <tr key={fee.id} className="hover:bg-slate-50/60 transition-colors">
-                                  <td className="px-5 py-4 font-mono text-xs text-slate-400 font-bold">
-                                    #{String(fee.id).slice(-6)}
-                                  </td>
-                                  <td className="px-5 py-4 text-xs font-bold text-slate-600 tabular-nums">
-                                    {fee.paidDate || 'N/A'}
-                                  </td>
-                                  <td className="px-5 py-4">
-                                    <div className="flex items-center gap-3">
-                                      <img
-                                        src={photo}
-                                        alt={sName}
-                                        className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                      />
-                                      <div>
-                                        <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
-                                          {sName}
+                                  return (
+                                    <tr key={fee.id} className="hover:bg-slate-50/60 transition-colors">
+                                      <td className="px-5 py-4 font-mono text-xs text-slate-400 font-bold">
+                                        #{String(fee.id).slice(-6)}
+                                      </td>
+                                      <td className="px-5 py-4 text-xs font-bold text-slate-600 tabular-nums">
+                                        {fee.paidDate || 'N/A'}
+                                      </td>
+                                      <td className="px-5 py-4">
+                                        <div className="flex items-center gap-3">
+                                            {photo ? (
+                                              <img
+                                                src={photo}
+                                                alt={sName}
+                                                className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                              />
+                                            ) : (
+                                              <div className="w-8 h-8 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                            )}
+                                          <div>
+                                            <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
+                                              {sName}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mt-0.5">
+                                              {sRoll}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                                        {sClass}
+                                      </td>
+                                      <td className="px-5 py-4">
+                                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[10px] font-black tracking-widest border border-emerald-100 rounded-md uppercase">
+                                          {fee.month}
                                         </span>
-                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mt-0.5">
-                                          {sRoll}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                                    {sClass}
-                                  </td>
-                                  <td className="px-5 py-4">
-                                    <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[10px] font-black tracking-widest border border-emerald-100 rounded-md uppercase">
-                                      {fee.month}
-                                    </span>
-                                  </td>
-                                  <td className="px-5 py-4 text-emerald-600 font-black text-sm tracking-tight tabular-nums">
-                                    Rs. {Number(fee.amount).toLocaleString()}
-                                  </td>
-                                  <td className="px-5 py-4 text-xs font-bold text-slate-500 uppercase">
-                                    {fee.paymentMethod || 'Cash'}
-                                  </td>
-                                  <td className="px-5 py-4 text-right">
-                                    <button
-                                      onClick={() => {
-                                        if (window.confirm(`Delete fee record for ${sName}?`)) {
-                                          setFees(prev => prev.filter(f => f.id !== fee.id));
-                                          toast.success(`Fee record removed`);
-                                        }
-                                      }}
-                                      className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                                      title="Delete Record"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            });
+                                      </td>
+                                      <td className="px-5 py-4 text-emerald-600 font-black text-sm tracking-tight tabular-nums">
+                                        Rs. {Number(fee.amount).toLocaleString()}
+                                      </td>
+                                      <td className="px-5 py-4 text-xs font-bold text-slate-500 uppercase">
+                                        {fee.paymentMethod || 'Cash'}
+                                      </td>
+                                      <td className="px-5 py-4 text-right">
+                                        <button
+                                          onClick={() => {
+                                            if (window.confirm(`Delete fee record for ${sName}?`)) {
+                                              setFees(prev => prev.filter(f => f.id !== fee.id));
+                                              toast.success(`Fee record removed`);
+                                            }
+                                          }}
+                                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                                          title="Delete Record"
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {filteredFeesReceipts.length > feesDisplayLimit && (
+                                  <tr>
+                                    <td colSpan={8} className="px-5 py-8 text-center bg-white border-t border-slate-50">
+                                      <button 
+                                        onClick={() => setFeesDisplayLimit(prev => prev + 100)}
+                                        className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+                                      >
+                                        Load More Records ({filteredFeesReceipts.length - feesDisplayLimit} remaining)
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            );
                           })()}
                         </tbody>
                       </table>
@@ -3502,17 +3577,9 @@ export default function PrincipalDashboard({
                         Daily Attendance Average
                       </p>
                       <h3 className="text-3xl font-black text-emerald-600">
-                        {(() => {
-                          const filtered = attendance.filter(a => {
-                            const matchesDate = attendanceShowAllDates || a.date === attendanceFilterDate;
-                            const student = students.find(s => String(s.id) === String(a.studentId));
-                            const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                            return matchesDate && matchesClass;
-                          });
-                          return filtered.length > 0
-                            ? Math.round((filtered.filter(a => a.status === 'present').length / filtered.length) * 100)
-                            : 0;
-                        })()}%
+                        {filteredAttendance.length > 0
+                          ? Math.round((filteredAttendance.filter(a => a.status === 'present').length / filteredAttendance.length) * 100)
+                          : 0}%
                       </h3>
                     </div>
                     <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
@@ -3543,12 +3610,7 @@ export default function PrincipalDashboard({
 
                     <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
                       {(() => {
-                        const absents = attendance.filter(a => {
-                          const matchesDate = attendanceShowAllDates || a.date === attendanceFilterDate;
-                          const student = students.find(s => String(s.id) === String(a.studentId));
-                          const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                          return matchesDate && matchesClass && a.status === 'absent';
-                        });
+                        const absents = filteredAttendance.filter(a => a.status === 'absent');
 
                         if (absents.length === 0) {
                           return (
@@ -3559,8 +3621,8 @@ export default function PrincipalDashboard({
                         }
 
                         return absents.map(acc => {
-                          const st = students.find(s => String(s.id) === String(acc.studentId));
-                          const stFee = feeStudents.find(fs => String(fs.id) === String(acc.studentId));
+                          const st = studentsMap.get(String(acc.studentId));
+                          const stFee = feeStudentsMap.get(String(acc.studentId));
                           const stName = st?.name || stFee?.name || `Student #${String(acc.studentId).slice(-4)}`;
                           return (
                             <div
@@ -3605,17 +3667,7 @@ export default function PrincipalDashboard({
                   {/* MOBILE ATTENDANCE CARDS (< md) */}
                   <div className="block md:hidden divide-y divide-slate-100">
                     {(() => {
-                      const filtered = attendance.filter(record => {
-                        const student = students.find(s => String(s.id) === String(record.studentId));
-                        const feeStudent = feeStudents.find(fs => String(fs.id) === String(record.studentId));
-                        const sName = (student?.name || feeStudent?.name || (record as any).studentName || '').toLowerCase();
-                        const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                        const matchesDate = attendanceShowAllDates || record.date === attendanceFilterDate;
-                        const matchesSearch = !attendanceSearch || sName.includes(attendanceSearch.toLowerCase());
-                        return matchesClass && matchesDate && matchesSearch;
-                      });
-
-                      if (filtered.length === 0) {
+                      if (filteredAttendance.length === 0) {
                         return (
                           <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
                             {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
@@ -3623,162 +3675,57 @@ export default function PrincipalDashboard({
                         );
                       }
 
-                      return filtered.slice().reverse().map(record => {
-                        const student = students.find(s => String(s.id) === String(record.studentId));
-                        const feeStudent = feeStudents.find(fs => String(fs.id) === String(record.studentId));
-                        const sName = student?.name || feeStudent?.name || (record as any).studentName || (`Student #${String(record.studentId || '').slice(-4)}`);
-                        const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
-                        const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'N/A';
-                        const photo = getStudentPhoto(student || { name: sName });
-
-                        return (
-                          <div key={record.id} className="p-4 space-y-3 bg-white">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <img
-                                  src={photo}
-                                  alt={sName}
-                                  className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
-                                    {sName}
-                                  </h4>
-                                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
-                                    {sRoll} • {sClass}
-                                  </p>
-                                </div>
-                              </div>
-                              {attendanceShowAllDates && (
-                                <span className="text-[10px] font-bold text-slate-400 font-mono">
-                                  {record.date}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
-                              <div>
-                                {record.status === 'absent' && student && (
-                                  <button
-                                    onClick={() => handleSendIndividualWhatsApp(student, record.date)}
-                                    className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer"
-                                    title="Send WhatsApp Alert to Parent"
-                                  >
-                                    <Phone size={12} fill="currentColor" /> Parent Alert
-                                  </button>
-                                )}
-                              </div>
-
-                              <select
-                                value={record.status}
-                                onChange={(e) => {
-                                  const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave';
-                                  setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
-                                  toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
-                                }}
-                                className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
-                                  record.status === 'present'
-                                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                                    : record.status === 'absent'
-                                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                                    : record.status === 'late'
-                                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                                    : 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                                }`}
-                              >
-                                <option value="present">Present</option>
-                                <option value="absent">Absent</option>
-                                <option value="late">Late</option>
-                                <option value="leave">Excused / Leave</option>
-                              </select>
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-
-                  {/* DESKTOP ATTENDANCE TABLE (>= md) */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-500">
-                        <tr>
-                          <th className="px-5 py-4">Student & Roll</th>
-                          <th className="px-5 py-4">Class</th>
-                          {attendanceShowAllDates && <th className="px-5 py-4">Date</th>}
-                          <th className="px-5 py-4 text-right">Attendance Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(() => {
-                          const filtered = attendance.filter(record => {
-                            const student = students.find(s => String(s.id) === String(record.studentId));
-                            const feeStudent = feeStudents.find(fs => String(fs.id) === String(record.studentId));
-                            const sName = (student?.name || feeStudent?.name || (record as any).studentName || '').toLowerCase();
-                            const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                            const matchesDate = attendanceShowAllDates || record.date === attendanceFilterDate;
-                            const matchesSearch = !attendanceSearch || sName.includes(attendanceSearch.toLowerCase());
-                            return matchesClass && matchesDate && matchesSearch;
-                          });
-
-                          if (filtered.length === 0) {
-                            return (
-                              <tr>
-                                <td colSpan={attendanceShowAllDates ? 4 : 3} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
-                                  {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return filtered.slice().reverse().map(record => {
-                            const student = students.find(s => String(s.id) === String(record.studentId));
-                            const feeStudent = feeStudents.find(fs => String(fs.id) === String(record.studentId));
+                      return (
+                        <>
+                          {visibleAttendance.map(record => {
+                            const student = studentsMap.get(String(record.studentId));
+                            const feeStudent = feeStudentsMap.get(String(record.studentId));
                             const sName = student?.name || feeStudent?.name || (record as any).studentName || (`Student #${String(record.studentId || '').slice(-4)}`);
                             const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
                             const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'N/A';
                             const photo = getStudentPhoto(student || { name: sName });
 
                             return (
-                              <tr key={record.id} className="hover:bg-slate-50/60 transition-colors">
-                                <td className="px-5 py-4">
-                                  <div className="flex items-center gap-3">
-                                    <img
-                                      src={photo}
-                                      alt={sName}
-                                      className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                    />
-                                    <div>
-                                      <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
+                              <div key={record.id} className="p-4 space-y-3 bg-white">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    {photo ? (
+                                      <img
+                                        src={photo}
+                                        alt={sName}
+                                        className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
                                         {sName}
-                                      </span>
-                                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
-                                        {sRoll}
-                                      </span>
+                                      </h4>
+                                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                                        {sRoll} • {sClass}
+                                      </p>
                                     </div>
                                   </div>
-                                </td>
-
-                                <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                                  {sClass}
-                                </td>
-
-                                {attendanceShowAllDates && (
-                                  <td className="px-5 py-4 text-xs font-bold text-slate-500 tabular-nums">
-                                    {record.date}
-                                  </td>
-                                )}
-
-                                <td className="px-5 py-4 text-right flex items-center justify-end gap-2">
-                                  {record.status === 'absent' && student && (
-                                    <button
-                                      onClick={() => handleSendIndividualWhatsApp(student, record.date)}
-                                      className="p-1.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg transition-all cursor-pointer"
-                                      title="Send WhatsApp Alert to Parent"
-                                    >
-                                      <Phone size={14} fill="currentColor" />
-                                    </button>
+                                  {attendanceShowAllDates && (
+                                    <span className="text-[10px] font-bold text-slate-400 font-mono">
+                                      {record.date}
+                                    </span>
                                   )}
+                                </div>
+
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
+                                  <div>
+                                    {record.status === 'absent' && student && (
+                                      <button
+                                        onClick={() => handleSendIndividualWhatsApp(student, record.date)}
+                                        className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer"
+                                        title="Send WhatsApp Alert to Parent"
+                                      >
+                                        <Phone size={12} fill="currentColor" /> Parent Alert
+                                      </button>
+                                    )}
+                                  </div>
 
                                   <select
                                     value={record.status}
@@ -3802,10 +3749,143 @@ export default function PrincipalDashboard({
                                     <option value="late">Late</option>
                                     <option value="leave">Excused / Leave</option>
                                   </select>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {filteredAttendance.length > attendanceDisplayLimit && (
+                            <div className="p-6 flex justify-center bg-white border-t border-slate-50">
+                              <button 
+                                onClick={() => setAttendanceDisplayLimit(prev => prev + 100)}
+                                className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md active:scale-95"
+                              >
+                                Load More History ({filteredAttendance.length - attendanceDisplayLimit} remaining)
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* DESKTOP ATTENDANCE TABLE (>= md) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-500">
+                        <tr>
+                          <th className="px-5 py-4">Student & Roll</th>
+                          <th className="px-5 py-4">Class</th>
+                          {attendanceShowAllDates && <th className="px-5 py-4">Date</th>}
+                          <th className="px-5 py-4 text-right">Attendance Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(() => {
+                          if (filteredAttendance.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={attendanceShowAllDates ? 4 : 3} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
+                                  {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
                                 </td>
                               </tr>
                             );
-                          });
+                          }
+
+                          return (
+                            <>
+                              {visibleAttendance.map(record => {
+                                const student = studentsMap.get(String(record.studentId));
+                                const feeStudent = feeStudentsMap.get(String(record.studentId));
+                                const sName = student?.name || feeStudent?.name || (record as any).studentName || (`Student #${String(record.studentId || '').slice(-4)}`);
+                                const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
+                                const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'N/A';
+                                const photo = getStudentPhoto(student || { name: sName });
+
+                                return (
+                                  <tr key={record.id} className="hover:bg-slate-50/60 transition-colors">
+                                    <td className="px-5 py-4">
+                                      <div className="flex items-center gap-3">
+                                        {photo ? (
+                                          <img
+                                            src={photo}
+                                            alt={sName}
+                                            className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
+                                          />
+                                        ) : (
+                                          <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
+                                            {sName}
+                                          </span>
+                                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
+                                            {sRoll}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                                      {sClass}
+                                    </td>
+
+                                    {attendanceShowAllDates && (
+                                      <td className="px-5 py-4 text-xs font-bold text-slate-500 tabular-nums">
+                                        {record.date}
+                                      </td>
+                                    )}
+
+                                    <td className="px-5 py-4 text-right flex items-center justify-end gap-2">
+                                      {record.status === 'absent' && student && (
+                                        <button
+                                          onClick={() => handleSendIndividualWhatsApp(student, record.date)}
+                                          className="p-1.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg transition-all cursor-pointer"
+                                          title="Send WhatsApp Alert to Parent"
+                                        >
+                                          <Phone size={14} fill="currentColor" />
+                                        </button>
+                                      )}
+
+                                      <select
+                                        value={record.status}
+                                        onChange={(e) => {
+                                          const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave';
+                                          setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                          toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
+                                        }}
+                                        className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
+                                          record.status === 'present'
+                                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                                            : record.status === 'absent'
+                                            ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
+                                            : record.status === 'late'
+                                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                                            : 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                                        }`}
+                                      >
+                                        <option value="present">Present</option>
+                                        <option value="absent">Absent</option>
+                                        <option value="late">Late</option>
+                                        <option value="leave">Excused / Leave</option>
+                                      </select>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {filteredAttendance.length > attendanceDisplayLimit && (
+                                <tr>
+                                  <td colSpan={attendanceShowAllDates ? 4 : 3} className="px-5 py-8 text-center bg-white">
+                                    <button 
+                                      onClick={() => setAttendanceDisplayLimit(prev => prev + 100)}
+                                      className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+                                    >
+                                      Load More History ({filteredAttendance.length - attendanceDisplayLimit} remaining)
+                                    </button>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
                         })()}
                       </tbody>
                     </table>
@@ -5705,11 +5785,15 @@ export default function PrincipalDashboard({
                 
                 <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-5">
                   <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-indigo-300/40 shadow-xl bg-slate-800 shrink-0">
-                    <img 
-                      src={getStudentPhoto(selectedStudentReport)} 
-                      alt={selectedStudentReport.name} 
-                      className="w-full h-full object-cover" 
-                    />
+                    {getStudentPhoto(selectedStudentReport) ? (
+                      <img 
+                        src={getStudentPhoto(selectedStudentReport)} 
+                        alt={selectedStudentReport.name} 
+                        className="w-full h-full object-cover" 
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-slate-800 flex items-center justify-center" />
+                    )}
                   </div>
                   <div>
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-1.5">
@@ -6079,11 +6163,15 @@ export default function PrincipalDashboard({
                                   >
                                     <div className="text-center flex-1 flex flex-col justify-center">
                                       <div className="w-28 h-28 mx-auto mb-6">
-                                        <img 
-                                          src={photoUrl} 
-                                          alt={currentStudent?.name} 
-                                          className="w-full h-full rounded-2xl object-cover border-4 border-slate-50 shadow-md"
-                                        />
+                                        {photoUrl ? (
+                                          <img 
+                                            src={photoUrl} 
+                                            alt={currentStudent?.name} 
+                                            className="w-full h-full rounded-2xl object-cover border-4 border-slate-50 shadow-md"
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full rounded-2xl border-4 border-slate-50 shadow-md bg-slate-100" />
+                                        )}
                                       </div>
                                       <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">{currentStudent?.name}</h2>
                                       <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll Number #{currentStudent?.rollNumber}</p>
@@ -6193,7 +6281,11 @@ export default function PrincipalDashboard({
                         return (
                           <div key={rec.studentId} className="flex flex-col p-4 bg-white border border-slate-100 rounded-none hover:border-emerald-200 transition-colors">
                             <div className="flex items-center gap-3 mb-3">
-                              <img src={getStudentPhoto(student)} alt={student?.name || 'Student'} className="w-10 h-10 rounded-xl object-cover border border-slate-100 bg-slate-50" />
+                              {getStudentPhoto(student) ? (
+                                <img src={getStudentPhoto(student)} alt={student?.name || 'Student'} className="w-10 h-10 rounded-xl object-cover border border-slate-100 bg-slate-50" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-xl border border-slate-100 bg-slate-50" />
+                              )}
                               <div>
                                 <p className="text-[11px] font-black text-slate-900 uppercase leading-none">{student?.name}</p>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll #{student?.rollNumber}</p>

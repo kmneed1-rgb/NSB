@@ -354,7 +354,7 @@ export default function StudentDashboard({
       {/* Mobile Top Navigation Indicator */}
       <div id="student-mobile-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
         <div className="flex items-center gap-2">
-          <BookOpen className="text-indigo-600" size={20} />
+          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
           <span className="font-bold text-gray-900 tracking-tight">Student Campus</span>
         </div>
         <div className="flex items-center gap-2 relative">
@@ -493,7 +493,10 @@ export default function StudentDashboard({
         {/* Global Desktop Top Bar with Real-time Period Alert & Notification Bell */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
           <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Student portal</h1>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="NSB1 Logo" className="h-10 w-auto object-contain sm:block hidden" referrerPolicy="no-referrer" />
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Student portal</h1>
+            </div>
             
             {/* Real-time active period locator */}
             {(() => {

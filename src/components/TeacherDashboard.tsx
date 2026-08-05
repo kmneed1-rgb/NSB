@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -233,6 +233,39 @@ export default function TeacherDashboard({
   
   const [scratchMarks, setScratchMarks] = useState<{ [studentId: string]: string }>({});
 
+  // Memoized Data & Optimized Lookups for performance
+  const studentsMap = React.useMemo(() => {
+    const map = new Map<string, Student>();
+    students.forEach(s => map.set(String(s.id), s));
+    return map;
+  }, [students]);
+
+  const classesMap = React.useMemo(() => {
+    const map = new Map<string, Class>();
+    classes.forEach(c => map.set(String(c.id), c));
+    return map;
+  }, [classes]);
+
+  const teachersMap = React.useMemo(() => {
+    const map = new Map<string, Teacher>();
+    teachers.forEach(t => map.set(String(t.id), t));
+    return map;
+  }, [teachers]);
+
+  // Index fees by studentId for faster lookup
+  const studentFeesSummaryMap = React.useMemo(() => {
+    const map = new Map<string, { totalPaid: number, count: number }>();
+    fees.forEach(f => {
+      const sId = String(f.studentId);
+      const current = map.get(sId) || { totalPaid: 0, count: 0 };
+      map.set(sId, { 
+        totalPaid: current.totalPaid + Number(f.amount || 0), 
+        count: current.count + 1 
+      });
+    });
+    return map;
+  }, [fees]);
+
   // Helper to resolve weekday from date string (format YYYY-MM-DD)
   const getWeekdayFromDateStr = (dateStr: string): DayOfWeek => {
     const parts = dateStr.split('-');
@@ -397,32 +430,40 @@ export default function TeacherDashboard({
   };
 
   // All relevant classes to track for attendance today (Assigned Class + classes taught today)
-  const classesToCheckForReminders = Array.from(new Set([
+  const classesToCheckForReminders = React.useMemo(() => Array.from(new Set([
     ...(myClasses.find(c => c.classTeacherId === teacherId)?.id ? [myClasses.find(c => c.classTeacherId === teacherId)!.id] : []),
     ...classesTaughtToday
-  ]));
+  ])), [myClasses, teacherId, classesTaughtToday]);
 
   // Count pending and completed for attendance checklist
-  const attendanceStatusList = classesToCheckForReminders.map(cId => {
-    const cls = classes.find(item => item.id === cId);
-    const classStudents = students.filter(s => s.classId === cId);
-    const classAttendanceForDate = attendance.filter(a => a.date === attendanceDate && classStudents.some(s => s.id === a.studentId));
-    const marked = classStudents.length > 0 && classAttendanceForDate.length > 0;
-    
-    // Calculate counts
-    const presentCount = classAttendanceForDate.filter(a => a.status === 'present').length;
-    const absentCount = classAttendanceForDate.filter(a => a.status === 'absent').length;
+  const attendanceStatusList = React.useMemo(() => {
+    // Optimization: filter attendance for current date once
+    const todayAttendance = attendance.filter(a => a.date === attendanceDate);
+    // Optimization: Create a Set of student IDs marked today for O(1) lookups
+    const markedStudentIds = new Set(todayAttendance.map(a => String(a.studentId)));
 
-    return {
-      classId: cId,
-      className: cls ? `${cls.className}-${cls.section}` : 'N/A',
-      isMentorClass: cId === classId,
-      marked,
-      studentCount: classStudents.length,
-      presentCount,
-      absentCount
-    };
-  });
+    return classesToCheckForReminders.map(cId => {
+      const cls = classesMap.get(cId);
+      const classStudents = students.filter(s => s.classId === cId);
+      // Check if any student in this class is marked
+      const marked = classStudents.length > 0 && classStudents.some(s => markedStudentIds.has(String(s.id)));
+      
+      // Calculate counts - reuse todayAttendance
+      const classAttendance = todayAttendance.filter(a => classStudents.some(s => s.id === a.studentId));
+      const presentCount = classAttendance.filter(a => a.status === 'present').length;
+      const absentCount = classAttendance.filter(a => a.status === 'absent').length;
+
+      return {
+        classId: cId,
+        className: cls ? `${cls.className}-${cls.section}` : 'N/A',
+        isMentorClass: cId === classId,
+        marked,
+        studentCount: classStudents.length,
+        presentCount,
+        absentCount
+      };
+    });
+  }, [classesToCheckForReminders, classesMap, students, attendance, attendanceDate, classId]);
 
   const pendingCount = attendanceStatusList.filter(item => !item.marked).length;
 
@@ -432,11 +473,18 @@ export default function TeacherDashboard({
   // Initialize attendance scratchpad for selected class & date
   const loadAttendanceForDate = (date: string, cId: string) => {
     const classStudents = students.filter(s => s.classId === cId);
-    const dateAttendance = attendance.filter(a => a.date === date);
+    
+    // Optimization: Index attendance for the specific date by studentId for O(1) lookup
+    const dateAttendanceMap = new Map();
+    attendance.forEach(a => {
+      if (a.date === date) {
+        dateAttendanceMap.set(String(a.studentId), a);
+      }
+    });
     
     const initialToggles: { [studentId: string]: 'present' | 'absent' | 'late' | 'leave' } = {};
     classStudents.forEach(student => {
-      const match = dateAttendance.find(a => a.studentId === student.id);
+      const match = dateAttendanceMap.get(String(student.id));
       // Default to 'present' if not marked, or set stored value
       initialToggles[student.id] = match ? match.status : 'present';
     });
@@ -622,12 +670,12 @@ export default function TeacherDashboard({
 
   // Resolve class details for timetable
   const getClassLabel = (cId: string) => {
-    const c = classes.find(item => item.id === cId);
+    const c = classesMap.get(String(cId));
     return c ? `${c.className}-${c.section}` : 'N/A';
   };
 
   const getTeacherName = (tId: string) => {
-    const t = teachers.find(item => item.id === tId);
+    const t = teachersMap.get(String(tId));
     return t ? t.name : 'Unknown';
   };
 
@@ -637,7 +685,7 @@ export default function TeacherDashboard({
       {/* Mobile Top Bar */}
       <div id="mobile-teacher-top-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
         <div className="flex items-center gap-2">
-          <Fingerprint className="text-emerald-600" size={20} />
+          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
           <span className="font-bold text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xs">NSB1 School</span>
         </div>
         <div className="flex items-center gap-2 relative">
@@ -694,8 +742,8 @@ export default function TeacherDashboard({
           {/* Minimalist Brand header */}
           <div className="p-8 border-b border-slate-50 flex flex-col items-center gap-3">
             <div className="flex items-center justify-between w-full">
-              <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xl">
-                <Fingerprint size={28} className="text-emerald-400" />
+              <div className="mb-2">
+                <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain" referrerPolicy="no-referrer" />
               </div>
               <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
                 <X size={18} />
@@ -1521,9 +1569,9 @@ export default function TeacherDashboard({
                     {viewClassStudents.map(student => {
                       const status = scratchAttendance[student.id] || 'present';
                       const photoUrl = getStudentPhoto(student);
-                      const studentFees = fees.filter(f => f.studentId === student.id);
-                      const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
-                      const isPaid = totalPaid >= 5000;
+                      const feeSummary = studentFeesSummaryMap.get(String(student.id));
+                      const totalPaid = feeSummary?.totalPaid || 0;
+                      const isPaid = totalPaid >= (student.baseFee || 5000);
 
                       return (
                         <div 
@@ -1550,11 +1598,15 @@ export default function TeacherDashboard({
                           {/* Student Photo & Details */}
                           <div className="text-center my-2">
                             <div className="relative w-20 h-20 mx-auto mb-3">
-                              <img 
-                                src={photoUrl} 
-                                alt={student.name} 
-                                className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
-                              />
+                              {photoUrl ? (
+                                <img 
+                                  src={photoUrl} 
+                                  alt={student.name} 
+                                  className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
+                                />
+                              ) : (
+                                <div className="w-20 h-20 rounded-2xl border-2 border-indigo-200 bg-slate-50 shadow-inner mx-auto" />
+                              )}
                               <span className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold border-2 border-white shadow-xs ${
                                 status === 'present' ? 'bg-emerald-500' :
                                 status === 'absent' ? 'bg-rose-500' :
@@ -1644,7 +1696,11 @@ export default function TeacherDashboard({
                               <td className="px-6 py-4 font-mono text-gray-700 font-bold">#{student.rollNumber}</td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
-                                  <img src={photoUrl} alt={student.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100" />
+                                  {photoUrl ? (
+                                    <img src={photoUrl} alt={student.name} className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100" />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-full border border-slate-200 bg-slate-50" />
+                                  )}
                                   <div>
                                     <div className="flex items-center gap-2">
                                       <span className="font-semibold text-slate-900 block">{student.name}</span>
@@ -1789,11 +1845,15 @@ export default function TeacherDashboard({
 
                                   <div className="text-center mt-3">
                                     <div className="relative w-24 h-24 mx-auto mb-2">
-                                      <img 
-                                        src={photoUrl} 
-                                        alt={currentStudent.name} 
-                                        className="w-24 h-24 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
-                                      />
+                                      {photoUrl ? (
+                                        <img 
+                                          src={photoUrl} 
+                                          alt={currentStudent.name} 
+                                          className="w-24 h-24 rounded-2xl object-cover border-2 border-indigo-200 shadow-md bg-slate-100" 
+                                        />
+                                      ) : (
+                                        <div className="w-24 h-24 rounded-2xl border-2 border-indigo-200 bg-slate-50 shadow-inner mx-auto" />
+                                      )}
                                     </div>
                                     <h3 className="text-lg font-black text-slate-900 tracking-tight leading-tight">{currentStudent.name}</h3>
                                     <p className="text-xs text-slate-400 font-mono mt-0.5">{currentStudent.email}</p>
@@ -2583,7 +2643,11 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
               <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="w-20 h-20 bg-slate-800 rounded-2xl flex items-center justify-center border-2 border-indigo-300/30 overflow-hidden shrink-0 shadow-lg">
-                    <img src={getStudentPhoto(selectedStudentProfile)} alt={selectedStudentProfile.name} className="w-full h-full object-cover" />
+                    {getStudentPhoto(selectedStudentProfile) ? (
+                      <img src={getStudentPhoto(selectedStudentProfile)} alt={selectedStudentProfile.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-slate-800 flex items-center justify-center" />
+                    )}
                   </div>
                   <div>
                     <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">{selectedStudentProfile.name}</h2>

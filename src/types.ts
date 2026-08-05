@@ -141,7 +141,6 @@ export function getStudentPhoto(student?: { id?: string; name?: string; photo?: 
   if (student?.photo && student.photo.trim().length > 0) {
     return student.photo;
   }
-  const seed = student?.name || student?.id || 'Student';
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`;
+  return '';
 }
 

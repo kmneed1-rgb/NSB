@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   BookOpen, Users, Award, Shield, ArrowRight, CheckCircle2, 
   MapPin, Phone, Mail, Clock, Calendar, Sparkles, Send, Info,
-  GraduationCap
+  GraduationCap, Laptop, Book, Globe, ShieldCheck, Trophy
 } from 'lucide-react';
 import { Teacher, Student, Class } from '../types';
 
@@ -32,6 +32,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
     setInquirySubmitted(true);
     // Auto-reset after a moment
     setTimeout(() => {
+      setInquirySubmitted(false);
       setStudentName('');
       setParentEmail('');
       setParentPhone('');
@@ -40,386 +41,494 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
   };
 
   return (
-    <div className="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen flex flex-col">
+    <div className="bg-white text-slate-900 font-sans antialiased min-h-screen flex flex-col selection:bg-emerald-100 selection:text-emerald-900">
       
-      {/* ========== LANDING NAVIGATION HEADER ========== */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 md:px-12 py-3 flex items-center justify-between shadow-sm">
+      {/* ========== PREMIUM NAVIGATION ========== */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-6 md:px-12 py-4 flex items-center justify-between">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-3"
+          className="flex items-center gap-4"
         >
           <img 
             src="/logo.png" 
             alt="NSB1 School" 
-            className="h-10 w-auto object-contain"
+            className="h-10 w-auto object-contain hover:scale-105 transition-transform"
             referrerPolicy="no-referrer"
           />
-          <div className="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
-          <span className="font-black text-slate-900 text-lg tracking-tighter uppercase flex flex-col leading-none">
-            NSB1 <span className="text-[10px] tracking-[0.3em] font-bold text-indigo-600">School</span>
-          </span>
+          <div className="flex flex-col">
+            <span className="font-black text-slate-950 text-xl tracking-tighter uppercase leading-none">
+              NSB1
+            </span>
+            <span className="text-[10px] tracking-[0.4em] font-black text-emerald-600 uppercase">
+              School
+            </span>
+          </div>
         </motion.div>
 
-        {/* Desktop Navbar items */}
-        <nav className="hidden lg:flex items-center gap-10 text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em]">
-          <a href="#hero" className="hover:text-indigo-600 transition-colors">Home</a>
-          <a href="#academics" className="hover:text-indigo-600 transition-colors">Academics</a>
-          <a href="#stats" className="hover:text-indigo-600 transition-colors">Directory</a>
-          <a href="#inquiry" className="hover:text-indigo-600 transition-colors">Admission</a>
+        {/* Desktop Navbar - Sophisticated Typography */}
+        <nav className="hidden lg:flex items-center gap-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">
+          {['Home', 'Academics', 'Mentors', 'Admissions'].map((item) => (
+            <a 
+              key={item}
+              href={`#${item.toLowerCase()}`} 
+              className="hover:text-emerald-600 transition-all relative group"
+            >
+              {item}
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-emerald-600 transition-all group-hover:w-full"></span>
+            </a>
+          ))}
         </nav>
 
         <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          whileHover={{ scale: 1.02, translateY: -1 }}
+          whileTap={{ scale: 0.98 }}
           onClick={onEnterPortal}
-          className="py-2.5 px-8 bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer hover:shadow-lg hover:bg-indigo-700"
+          className="py-3 px-8 bg-slate-950 text-white font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer shadow-xl shadow-slate-200 hover:bg-emerald-600 hover:shadow-emerald-200"
         >
           Portal Login
         </motion.button>
       </header>
 
-      {/* ========== HERO SECTION (POLISHED) ========== */}
-      <section id="hero" className="relative bg-white text-slate-900 pt-32 pb-32 px-6 md:px-12 overflow-hidden border-b border-slate-100">
-        {/* Background Mesh/Glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl -z-10 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-50 rounded-full blur-[120px] opacity-60"></div>
-          <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-50 rounded-full blur-[100px] opacity-40"></div>
-        </div>
-
-        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center text-center">
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="space-y-10 max-w-4xl w-full"
-          >
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-full">
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Excellence Redefined</span>
-            </div>
-
-            <h1 className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-[0.8] text-slate-950 uppercase ">
-              Empowering<br/>
-              <span className="text-indigo-600 not-">Scholars.</span>
-            </h1>
-            
-            <p className="text-slate-500 text-sm md:text-lg max-w-lg leading-relaxed font-medium mx-auto lg:mx-0">
-              NSB1 School delivers first-class academic excellence in Gujranwala. We combine digital portal efficiency with rigorous traditional standards to prepare the next generation.
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={onEnterPortal}
-                className="px-12 py-4 bg-slate-950 hover:bg-indigo-600 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all shadow-2xl shadow-indigo-200"
-              >
-                Access Portal
-              </motion.button>
-              <motion.a
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                href="#academics"
-                className="px-12 py-4 border-2 border-slate-950 text-slate-950 hover:bg-slate-50 font-black text-[11px] uppercase tracking-[0.4em] transition-all"
-              >
-                View Streams
-              </motion.a>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-
-      {/* ========== ACADEMIC PROGRAM HIGHLIGHTS (MINIMAL) ========== */}
-      <section id="academics" className="py-24 px-6 md:px-12 bg-slate-50">
-        <div className="max-w-7xl mx-auto">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mb-20 text-center"
-          >
-            <h2 className="text-sm font-bold uppercase tracking-[0.4em] text-slate-400 mb-4">Academic Streams</h2>
-            <div className="h-px w-20 bg-indigo-600 mx-auto"></div>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-            {[
-              { id: '01', title: 'Primary Foundation', desc: 'Focusing on fundamental literacy and numeracy with a modern pedagogical approach.', range: 'Grades 1-8' },
-              { id: '02', title: 'Secondary Excellence', desc: 'Customized matriculation prep with advanced science and computational labs.', range: 'Grades 9-10' },
-              { id: '03', title: 'Academy Revision', desc: 'Evening coaching and conceptual refinement for board-level preparation.', range: 'Academy Prep' }
-            ].map((stream, idx) => (
-              <motion.div 
-                key={stream.id} 
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: idx * 0.2 }}
-                className="group cursor-default p-4 border border-transparent hover:border-slate-100 hover:bg-white transition-all duration-300"
-              >
-                <span className="block text-[10px] font-bold text-indigo-600 mb-6 tracking-[0.2em]">{stream.id} / STREAM</span>
-                <h3 className="text-2xl font-black text-slate-950 mb-4 uppercase tracking-tighter group-hover:text-indigo-600 transition-colors uppercase">{stream.title}</h3>
-                <p className="text-slate-500 text-sm leading-relaxed mb-8">{stream.desc}</p>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 border-t border-slate-200 pt-4 block">{stream.range}</span>
-              </motion.div>
-            ))}
+      <main>
+        {/* ========== IMMERSIVE HERO SECTION ========== */}
+        <section id="home" className="relative pt-24 pb-32 px-6 md:px-12 overflow-hidden">
+          {/* Refined Background Elements */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl -z-10 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-emerald-50/50 rounded-full blur-[120px]"></div>
+            <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-slate-50 rounded-full blur-[100px]"></div>
           </div>
-        </div>
-      </section>
 
-      {/* ========== TEACHER QUALITY ========== */}
-      <section id="teachers" className="py-24 px-6 md:px-12 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mb-20 text-center"
-          >
-            <h2 className="text-sm font-bold uppercase tracking-[0.4em] text-slate-400 mb-4">Our Commitment</h2>
-            <div className="h-px w-20 bg-indigo-600 mx-auto"></div>
-            <h3 className="text-3xl font-black text-slate-950 mt-6 uppercase tracking-tighter">Excellence in Pedagogy</h3>
-          </motion.div>
+          <div className="max-w-7xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
+              <motion.div 
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                className="space-y-10"
+              >
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">Excellence Redefined</span>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-            {[
-              { title: 'Certified Academics', desc: 'All faculty hold advanced degrees and are certified in modern instructional methods.', icon: Award, color: 'emerald' },
-              { title: 'Mentorship Focus', desc: 'Our teachers act as mentors, guiding students through academic and personal growth.', icon: Users, color: 'indigo' },
-              { title: 'Continuous Learning', desc: 'Faculty engage in weekly professional development workshops to stay current.', icon: Sparkles, color: 'amber' }
-            ].map((quality, idx) => {
-              const colorClasses = {
-                emerald: 'hover:border-emerald-100 hover:bg-emerald-50/30 bg-emerald-100 text-emerald-600',
-                indigo: 'hover:border-indigo-100 hover:bg-indigo-50/30 bg-indigo-100 text-indigo-600',
-                amber: 'hover:border-amber-100 hover:bg-amber-50/30 bg-amber-100 text-amber-600',
-              }[quality.color] || 'hover:border-indigo-100 hover:bg-indigo-50/30 bg-indigo-100 text-indigo-600';
+                <h1 className="text-6xl sm:text-7xl md:text-8xl font-black tracking-tighter leading-[0.9] text-slate-950 uppercase">
+                  Shaping<br/>
+                  <span className="text-emerald-600">The Future</span><br/>
+                  of Leaders.
+                </h1>
+                
+                <p className="text-slate-500 text-lg md:text-xl max-w-xl leading-relaxed font-medium">
+                  NSB1 School integrates rigorous academic standards with advanced digital systems, fostering an environment where curiosity meets modern capability.
+                </p>
 
-              return (
+                <div className="flex flex-col sm:flex-row gap-5 pt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.05, translateY: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={onEnterPortal}
+                    className="px-12 py-5 bg-emerald-600 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all shadow-2xl shadow-emerald-200 flex items-center justify-center gap-2"
+                  >
+                    Enter Portal
+                    <ArrowRight size={14} />
+                  </motion.button>
+                  <motion.a
+                    whileHover={{ scale: 1.05, translateY: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    href="#academics"
+                    className="px-12 py-5 border-2 border-slate-950 text-slate-950 hover:bg-slate-950 hover:text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center"
+                  >
+                    View Programs
+                  </motion.a>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 1, delay: 0.2 }}
+                className="relative hidden lg:block"
+              >
+                <div className="aspect-square bg-slate-50 rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
+                  <div className="absolute inset-0 bg-gradient-to-tr from-emerald-100/20 to-transparent"></div>
+                  <div className="absolute inset-0 flex items-center justify-center p-20">
+                    <img 
+                      src="/logo.png" 
+                      alt="NSB1 Logo Large" 
+                      className="w-full h-auto object-contain opacity-20 grayscale"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  
+                  {/* Floating Metric Cards */}
+                  <motion.div 
+                    animate={{ y: [0, -10, 0] }}
+                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                    className="absolute top-10 right-10 bg-white p-6 shadow-xl rounded-2xl border border-slate-100"
+                  >
+                    <div className="text-emerald-600 font-black text-2xl">98%</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Board Pass Rate</div>
+                  </motion.div>
+
+                  <motion.div 
+                    animate={{ y: [0, 10, 0] }}
+                    transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+                    className="absolute bottom-20 left-[-20px] bg-slate-950 p-6 shadow-xl rounded-2xl border border-slate-800"
+                  >
+                    <div className="text-white font-black text-2xl">12+</div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialized Labs</div>
+                  </motion.div>
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ========== ACADEMIC BENTO GRID ========== */}
+        <section id="academics" className="py-32 px-6 md:px-12 bg-slate-50">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-20 gap-8">
+              <div className="max-w-2xl">
+                <h2 className="text-emerald-600 text-[10px] font-black uppercase tracking-[0.5em] mb-4">Academic Streams</h2>
+                <h3 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+                  Curated Programs for<br/>Every Stage of Growth.
+                </h3>
+              </div>
+              <p className="text-slate-500 font-medium max-w-sm mb-2 text-sm leading-relaxed">
+                From foundational primary education to advanced matriculation prep, we provide the environment for students to excel.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              {/* Primary - Large Bento Item */}
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="md:col-span-8 bg-white p-10 border border-slate-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden group min-h-[400px] flex flex-col justify-between"
+              >
+                <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-emerald-50 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+                <div className="relative z-10">
+                  <div className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center mb-10 shadow-lg shadow-emerald-100">
+                    <BookOpen size={28} />
+                  </div>
+                  <h4 className="text-3xl font-black text-slate-950 uppercase tracking-tighter mb-4">Primary Foundation</h4>
+                  <p className="text-slate-500 text-lg leading-relaxed max-w-md">
+                    Cultivating literacy, numeracy, and critical thinking skills in a vibrant, supportive environment for Grades 1 through 8.
+                  </p>
+                </div>
+                <div className="relative z-10 flex items-center gap-6">
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-4 py-2 rounded-full">Grades 1-8</span>
+                  <div className="flex -space-x-3">
+                    {[1,2,3,4].map(i => (
+                      <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold">
+                        {String.fromCharCode(64 + i)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Secondary - Tall Bento Item */}
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="md:col-span-4 bg-slate-950 p-10 shadow-2xl relative overflow-hidden group min-h-[400px] flex flex-col justify-between"
+              >
+                <div className="absolute inset-0 bg-emerald-600/10 group-hover:bg-emerald-600/20 transition-colors"></div>
+                <div className="relative z-10">
+                  <div className="w-14 h-14 bg-white text-slate-950 rounded-2xl flex items-center justify-center mb-10">
+                    <ShieldCheck size={28} />
+                  </div>
+                  <h4 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Secondary Excellence</h4>
+                  <p className="text-slate-400 text-sm leading-relaxed">
+                    Intensive matriculation preparation with a focus on science, mathematics, and high-performance laboratory work.
+                  </p>
+                </div>
+                <div className="relative z-10">
+                  <div className="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-4">Science / Arts Streams</div>
+                  <button className="flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-[0.2em] hover:text-emerald-400 transition-colors">
+                    Explore Matrix <ArrowRight size={14} />
+                  </button>
+                </div>
+              </motion.div>
+
+              {/* Academy - Third Bento Item */}
+              <motion.div 
+                whileHover={{ y: -5 }}
+                className="md:col-span-12 bg-emerald-600 p-10 shadow-xl relative overflow-hidden group min-h-[300px] flex items-center"
+              >
+                <div className="absolute right-0 bottom-0 p-10 opacity-10 rotate-12 group-hover:rotate-0 transition-transform duration-700">
+                  <Trophy size={300} strokeWidth={1} />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center relative z-10 w-full">
+                  <div className="space-y-6">
+                    <h4 className="text-3xl font-black text-white uppercase tracking-tighter">NSB1 Academy Prep</h4>
+                    <p className="text-emerald-50 text-lg leading-relaxed max-w-md">
+                      Specialized evening coaching designed for conceptual mastery and top-tier board exam results.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-4">
+                    {['Physics', 'Chemistry', 'Biology', 'Mathematics', 'Computer'].map(sub => (
+                      <div key={sub} className="px-6 py-3 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">
+                        {sub}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ========== THE MENTORSHIP WALL ========== */}
+        <section id="mentors" className="py-32 px-6 md:px-12 bg-white">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-24">
+              <h2 className="text-emerald-600 text-[10px] font-black uppercase tracking-[0.5em] mb-4">Our Commitment</h2>
+              <h3 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+                Pedagogical Excellence.
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+              {[
+                { title: 'Certified Academics', desc: 'Faculty members hold advanced credentials and undergo rigorous pedagogical training cycles.', icon: Award, accent: 'emerald' },
+                { title: 'Mentorship Focus', desc: 'Each student is assigned a personal academic mentor to track holistic development.', icon: Users, accent: 'slate' },
+                { title: 'Tech-First Learning', desc: 'Integrating smart classroom technology for an interactive, data-driven experience.', icon: Laptop, accent: 'indigo' }
+              ].map((item, idx) => (
                 <motion.div 
-                  key={quality.title} 
+                  key={item.title}
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: idx * 0.2 }}
-                  className={`group p-6 border border-slate-100 transition-all duration-300 ${colorClasses.split(' ').slice(0, 2).join(' ')}`}
+                  transition={{ delay: idx * 0.1 }}
+                  className="group"
                 >
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-6 mx-auto group-hover:scale-110 transition-transform ${colorClasses.split(' ').slice(2).join(' ')}`}>
-                    <quality.icon size={24} />
+                  <div className="mb-8 relative">
+                    <div className="w-16 h-16 bg-slate-50 rounded-[1.5rem] flex items-center justify-center text-slate-900 group-hover:bg-emerald-600 group-hover:text-white group-hover:scale-110 transition-all duration-500 shadow-sm">
+                      <item.icon size={28} />
+                    </div>
                   </div>
-                  <h3 className="text-xl font-black text-slate-950 mb-4 uppercase tracking-tighter text-center">{quality.title}</h3>
-                  <p className="text-slate-500 text-sm leading-relaxed text-center">{quality.desc}</p>
+                  <h4 className="text-xl font-black text-slate-950 uppercase tracking-tighter mb-4">{item.title}</h4>
+                  <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium">
+                    {item.desc}
+                  </p>
+                  <div className="h-0.5 w-12 bg-slate-100 group-hover:w-full group-hover:bg-emerald-600 transition-all duration-500"></div>
                 </motion.div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ========== REAL-TIME DIRECTORY (METRICS) ========== */}
-      <section id="stats" className="bg-slate-50 py-24 px-6 md:px-12 border-y border-slate-100">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              { label: 'Faculty Members', val: teachers.length, icon: Users },
-              { label: 'Students Enrolled', val: students.length, icon: BookOpen },
-              { label: 'Active Classrooms', val: classes.length, icon: Shield }
-            ].map((stat, idx) => (
+        {/* ========== DIRECTORY METRICS ========== */}
+        <section className="bg-slate-50 py-24 px-6 md:px-12 border-y border-slate-100">
+          <div className="max-w-7xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+              {[
+                { label: 'Faculty Members', val: teachers.length, icon: GraduationCap },
+                { label: 'Students Enrolled', val: students.length, icon: Users },
+                { label: 'Active Classrooms', val: classes.length, icon: Globe }
+              ].map((stat) => (
+                <div key={stat.label} className="flex flex-col items-center text-center space-y-4">
+                  <div className="text-slate-200"><stat.icon size={48} strokeWidth={1} /></div>
+                  <div className="text-5xl font-black text-slate-950 tracking-tighter">{stat.val}</div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ========== PREMIUM ADMISSION PORTAL (FORM) ========== */}
+        <section id="admissions" className="py-32 px-6 md:px-12 bg-white relative overflow-hidden">
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-20 items-center">
+            
+            <div className="lg:col-span-5 space-y-8">
+              <div className="inline-block px-4 py-1.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-widest rounded-full">
+                Session 2026-27 Open
+              </div>
+              <h2 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+                Secure Your Path<br/>to Academic Success.
+              </h2>
+              <p className="text-slate-500 text-lg leading-relaxed font-medium">
+                Submit an inquiry today to receive our comprehensive digital prospectus and fee structure blueprints.
+              </p>
+
+              <div className="space-y-6 pt-6">
+                {[
+                  { icon: Phone, label: 'Principal Office', val: '+92 (051) nsb1-school' },
+                  { icon: Mail, label: 'Inquiry Support', val: 'queries@nsb1-school.edu' },
+                  { icon: MapPin, label: 'Campus Address', val: 'NSB1 Building, Academy Blvd, PK' }
+                ].map(info => (
+                  <div key={info.label} className="flex items-center gap-5">
+                    <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-900 shadow-sm">
+                      <info.icon size={18} />
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{info.label}</div>
+                      <div className="text-sm font-bold text-slate-950">{info.val}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="lg:col-span-7">
               <motion.div 
-                key={stat.label}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, x: 30 }}
+                whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: idx * 0.2 }}
-                whileHover={{ y: -5 }}                
-                className="bg-white p-8 border border-slate-100 shadow-sm hover:shadow-md transition-all rounded-none flex items-start gap-4"
+                className="bg-white border border-slate-100 shadow-2xl p-10 md:p-12 relative"
               >
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
-                  <stat.icon size={24} />
-                </div>
-                <div>
-                  <div className="text-4xl font-black mb-1">{stat.val}</div>
-                  <div className="text-xs uppercase tracking-widest text-slate-400 font-bold">{stat.label}</div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-
-      {/* ========== ADMISSION REQUEST / INQUIRY FORM ========== */}
-      <section id="inquiry" className="py-16 px-4 md:px-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-        
-        <div className="lg:col-span-6 space-y-6">
-          <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">Admissions Open 2026-27</span>
-          <h2 className="text-2xl md:text-3.5xl font-black text-slate-900 uppercase tracking-wide">
-            Request Campus Prospectus &amp; Details
-          </h2>
-          <p className="text-xs md:text-sm text-slate-500 leading-relaxed">
-            Fill out this quick inquiry form to receive our program details, fee maps, and private academy scheduling options. Our principal office will connect with your provided contact credentials.
-          </p>
-
-          <div className="space-y-4 pt-4">
-            <div className="flex gap-4 items-start">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
-                <Phone size={14} />
-              </div>
-              <div>
-                <span className="text-[9px] font-extrabold text-slate-400 block uppercase tracking-wide">Call Principal Office</span>
-                <span className="text-xs md:text-sm text-slate-800 font-bold">+92 (051) nsb1-school</span>
-              </div>
-            </div>
-
-            <div className="flex gap-4 items-start">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
-                <Mail size={14} />
-              </div>
-              <div>
-                <span className="text-[9px] font-extrabold text-slate-400 block uppercase tracking-wide">Direct Email Queries</span>
-                <span className="text-xs md:text-sm text-slate-800 font-bold">queries@nsb1-school.edu</span>
-              </div>
-            </div>
-
-            <div className="flex gap-4 items-start">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5">
-                <MapPin size={14} />
-              </div>
-              <div>
-                <span className="text-[9px] font-extrabold text-slate-400 block uppercase tracking-wide">Campus Location</span>
-                <span className="text-xs md:text-sm text-slate-800 font-bold">NSB1 Building, Academy Boulevard, Capital Ring Road, PK</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-6">
-          <motion.div 
-            whileHover={{ y: -5 }}                
-            className="bg-white border border-slate-200/90 shadow-sm p-6 md:p-8 rounded-none border-t-4 border-t-indigo-600"
-          >
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mb-6 flex items-center gap-2">
-              <Send size={14} className="text-indigo-600" />
-              Inquiry / Admission Query Form
-            </h3>
-
-            {inquirySubmitted ? (
-              <div className="bg-emerald-50 border border-emerald-150 p-6 text-center rounded-xl space-y-3 animate-fade-in">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-xl font-bold">
-                  ✓
-                </div>
-                <h4 className="font-bold text-emerald-950 uppercase tracking-wide text-xs">Inquiry Registered Successfully!</h4>
-                <p className="text-xs text-emerald-800 leading-relaxed">
-                  Thank you! Our admission counselors will trace the parent contact index and phone you back shortly.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleInquirySubmit} className="space-y-4 text-xs font-semibold">
-                <div>
-                  <label className="text-slate-500 uppercase tracking-wider block mb-1 text-[10px]">Student Complete Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter candidate's full name"
-                    value={studentName}
-                    onChange={(e) => setStudentName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white p-2.5 rounded outline-hidden transition-all text-xs"
-                  />
+                <div className="absolute top-0 left-0 w-2 h-full bg-emerald-600"></div>
+                
+                <div className="mb-10">
+                  <h3 className="text-2xl font-black text-slate-950 uppercase tracking-tighter mb-2">Digital Inquiry Portal</h3>
+                  <p className="text-slate-400 text-xs uppercase tracking-widest font-bold">Registration & Information Request</p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-slate-500 uppercase tracking-wider block mb-1 text-[10px]">Parent Email Coordinates</label>
-                    <input
-                      type="email"
-                      placeholder="e.g. parent@email.com"
-                      value={parentEmail}
-                      onChange={(e) => setParentEmail(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white p-2.5 rounded outline-hidden transition-all text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-slate-500 uppercase tracking-wider block mb-1 text-[10px]">Contact Phone Number</label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="e.g. +923123456789"
-                      value={parentPhone}
-                      onChange={(e) => setParentPhone(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white p-2.5 rounded outline-hidden transition-all text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-slate-500 uppercase tracking-wider block mb-1 text-[10px]">Desired Admission Stream / Class Grade</label>
-                  <select
-                    value={selectedGrade}
-                    onChange={(e) => setSelectedGrade(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white p-2.5 rounded outline-hidden transition-all text-xs font-bold"
+                {inquirySubmitted ? (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-emerald-50 border border-emerald-100 p-12 text-center space-y-6"
                   >
-                    <option value="Prep Block">Prep Block / Kindergarten</option>
-                    <option value="Grade 1 - 5">Primary Segment (Grade 1 - 5)</option>
-                    <option value="Grade 6 - 8">Middle Segment (Grade 6 - 8)</option>
-                    <option value="Grade 9">Grade 9 (Matric Secondary)</option>
-                    <option value="Grade 10">Grade 10 (Matric Secondary)</option>
-                    <option value="Evening Prep Academy">Evening Academy Coaching</option>
-                  </select>
-                </div>
+                    <div className="w-20 h-20 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-xl shadow-emerald-100">
+                      <CheckCircle2 size={40} />
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xl font-black text-emerald-950 uppercase tracking-tighter">Inquiry Received</h4>
+                      <p className="text-sm text-emerald-800 font-medium">
+                        Thank you for your interest. Our admissions counselor will contact you shortly to guide you through the enrollment matrix.
+                      </p>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <form onSubmit={handleInquirySubmit} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Student Complete Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="John Doe"
+                          value={studentName}
+                          onChange={(e) => setStudentName(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-100 focus:border-emerald-500 focus:bg-white p-4 text-xs font-bold outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Parent Contact Index</label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="+92 3XX XXXXXXX"
+                          value={parentPhone}
+                          onChange={(e) => setParentPhone(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-100 focus:border-emerald-500 focus:bg-white p-4 text-xs font-bold outline-none transition-all"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <label className="text-slate-500 uppercase tracking-wider block mb-1 text-[10px]">Additional Directives / Custom Message</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Specify physical queries, timing adjustments or custom subject options here..."
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white p-2.5 rounded outline-hidden transition-all text-xs min-h-[70px]"
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Admission Grade</label>
+                      <select
+                        value={selectedGrade}
+                        onChange={(e) => setSelectedGrade(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 focus:border-emerald-500 focus:bg-white p-4 text-xs font-bold outline-none cursor-pointer transition-all appearance-none"
+                      >
+                        <option value="Prep">Kindergarten / Prep</option>
+                        <option value="Primary">Primary (1 - 5)</option>
+                        <option value="Middle">Middle (6 - 8)</option>
+                        <option value="Secondary">Secondary (9 - 10)</option>
+                        <option value="Academy">Evening Academy</option>
+                      </select>
+                    </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold uppercase tracking-widest transition-all rounded shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  Submit Prospectus Query
-                  <ArrowRight size={13} />
-                </button>
-              </form>
-            )}
-          </motion.div>
-        </div>
-      </section>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Additional Requirements</label>
+                      <textarea
+                        rows={4}
+                        placeholder="Specify custom requirements or subject preferences..."
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 focus:border-emerald-500 focus:bg-white p-4 text-xs font-bold outline-none transition-all resize-none"
+                      />
+                    </div>
 
+                    <motion.button
+                      whileHover={{ scale: 1.01, translateY: -2 }}
+                      whileTap={{ scale: 0.99 }}
+                      type="submit"
+                      className="w-full py-5 bg-slate-950 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center gap-3 hover:bg-emerald-600 shadow-2xl"
+                    >
+                      Process Inquiry
+                      <Send size={14} />
+                    </motion.button>
+                  </form>
+                )}
+              </motion.div>
+            </div>
+          </div>
+        </section>
+      </main>
 
-      {/* ========== FOOTER ========== */}
-      <footer className="mt-auto bg-slate-900 border-t-4 border-indigo-600 text-slate-400 py-10 px-4 md:px-8 text-xs font-semibold">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-center md:text-left">
-          
-          <div className="space-y-1">
-            <span className="font-extrabold text-white text-sm uppercase tracking-wide block">
-              NSB1 School &amp; Academy
-            </span>
-            <p className="text-[10px] text-slate-500 tracking-wider uppercase font-extrabold">
-              Developing Scholars, Creating Legacies since 2012.
+      {/* ========== REFINED FOOTER ========== */}
+      <footer className="bg-slate-950 text-white py-20 px-6 md:px-12 border-t border-slate-900">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <img src="/logo.png" alt="NSB1 Logo" className="h-10 w-auto brightness-0 invert" referrerPolicy="no-referrer" />
+                <span className="font-black text-xl tracking-tighter uppercase">NSB1</span>
+              </div>
+              <p className="text-slate-500 text-xs leading-relaxed font-bold uppercase tracking-wider">
+                Developing Scholars, Creating Legacies since 2012. We are committed to nurturing the next generation of global citizens.
+              </p>
+            </div>
+            
+            <div className="space-y-6">
+              <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Navigation</h5>
+              <ul className="space-y-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <li><a href="#home" className="hover:text-white transition-colors">Home Campus</a></li>
+                <li><a href="#academics" className="hover:text-white transition-colors">Curriculum</a></li>
+                <li><a href="#mentors" className="hover:text-white transition-colors">Faculty</a></li>
+                <li><a href="#admissions" className="hover:text-white transition-colors">Enrolment</a></li>
+              </ul>
+            </div>
+
+            <div className="space-y-6">
+              <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Portals</h5>
+              <ul className="space-y-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Principal Dashboard</button></li>
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Faculty Portal</button></li>
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Student Campus</button></li>
+              </ul>
+            </div>
+
+            <div className="space-y-6">
+              <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Connect</h5>
+              <div className="flex gap-4">
+                {[Phone, Mail, Globe].map((Icon, i) => (
+                  <div key={i} className="w-10 h-10 bg-slate-900 border border-slate-800 rounded-lg flex items-center justify-center text-slate-400 hover:bg-emerald-600 hover:text-white transition-all cursor-pointer">
+                    <Icon size={18} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-10 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center gap-6">
+            <p className="text-[9px] font-black uppercase tracking-[0.4em] text-slate-600">
+              © 2012-2026 Principal Campus Management Center.
             </p>
+            <div className="flex gap-8 text-[9px] font-black uppercase tracking-[0.4em] text-slate-600">
+              <a href="#" className="hover:text-white">Privacy</a>
+              <a href="#" className="hover:text-white">Terms</a>
+            </div>
           </div>
-
-          <div className="text-[10px] text-slate-400">
-            © 2012-2026 Principal Campus Management Center. All rights reserved.
-          </div>
-
-          <div>
-            <button 
-              onClick={onEnterPortal}
-              className="text-[10px] text-indigo-400 hover:text-indigo-300 uppercase tracking-widest font-extrabold border-b border-indigo-500/30 pb-0.5 cursor-pointer"
-            >
-              Sign In to Acadamis Portal →
-            </button>
-          </div>
-          
         </div>
       </footer>
 
     </div>
   );
 }
+
