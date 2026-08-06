@@ -769,15 +769,15 @@ export default function PrincipalDashboard({
           const ctx = canvas.getContext('2d');
           if (!ctx) return reject('Failed to get canvas context');
 
-          // Limit size to save Firestore bandwidth and storage
-          const maxWidth = 300;
+          // Balanced size to save Firestore bandwidth while maintaining clarity
+          const maxWidth = 400;
           const scale = Math.min(1, maxWidth / img.width);
           canvas.width = img.width * scale;
           canvas.height = img.height * scale;
 
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // 0.7 quality is excellent for mobile displays while keeping size minimal
-          const webpBase64 = canvas.toDataURL('image/webp', 0.7);
+          // 0.8 quality provides high fidelity for portrait photos
+          const webpBase64 = canvas.toDataURL('image/webp', 0.8);
           resolve(webpBase64);
         };
         img.onerror = () => reject('Image load error');
@@ -800,8 +800,12 @@ export default function PrincipalDashboard({
     try {
       setIsConvertingPhoto(true);
       const webpData = await convertToWebP(file);
+      
+      // Calculate approximate size in KB
+      const sizeInKB = Math.round((webpData.length * 3/4) / 1024);
+      
       setSPhoto(webpData);
-      toast.success("Photo compressed and converted to WebP successfully!");
+      toast.success(`Photo compressed successfully! (~${sizeInKB} KB)`);
     } catch (err) {
       console.error(err);
       toast.error("Failed to process image");
@@ -4591,45 +4595,47 @@ export default function PrincipalDashboard({
                 </button>
               </div>
 
-              {/* Data Import / System Restore Section */}
-              <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-rose-500 flex flex-col">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-rose-50 rounded-none border border-rose-100">
-                    <UploadCloud size={24} className="text-rose-600" />
+              {/* Data Import / System Restore Section (Developer Only) */}
+              {userSession.role === 'developer' && (
+                <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-rose-500 flex flex-col">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-rose-50 rounded-none border border-rose-100">
+                      <UploadCloud size={24} className="text-rose-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">System Restore</h2>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">System Restore</h2>
-                  </div>
-                </div>
-                
-                <div className="flex-1 space-y-4">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                    Upload a previously exported JSON backup to overwrite current data. This action is irreversible once completed.
-                  </p>
-                  <div className="p-3 bg-rose-50 border border-dashed border-rose-200 rounded-lg">
-                    <p className="text-[9px] text-rose-700 font-bold uppercase leading-tight ">
-                      Caution: All existing records (Attendance, Fees, Marks) will be replaced by the contents of the uploaded file.
+                  
+                  <div className="flex-1 space-y-4">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
+                      Upload a previously exported JSON backup to overwrite current data. This action is irreversible once completed.
                     </p>
+                    <div className="p-3 bg-rose-50 border border-dashed border-rose-200 rounded-lg">
+                      <p className="text-[9px] text-rose-700 font-bold uppercase leading-tight ">
+                        Caution: All existing records (Attendance, Fees, Marks) will be replaced by the contents of the uploaded file.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <input 
+                      type="file" 
+                      id="system-import-input" 
+                      className="hidden" 
+                      accept=".json" 
+                      onChange={handleImportJSON}
+                    />
+                    <label 
+                      htmlFor="system-import-input"
+                      className="w-full py-4 bg-rose-600 text-white font-black uppercase tracking-[0.2em] text-xs hover:bg-slate-900 transition-all rounded-xl flex items-center justify-center gap-3 shadow-lg cursor-pointer group"
+                    >
+                      <Upload size={20} className="group-hover:-translate-y-1 transition-transform" />
+                      Restore Records (JSON)
+                    </label>
                   </div>
                 </div>
-
-                <div className="mt-6">
-                  <input 
-                    type="file" 
-                    id="system-import-input" 
-                    className="hidden" 
-                    accept=".json" 
-                    onChange={handleImportJSON}
-                  />
-                  <label 
-                    htmlFor="system-import-input"
-                    className="w-full py-4 bg-rose-600 text-white font-black uppercase tracking-[0.2em] text-xs hover:bg-slate-900 transition-all rounded-xl flex items-center justify-center gap-3 shadow-lg cursor-pointer group"
-                  >
-                    <Upload size={20} className="group-hover:-translate-y-1 transition-transform" />
-                    Restore Records (JSON)
-                  </label>
-                </div>
-              </div>
+              )}
             </div>
             <div className="bg-white p-8 border border-slate-200 shadow-sm border-t-4 border-t-slate-900">
               <div className="flex items-center gap-4 mb-8 border-b pb-4">
@@ -5772,24 +5778,24 @@ export default function PrincipalDashboard({
       {/* ========== STUDENT DETAIL REPORT MODAL ========== */}
       <AnimatePresence>
         {selectedStudentReport && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 z-[150] animate-in fade-in duration-300 print:static print:bg-white print:p-0">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-3 sm:p-5 overflow-y-auto z-[150] animate-in fade-in duration-300 print:static print:bg-white print:p-0">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:rounded-none print:border-none print:w-full"
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto sm:my-8 max-h-none print:max-h-none print:shadow-none print:rounded-none print:border-none print:w-full"
             >
               {/* Modal Top Banner & Student Info */}
-              <div className="p-6 sm:p-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden print:bg-white print:text-slate-950 print:border-b print:p-4">
+              <div className="pt-2 pb-5 px-4 sm:pt-4 sm:pb-8 sm:px-8 bg-slate-900 text-white flex justify-between items-start relative overflow-hidden print:bg-white print:text-slate-950 print:border-b print:p-4">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl print:hidden"></div>
                 
-                <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-5">
-                  <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-indigo-300/40 shadow-xl bg-slate-800 shrink-0">
+                <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-5 -mt-1">
+                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-2 border-indigo-300/40 shadow-xl bg-slate-800 shrink-0">
                     {getStudentPhoto(selectedStudentReport) ? (
                       <img 
                         src={getStudentPhoto(selectedStudentReport)} 
                         alt={selectedStudentReport.name} 
-                        className="w-full h-full object-cover" 
+                        className="w-full h-full object-cover object-top" 
                       />
                     ) : (
                       <div className="w-full h-full bg-slate-800 flex items-center justify-center" />
