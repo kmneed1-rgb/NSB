@@ -342,7 +342,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-20 items-center">
             
             <div className="lg:col-span-5 space-y-8">
-              <div className="inline-block px-4 py-1.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-widest rounded-full">
+              <div className="inline-block px-4 py-1.5 bg-emerald-50 text-emerald-600 text-[11px] font-black uppercase tracking-widest rounded-full">
                 Session 2026-27 Open
               </div>
               <h2 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
@@ -363,7 +363,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                       <info.icon size={18} />
                     </div>
                     <div>
-                      <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{info.label}</div>
+                      <div className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{info.label}</div>
                       <div className="text-sm font-bold text-slate-950">{info.val}</div>
                     </div>
                   </div>
@@ -405,7 +405,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                   <form onSubmit={handleInquirySubmit} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Student Complete Name</label>
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Student Complete Name</label>
                         <input
                           type="text"
                           required
@@ -416,7 +416,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Parent Contact Index</label>
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Parent Contact Index</label>
                         <input
                           type="tel"
                           required
@@ -429,7 +429,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Admission Grade</label>
+                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Admission Grade</label>
                       <select
                         value={selectedGrade}
                         onChange={(e) => setSelectedGrade(e.target.value)}
@@ -444,7 +444,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Additional Requirements</label>
+                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Additional Requirements</label>
                       <textarea
                         rows={4}
                         placeholder="Specify custom requirements or subject preferences..."
@@ -517,10 +517,10 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           </div>
 
           <div className="pt-10 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center gap-6">
-            <p className="text-[9px] font-black uppercase tracking-[0.4em] text-slate-600">
+            <p className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-600">
               © 2012-2026 Principal Campus Management Center.
             </p>
-            <div className="flex gap-8 text-[9px] font-black uppercase tracking-[0.4em] text-slate-600">
+            <div className="flex gap-8 text-[11px] font-black uppercase tracking-[0.4em] text-slate-600">
               <a href="#" className="hover:text-white">Privacy</a>
               <a href="#" className="hover:text-white">Terms</a>
             </div>

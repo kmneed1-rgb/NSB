@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
-  Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX,
+  Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX, User,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
   Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School
 } from 'lucide-react';
@@ -182,7 +182,7 @@ export default function TeacherDashboard({
     toast.success(`Collection of ${collected} for ${student.name} recorded!`);
 
     // SATH HI: Trigger parents message notification popup preview
-    const rawMsg = `Saddar Campus Fee Deposit Receipt:\nAssalam-o-Alaikum! Fee payment of Rs. ${collected} has been received for student ${student.name} (${newFeeMonth} - ${newFeeType}). Your account balance has been updated. Thank you.\n- NSB1 Digital Registrar Office.`;
+    const rawMsg = `Saddar Campus Fee Deposit Receipt:\nAssalam-o-Alaikum! Fee payment of ${collected} has been received for student ${student.name} (${newFeeMonth} - ${newFeeType}). Your account balance has been updated. Thank you.\n- NSB1 Digital Registrar Office.`;
 
     setFeeNotificationPopup({
       studentName: student.name,
@@ -684,9 +684,9 @@ export default function TeacherDashboard({
       
       {/* Mobile Top Bar */}
       <div id="mobile-teacher-top-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
-          <span className="font-bold text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xs">NSB1 School</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="NSB1 Logo" className="w-20 h-20 object-contain" referrerPolicy="no-referrer" />
+          <h1 className="font-black text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xl sm:text-2xl">NSB1 School</h1>
         </div>
         <div className="flex items-center gap-2 relative">
           {/* Mobile Bell Button */}
@@ -698,21 +698,12 @@ export default function TeacherDashboard({
           >
             <Bell size={18} />
             {notifications.filter(n => n.isUnread).length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-650 text-white font-black text-[7px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+              <span className="absolute -top-1 -right-1 bg-red-650 text-white font-black text-[10px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                 {notifications.filter(n => n.isUnread).length}
               </span>
             )}
           </button>
 
-          <button 
-             onClick={onLogout}
-             className="px-3 py-1.5 rounded-lg border border-red-100 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white flex items-center gap-1.5 font-black text-[10px] uppercase transition-all shadow-sm"
-             title="Logout"
-          >
-            <LogOut size={14} />
-            EXIT
-          </button>
-          
           <button 
             id="teacher-sidebar-toggle" 
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -740,18 +731,18 @@ export default function TeacherDashboard({
       >
         <div>
           {/* Minimalist Brand header */}
-          <div className="p-8 border-b border-slate-50 flex flex-col items-center gap-3">
+          <div className="p-4 border-b border-slate-50 flex flex-col items-center gap-2">
             <div className="flex items-center justify-between w-full">
-              <div className="mb-2">
-                <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain" referrerPolicy="no-referrer" />
+              <div className="mb-1">
+                <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
               </div>
               <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
                 <X size={18} />
               </button>
             </div>
             <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase leading-none">NSB1 School</h1>
-              <p className="text-indigo-600 font-black text-[9px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
+              <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 School</h1>
+              <p className="text-indigo-600 font-black text-[10px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
             </div>
           </div>
 
@@ -772,7 +763,7 @@ export default function TeacherDashboard({
                   handleTabChange(item.id as TabType); 
                   setSidebarOpen(false); 
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all ${
+                className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase tracking-widest text-left transition-all ${
                   activeTab === item.id 
                     ? 'bg-emerald-600 shadow-lg shadow-emerald-100 text-white' 
                     : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -786,7 +777,7 @@ export default function TeacherDashboard({
             {/* Install Button in Teacher Sidebar */}
             <button
               onClick={onInstallApp}
-              className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
             >
               <Download size={14} className="text-indigo-600" />
               Install App
@@ -797,12 +788,12 @@ export default function TeacherDashboard({
         {/* Minimalist Profile section */}
         <div className="p-6 border-t border-slate-50">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] ">
-              {userSession.name.charAt(0)}
+            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-xs ">
+              <User size={14} />
             </div>
             <div className="truncate">
-              <p className="text-slate-900 text-[11px] font-black uppercase tracking-tight truncate">{userSession.name}</p>
-              <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest truncate">{teacherSubject}</p>
+              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">{teacherSubject}</p>
             </div>
           </div>
           
@@ -822,7 +813,10 @@ export default function TeacherDashboard({
         {/* Global Desktop Top Bar with Real-time Period Alert & Notification Bell */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
           <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 School</h1>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain sm:block hidden" referrerPolicy="no-referrer" />
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight sm:block hidden select-none">NSB1 School</h2>
+            </div>
             
             {/* Real-time active period locator */}
             {(() => {
@@ -843,7 +837,7 @@ export default function TeacherDashboard({
               });
 
               if (!currentPeriodObj) return (
-                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold uppercase tracking-wider">
                   <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                   No Active Lecture Right Now
                 </div>
@@ -853,7 +847,7 @@ export default function TeacherDashboard({
               const classLabel = matchingClass ? `${matchingClass.className}-${matchingClass.section}` : '';
 
               return (
-                <div className="flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-100 text-red-700 rounded-full text-[10px] font-extrabold uppercase tracking-widest animate-pulse">
+                <div className="flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-100 text-red-700 rounded-full text-xs font-extrabold uppercase tracking-widest animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-red-650 animate-ping"></span>
                   LIVE: {currentPeriodObj.period} ({currentPeriodObj.subject} — Class {classLabel})
                 </div>
@@ -865,7 +859,7 @@ export default function TeacherDashboard({
             {/* Quick Period Simulator */}
             <button
               onClick={handleSimulateNextPeriod}
-              className="text-[9px] font-extrabold uppercase tracking-widest bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-3 py-2 transition-all shadow-xs rounded-none flex items-center gap-1.5 cursor-pointer"
+              className="text-xs font-extrabold uppercase tracking-widest bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-3 py-2 transition-all shadow-xs rounded-none flex items-center gap-1.5 cursor-pointer"
               title="Test class bells and push notifications"
             >
               <Clock size={12} className="animate-spin-slow" />
@@ -887,12 +881,12 @@ export default function TeacherDashboard({
             <div className="relative">
               <button 
                 onClick={() => setShowNotifDropdown(!showNotifDropdown)}
-                className={`p-2 hover:bg-slate-100 border border-slate-200 rounded-none transition-all flex items-center justify-center relative uppercase font-black text-[10px] ${showNotifDropdown ? 'bg-slate-100' : 'bg-white'}`}
+                className={`p-2 hover:bg-slate-100 border border-slate-200 rounded-none transition-all flex items-center justify-center relative uppercase font-black text-xs ${showNotifDropdown ? 'bg-slate-100' : 'bg-white'}`}
                 title="Notifications"
               >
                 <Bell size={16} className="text-slate-600" />
                 {notifications.filter(n => n.isUnread).length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-[8px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-xs w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                     {notifications.filter(n => n.isUnread).length}
                   </span>
                 )}
@@ -909,15 +903,15 @@ export default function TeacherDashboard({
                       className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-none shadow-xl z-50 py-3 flex flex-col font-sans"
                     >
                       <div className="px-4 pb-2 border-b border-slate-150 flex items-center justify-between">
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">School Bells / Alerts</span>
+                        <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">School Bells / Alerts</span>
                         <div className="flex items-center gap-2">
                           {notifications.length > 0 && (
-                            <button onClick={handleMarkAllRead} className="text-[9px] hover:underline text-indigo-600 font-bold uppercase">Mark Read</button>
+                            <button onClick={handleMarkAllRead} className="text-xs hover:underline text-indigo-600 font-bold uppercase">Mark Read</button>
                           )}
                           {notifications.length > 0 && (
                             <span className="text-slate-200">|</span>
                           )}
-                          <button onClick={handleClearNotifications} className="text-[9px] hover:underline text-rose-600 font-bold uppercase">Clear</button>
+                          <button onClick={handleClearNotifications} className="text-xs hover:underline text-rose-600 font-bold uppercase">Clear</button>
                         </div>
                       </div>
 
@@ -941,8 +935,8 @@ export default function TeacherDashboard({
                                     <span className="truncate">{notif.title}</span>
                                     {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-605 shrink-0"></span>}
                                   </h4>
-                                  <p className="text-[10px] text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
-                                  <span className="text-[8px] text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
+                                  <p className="text-xs text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
+                                  <span className="text-xs text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
                                 </div>
                               </div>
                             </div>
@@ -965,7 +959,7 @@ export default function TeacherDashboard({
               <div>
                 <h1 className="text-xl font-black text-slate-900 tracking-tight font-display uppercase">{userSession.name}</h1>
                 <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <div className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase tracking-wider border border-emerald-100 ">
+                  <div className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider border border-emerald-100 ">
                     Faculty Member
                   </div>
                   <div className="w-1 h-1 rounded-full bg-slate-300"></div>
@@ -990,7 +984,7 @@ export default function TeacherDashboard({
                     <div className="p-4 bg-emerald-50 rounded-none border border-emerald-100 flex items-center gap-3">
                       <UserCheck className="text-emerald-600 shrink-0" size={24} />
                       <div>
-                        <h4 className="text-[10px] font-extrabold text-emerald-950 uppercase tracking-wider">My Designated Class</h4>
+                        <h4 className="text-xs font-extrabold text-emerald-950 uppercase tracking-wider">My Designated Class</h4>
                         <p className="text-sm text-emerald-800 font-bold mt-0.5">{mc?.className} - {mc?.section}</p>
                       </div>
                     </div>
@@ -1043,13 +1037,13 @@ export default function TeacherDashboard({
                       <CalendarDays size={14} className="text-indigo-600" />
                       Class Lectures scheduled today ({todayClasses.length})
                     </h3>
-                    <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Timetabled Lectures</span>
+                    <span className="text-xs text-indigo-500 font-bold uppercase tracking-wider">Timetabled Lectures</span>
                   </div>
 
                   {todayClasses.length === 0 ? (
                     <div className="bg-slate-50 border border-slate-100 p-6 text-center text-slate-500 rounded-none text-xs">
                       ☕ No formal lectures assigned to your ID under <strong>{currentDayName}</strong>. 
-                      <p className="mt-1.5 text-[11px] text-slate-400">Great opportunity to review grading portfolios or coordinate with fellow faculty members!</p>
+                      <p className="mt-1.5 text-xs text-slate-400">Great opportunity to review grading portfolios or coordinate with fellow faculty members!</p>
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
@@ -1061,14 +1055,14 @@ export default function TeacherDashboard({
                           <div key={lecture.id} className="bg-slate-50 hover:bg-slate-100/80 border border-slate-150 p-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 transition-colors">
                             <div className="space-y-1">
                               <div className="flex items-center gap-2">
-                                <span className="bg-indigo-100 text-indigo-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 font-mono">
+                                <span className="bg-indigo-100 text-indigo-800 text-xs font-black uppercase tracking-wider px-2 py-0.5 font-mono">
                                   {lecture.period}
                                 </span>
                                 <h4 className="text-xs font-black uppercase text-slate-800 flex items-center gap-1">
                                   🏫 {getClassLabel(lecture.classId)}
                                 </h4>
                                 {isMentor && (
-                                  <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 font-bold">
+                                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 font-bold">
                                     Primary Mentor
                                   </span>
                                 )}
@@ -1079,7 +1073,7 @@ export default function TeacherDashboard({
                             </div>
 
                             <div className="text-right self-end md:self-auto">
-                              <span className="text-[10px] font-mono font-bold bg-white text-slate-700 border border-slate-200 px-2.5 py-1">
+                              <span className="text-xs font-mono font-bold bg-white text-slate-700 border border-slate-200 px-2.5 py-1">
                                 🕒 {lecture.time}
                               </span>
                             </div>
@@ -1101,13 +1095,13 @@ export default function TeacherDashboard({
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          <span className="text-[10px] font-black uppercase text-slate-500">Total P: {attendanceStatusList.reduce((acc, curr) => acc + curr.presentCount, 0)}</span>
+                          <span className="text-xs font-black uppercase text-slate-500">Total P: {attendanceStatusList.reduce((acc, curr) => acc + curr.presentCount, 0)}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                          <span className="text-[10px] font-black uppercase text-slate-500">Total A: {attendanceStatusList.reduce((acc, curr) => acc + curr.absentCount, 0)}</span>
+                          <span className="text-xs font-black uppercase text-slate-500">Total A: {attendanceStatusList.reduce((acc, curr) => acc + curr.absentCount, 0)}</span>
                         </div>
-                        <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Verification Task</span>
+                        <span className="text-xs text-emerald-600 font-bold uppercase tracking-wider">Verification Task</span>
                       </div>
                     </div>
 
@@ -1132,12 +1126,12 @@ export default function TeacherDashboard({
                                   Class {item.className}
                                 </h4>
                                 {item.isMentorClass && (
-                                  <span className="text-[8px] uppercase tracking-wider font-extrabold bg-blue-50 text-blue-600 px-1.5 border border-blue-100">
+                                  <span className="text-xs uppercase tracking-wider font-extrabold bg-blue-50 text-blue-600 px-1.5 border border-blue-100">
                                     My Cohort
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[10px] text-slate-500">
+                              <p className="text-xs text-slate-500">
                                 Total Pupils: <span className="font-bold text-slate-700">{item.studentCount}</span>
                                 {item.marked && (
                                   <>
@@ -1152,11 +1146,11 @@ export default function TeacherDashboard({
 
                             <div className="flex items-center gap-2">
                               {item.marked ? (
-                                <span className="text-[9px] font-mono font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-1 uppercase rounded-none flex items-center gap-1">
+                                <span className="text-xs font-mono font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-1 uppercase rounded-none flex items-center gap-1">
                                   ✓ Logged
                                 </span>
                               ) : (
-                                <span className="text-[9px] font-mono font-extrabold text-rose-600 bg-rose-100/80 px-2 py-1 uppercase rounded-none">
+                                <span className="text-xs font-mono font-extrabold text-rose-600 bg-rose-100/80 px-2 py-1 uppercase rounded-none">
                                   ⚠️ Pending
                                 </span>
                               )}
@@ -1168,7 +1162,7 @@ export default function TeacherDashboard({
                                   handleTabChange('attendance');
                                   window.scrollTo({ top: 0, behavior: 'smooth' });
                                 }}
-                                className={`text-[9px] font-extrabold uppercase py-1.5 px-3 transition-all cursor-pointer ${
+                                className={`text-xs font-extrabold uppercase py-1.5 px-3 transition-all cursor-pointer ${
                                   item.marked
                                     ? 'bg-slate-150 hover:bg-slate-200 text-slate-800'
                                     : 'bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold shadow-sm'
@@ -1184,7 +1178,7 @@ export default function TeacherDashboard({
                   </div>
 
                   {pendingCount > 0 && (
-                    <div className="bg-amber-50 border border-amber-100 p-3 text-[10px] text-amber-950 font-mono font-medium leading-relaxed">
+                    <div className="bg-amber-50 border border-amber-100 p-3 text-xs text-amber-950 font-mono font-medium leading-relaxed">
                       ⚠️ Remainder: Principal office sync expects all student attendance records to be updated and signed by 2:00 PM today.
                     </div>
                   )}
@@ -1201,7 +1195,7 @@ export default function TeacherDashboard({
                   </div>
                   <div>
                     <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider font-display">My Timetable</h2>
-                    <p className="text-[10px] text-slate-500 mt-0.5 uppercase font-bold tracking-widest">Global period view organized by day cards</p>
+                    <p className="text-xs text-slate-500 mt-0.5 uppercase font-bold tracking-widest">Global period view organized by day cards</p>
                   </div>
                 </div>
               </div>
@@ -1217,7 +1211,7 @@ export default function TeacherDashboard({
                   return (
                     <div key={day} className="animate-fade-in">
                       <div className="flex items-center gap-3 mb-3">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em] bg-slate-900 text-white px-2 py-0.5">{day}</span>
+                        <span className="text-xs font-black text-slate-900 uppercase tracking-[0.2em] bg-slate-900 text-white px-2 py-0.5">{day}</span>
                         <div className="h-px flex-1 bg-slate-100"></div>
                       </div>
                       <div className="grid grid-cols-2 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -1226,13 +1220,13 @@ export default function TeacherDashboard({
                           return (
                             <div key={entry.id} className="bg-white border border-slate-200 p-3 shadow-xs hover:border-amber-300 transition-colors flex flex-col justify-between group">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-tighter bg-amber-50 px-1 border border-amber-100">
+                                <span className="text-xs font-black text-amber-600 uppercase tracking-tighter bg-amber-50 px-1 border border-amber-100">
                                   {entry.period}
                                 </span>
                               </div>
                               <div>
-                                <p className="text-[10px] font-black text-slate-900 leading-tight group-hover:text-amber-700 transition-colors uppercase ">{entry.subject}</p>
-                                <p className="text-[8px] text-slate-500 font-bold uppercase tracking-tight mt-0.5">{clsLabel}</p>
+                                <p className="text-xs font-black text-slate-900 leading-tight group-hover:text-amber-700 transition-colors uppercase ">{entry.subject}</p>
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-tight mt-0.5">{clsLabel}</p>
                               </div>
                             </div>
                           );
@@ -1303,14 +1297,14 @@ export default function TeacherDashboard({
                       </div>
                       <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-slate-900">Update Credentials</h2>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Portal Access Security</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Portal Access Security</p>
                       </div>
                     </div>
 
 
                     <div className="space-y-6">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Current ID</label>
+                        <label className="text-xs font-black uppercase tracking-widest text-slate-400 block">Current ID</label>
                         <input 
                           type="text" 
                           disabled 
@@ -1319,7 +1313,7 @@ export default function TeacherDashboard({
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">New Password</label>
+                        <label className="text-xs font-black uppercase tracking-widest text-slate-400 block">New Password</label>
                         <input 
                           type="password"
                           value={newPassword}
@@ -1327,7 +1321,7 @@ export default function TeacherDashboard({
                           placeholder="••••••••"
                           className="w-full bg-white border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-slate-900" 
                         />
-                        <p className="text-[9px] text-slate-400 ">Minimum 8 characters recommended for robust security.</p>
+                        <p className="text-xs text-slate-400 ">Minimum 8 characters recommended for robust security.</p>
                       </div>
 
                       <button
@@ -1427,7 +1421,7 @@ export default function TeacherDashboard({
                                 <Users size={12} />
                               </div>
                             )}
-                            <span className="font-semibold text-slate-900">{s.name}</span>
+                            <span className="font-semibold text-slate-900">{s.name.split(' ').slice(1).join(' ') || s.name}</span>
                           </td>
                           <td className="px-6 py-4 text-xs font-medium text-gray-600">{s.email}</td>
                           <td className="px-6 py-4 text-xs font-mono text-gray-500">{s.parentPhone}</td>
@@ -1438,7 +1432,7 @@ export default function TeacherDashboard({
                                 setShowProfileModal(true);
                                 setProfileMarkSubject(teacherSubject);
                               }}
-                              className="px-4 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white border border-indigo-100 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm"
+                              className="px-4 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white border border-indigo-100 rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-sm"
                             >
                               Profile
                             </button>
@@ -1534,7 +1528,7 @@ export default function TeacherDashboard({
                           setScratchAttendance(updated);
                           toast.success("Marked all students as Present");
                         }}
-                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border border-emerald-200"
+                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all border border-emerald-200"
                       >
                         ✅ All Present
                       </button>
@@ -1546,7 +1540,7 @@ export default function TeacherDashboard({
                           setScratchAttendance(updated);
                           toast.success("Marked all students as Absent");
                         }}
-                        className="px-2.5 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border border-rose-200"
+                        className="px-2.5 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all border border-rose-200"
                       >
                         ❌ All Absent
                       </button>
@@ -1585,10 +1579,10 @@ export default function TeacherDashboard({
                         >
                           {/* Card Header: Roll & Status Badge */}
                           <div className="flex items-center justify-between gap-2 mb-3">
-                            <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                            <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                               Roll #{student.rollNumber}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
+                            <span className={`px-2 py-0.5 rounded-md text-xs font-black uppercase tracking-wider border ${
                               status === "present" ? "bg-emerald-600 text-white font-black shadow-xs" : status === "absent" ? "bg-rose-600 text-white font-black shadow-xs animate-pulse" : status === "late" ? "bg-amber-500 text-white font-black shadow-xs" : "bg-blue-600 text-white font-black shadow-xs"
                             }`}>
                               {status.toUpperCase()}
@@ -1607,7 +1601,7 @@ export default function TeacherDashboard({
                               ) : (
                                 <div className="w-20 h-20 rounded-2xl border-2 border-indigo-200 bg-slate-50 shadow-inner mx-auto" />
                               )}
-                              <span className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold border-2 border-white shadow-xs ${
+                              <span className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs text-white font-bold border-2 border-white shadow-xs ${
                                 status === 'present' ? 'bg-emerald-500' :
                                 status === 'absent' ? 'bg-rose-500' :
                                 status === 'late' ? 'bg-amber-500' :
@@ -1617,11 +1611,11 @@ export default function TeacherDashboard({
                               </span>
                             </div>
 
-                            <h4 className="font-black text-slate-900 text-sm tracking-tight truncate">{student.name}</h4>
-                            <p className="text-[10px] text-slate-400 font-mono truncate">{student.email}</p>
+                            <h4 className="font-black text-slate-900 text-base tracking-tight truncate">{student.name.split(' ').slice(1).join(' ') || student.name}</h4>
+                            <p className="text-xs text-slate-400 font-mono truncate">{student.email}</p>
 
                             <div className="mt-2 flex justify-center">
-                              <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                              <span className={`px-2 py-0.5 rounded text-xs font-black uppercase tracking-widest border ${
                                 isPaid 
                                   ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
                                   : 'bg-amber-50 text-amber-600 border-amber-200'
@@ -1638,7 +1632,7 @@ export default function TeacherDashboard({
                                 key={st}
                                 type="button"
                                 onClick={() => handleSetStatus(student.id, st)}
-                                className={`py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                className={`py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
                                   status === st
                                     ? st === 'present' ? 'bg-emerald-600 text-white shadow-sm' :
                                       st === 'absent' ? 'bg-rose-600 text-white shadow-sm' :
@@ -1703,7 +1697,7 @@ export default function TeacherDashboard({
                                   )}
                                   <div>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-semibold text-slate-900 block">{student.name}</span>
+                                      <span className="font-semibold text-slate-900 block text-sm">{student.name.split(' ').slice(1).join(' ') || student.name}</span>
                                       {(() => {
                                         const studentFees = fees.filter(f => f.studentId === student.id);
                                         const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
@@ -1715,7 +1709,7 @@ export default function TeacherDashboard({
                                               e.stopPropagation();
                                               handleTabChange('fees');
                                             }}
-                                            className={`px-1.5 py-0.5 rounded-none text-[7px] font-black uppercase tracking-tighter border transition-all ${
+                                            className={`px-1.5 py-0.5 rounded-none text-[10px] font-black uppercase tracking-tighter border transition-all ${
                                               isPaid 
                                                 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
                                                 : 'bg-amber-50 text-amber-600 border-amber-100 animate-pulse'
@@ -1726,7 +1720,7 @@ export default function TeacherDashboard({
                                         );
                                       })()}
                                     </div>
-                                    <span className="text-[10px] text-gray-400 font-mono">{student.email}</span>
+                                    <span className="text-xs text-gray-400 font-mono">{student.email}</span>
                                   </div>
                                 </div>
                               </td>
@@ -1737,7 +1731,7 @@ export default function TeacherDashboard({
                                       key={st}
                                       type="button"
                                       onClick={() => handleSetStatus(student.id, st)}
-                                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
                                         status === st
                                           ? st === "present" ? "bg-emerald-600 text-white font-bold shadow-md" : st === "absent" ? "bg-rose-600 text-white font-bold shadow-md animate-pulse" : st === "late" ? "bg-amber-500 text-white font-bold shadow-md" : "bg-blue-600 text-white font-bold shadow-md"
                                           : 'text-gray-400 hover:text-gray-900 hover:bg-white'
@@ -1789,7 +1783,7 @@ export default function TeacherDashboard({
                           {/* Progress indicators */}
                           <div className="flex justify-between items-center text-xs text-slate-600 font-bold px-1">
                             <span>Student {activeSwipeIndex + 1} of {viewClassStudents.length}</span>
-                            <span className="font-mono bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-indigo-100">
+                            <span className="font-mono bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-xs font-bold border border-indigo-100">
                               {Math.round((activeSwipeIndex / viewClassStudents.length) * 100)}% Complete
                             </span>
                           </div>
@@ -1838,7 +1832,7 @@ export default function TeacherDashboard({
                                     <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                                       Roll #{currentStudent.rollNumber}
                                     </span>
-                                    <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded-md">
+                                    <span className="text-xs text-indigo-600 font-bold uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded-md">
                                       👈 Swipe Left (A) | Swipe Right (P) 👉
                                     </span>
                                   </div>
@@ -1861,11 +1855,11 @@ export default function TeacherDashboard({
                                 </div>
 
                                 {/* Active Badge Indicator Hints inside card */}
-                                <div className="flex items-center justify-between text-[11px] font-bold tracking-wider pt-3 border-t border-slate-100">
+                                <div className="flex items-center justify-between text-xs font-bold tracking-wider pt-3 border-t border-slate-100">
                                   <div className="text-rose-600 font-black flex items-center gap-1 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
                                     👈 ABSENT
                                   </div>
-                                  <span className="text-slate-400 text-[10px] uppercase font-semibold">Or tap buttons</span>
+                                  <span className="text-slate-400 text-xs uppercase font-semibold">Or tap buttons</span>
                                   <div className="text-emerald-600 font-black flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
                                     PRESENT 👉
                                   </div>
@@ -1884,7 +1878,7 @@ export default function TeacherDashboard({
                                   handleSetStatus(currentStudent.id, st);
                                   setActiveSwipeIndex(idx => idx + 1);
                                 }}
-                                className={`py-3 text-[11px] font-black tracking-wider uppercase text-center rounded-xl transition-all border shadow-xs cursor-pointer ${
+                                className={`py-3 text-xs font-black tracking-wider uppercase text-center rounded-xl transition-all border shadow-xs cursor-pointer ${
                                   st === 'present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white' :
                                   st === 'absent' ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-600 hover:text-white' :
                                   st === 'late' ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-600 hover:text-white' :
@@ -1923,13 +1917,13 @@ export default function TeacherDashboard({
                       {/* Summary statistics */}
                       <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                         <div>
-                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider font-mono">Present</p>
+                          <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider font-mono">Present</p>
                           <span className="text-2xl font-black text-emerald-800">
                             {Object.values(scratchAttendance).filter(v => v === 'present').length}
                           </span>
                         </div>
                         <div>
-                          <p className="text-[10px] font-bold text-rose-500 uppercase tracking-wider font-mono">Absent</p>
+                          <p className="text-xs font-bold text-rose-500 uppercase tracking-wider font-mono">Absent</p>
                           <span className="text-2xl font-black text-rose-800">
                             {Object.values(scratchAttendance).filter(v => v === 'absent').length}
                           </span>
@@ -1970,14 +1964,14 @@ export default function TeacherDashboard({
                       <h3 className="text-xs font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5 font-display">
                         📢 WhatsApp Absent Alert Center
                       </h3>
-                      <p className="text-[11px] text-indigo-200">
+                      <p className="text-xs text-indigo-200">
                         Prowl through absent registers on active date {attendanceDate} and execute direct manual alerts or auto rule models to parent contacts.
                       </p>
                     </div>
                     {absentsList.length > 0 && (
                       <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 flex items-center gap-2">
-                         <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Read-Only View</span>
-                         <p className="text-[9px] text-slate-400 font-bold uppercase ">Absence alerts must be approved and dispatched by the school coordinator.</p>
+                         <span className="text-xs font-black text-amber-500 uppercase tracking-widest">Read-Only View</span>
+                         <p className="text-xs text-slate-400 font-bold uppercase ">Absence alerts must be approved and dispatched by the school coordinator.</p>
                       </div>
                     )}
                   </div>
@@ -1989,11 +1983,11 @@ export default function TeacherDashboard({
                           <div key={st.id} className="bg-white/5 border border-white/10 p-3.5 space-y-2 flex flex-col">
                             <div className="flex justify-between items-start border-b border-white/5 pb-2">
                               <h4 className="text-xs font-bold text-white uppercase">{st.name}</h4>
-                              <span className="text-[9px] font-mono text-indigo-300 font-bold bg-indigo-500/10 px-1.5">Roll: #{st.rollNumber}</span>
+                              <span className="text-xs font-mono text-indigo-300 font-bold bg-indigo-500/10 px-1.5">Roll: #{st.rollNumber}</span>
                             </div>
                             <div className="pt-1">
-                              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Parent Name</p>
-                              <p className="text-[10px] text-emerald-400 font-bold uppercase mt-0.5">{st.guardianName || 'Guardian'}</p>
+                              <p className="text-xs text-slate-400 font-black uppercase tracking-widest">Parent Name</p>
+                              <p className="text-xs text-emerald-400 font-bold uppercase mt-0.5">{st.guardianName || 'Guardian'}</p>
                             </div>
                           </div>
                         );
@@ -2086,7 +2080,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                       <div className="sm:col-span-3 space-y-1">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Subject</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Active Subject</label>
                         <select
                           value={reportSubjectToAdd}
                           onChange={(e) => setReportSubjectToAdd(e.target.value)}
@@ -2109,7 +2103,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                       </div>
 
                       <div className="sm:col-span-4 space-y-1">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Book / Test Reference</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Book / Test Reference</label>
                         <input
                           type="text"
                           value={reportRefToAdd}
@@ -2242,13 +2236,13 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
               <div className="flex bg-white p-1 rounded-xl border border-amber-200 shadow-sm">
                 <button 
                   onClick={() => setTimetableSubTab('my')}
-                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${timetableSubTab === 'my' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${timetableSubTab === 'my' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
                 >
                   My Schedule
                 </button>
                 <button 
                   onClick={() => setTimetableSubTab('class')}
-                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${timetableSubTab === 'class' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${timetableSubTab === 'class' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
                 >
                   Class Schedule
                 </button>
@@ -2257,7 +2251,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
             {timetableSubTab === 'class' && (
               <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-amber-100 shadow-sm animate-fade-in">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Class:</span>
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Select Class:</span>
                 <select 
                   value={timetableClassId}
                   onChange={(e) => setTimetableClassId(e.target.value)}
@@ -2280,7 +2274,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                         Weekday
                       </th>
                       {PERIODS.map(p => (
-                        <th key={p} className="px-4 py-3.5 text-xs font-bold text-gray-500 uppercase tracking-wider text-center border-l border-gray-150">
+                        <th key={p} className="px-4 py-3.5 text-sm font-bold text-gray-500 uppercase tracking-wider text-center border-l border-gray-150">
                           {p}
                         </th>
                       ))}
@@ -2304,7 +2298,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                             <td key={p} className="px-3 py-3 text-center border-l border-gray-200 align-top min-w-36">
                               {(() => {
                                 if (!entry) return (
-                                  <span className="text-[11px] text-gray-300 font-medium  block py-4 select-none">
+                                  <span className="text-xs text-gray-300 font-medium  block py-4 select-none">
                                     No Lecture
                                   </span>
                                 );
@@ -2337,17 +2331,17 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                         {entry.subject}
                                       </div>
                                       {isLive && (
-                                        <span className="shrink-0 bg-red-650 text-white text-[7px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
+                                        <span className="shrink-0 bg-red-650 text-white text-[10px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
                                           LIVE
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-[10px] text-slate-755 mt-0.5 truncate font-medium">
+                                    <div className="text-xs text-slate-755 mt-0.5 truncate font-medium">
                                       {timetableSubTab === 'my' 
                                         ? `🏫 Class: ${getClassLabel(entry.classId)}` 
                                         : `👤 Teacher: ${getTeacherName(entry.teacherId)}`}
                                     </div>
-                                    <div className="text-[9px] font-mono text-slate-500 mt-1 flex items-center justify-between">
+                                    <div className="text-xs font-mono text-slate-500 mt-1 flex items-center justify-between">
                                       <span>{entry.time}</span>
                                     </div>
                                   </div>
@@ -2376,7 +2370,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
               </div>
               <button
                 onClick={() => setShowAddFeeModal(true)}
-                className="px-6 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200"
+                className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-[0.3em] flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-xl shadow-slate-200"
               >
                 <Plus size={14} /> Record Cash Collection
               </button>
@@ -2384,34 +2378,34 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white p-6 border border-slate-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ">Total Expected</p>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 ">Total Expected</p>
                 <h3 className="text-2xl font-black text-slate-900 tracking-tighter">
-                  Rs. {students.length * 5500}
+                  {students.length * 5500}
                 </h3>
               </div>
               <div className="bg-white p-6 border border-emerald-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1 ">Cash Collected</p>
+                <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-1 ">Cash Collected</p>
                 <h3 className="text-2xl font-black text-emerald-700 tracking-tighter">
-                  Rs. {fees.reduce((acc, curr) => acc + curr.amount, 0)}
+                  {fees.reduce((acc, curr) => acc + curr.amount, 0)}
                 </h3>
               </div>
               <div className="bg-white p-6 border border-amber-100 shadow-sm rounded-none">
-                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1 ">Pending Dues</p>
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-1 ">Pending Dues</p>
                 <h3 className="text-2xl font-black text-amber-700 tracking-tighter">
-                  Rs. {(students.length * 5500) - fees.reduce((acc, curr) => acc + curr.amount, 0)}
+                  {(students.length * 5500) - fees.reduce((acc, curr) => acc + curr.amount, 0)}
                 </h3>
               </div>
             </div>
 
             <div className="bg-white border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
                   <CreditCard size={14} className="text-emerald-600" /> Recent Collection Ledger
                 </h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-400">
+                  <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-400">
                     <tr>
                       <th className="px-6 py-4">Transaction ID</th>
                       <th className="px-6 py-4">Student Profile</th>
@@ -2420,7 +2414,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                       <th className="px-6 py-4">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50 text-[11px]">
+                  <tbody className="divide-y divide-slate-50 text-xs">
                     {fees.length > 0 ? (
                       fees.slice().reverse().map(fee => {
                         const student = students.find(s => String(s.id) === String(fee.studentId));
@@ -2431,19 +2425,19 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                             <td className="px-6 py-4 font-mono font-bold text-slate-400">#{fee.id.slice(-6)}</td>
                             <td className="px-6 py-4">
                               <span className="font-black text-slate-900 block tracking-tight uppercase">{sName}</span>
-                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">{sRoll}</span>
+                              <span className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-none">{sRoll}</span>
                             </td>
-                            <td className="px-6 py-4 text-slate-500 font-bold tracking-widest text-[10px]">{fee.paidDate || fee.month}</td>
-                            <td className="px-6 py-4 text-emerald-600 font-black tracking-tighter text-sm">Rs. {fee.amount}</td>
+                            <td className="px-6 py-4 text-slate-500 font-bold tracking-widest text-xs">{fee.paidDate || fee.month}</td>
+                            <td className="px-6 py-4 text-emerald-600 font-black tracking-tighter text-sm">{fee.amount}</td>
                             <td className="px-6 py-4 uppercase">
-                              <span className="bg-emerald-50 text-emerald-600 px-2 py-1 text-[8px] font-black tracking-widest border border-emerald-100">Verified</span>
+                              <span className="bg-emerald-50 text-emerald-600 px-2 py-1 text-xs font-black tracking-widest border border-emerald-100">Verified</span>
                             </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400  font-bold uppercase tracking-widest text-[10px]">No collection records found in active period</td>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400  font-bold uppercase tracking-widest text-xs">No collection records found in active period</td>
                       </tr>
                     )}
                   </tbody>
@@ -2495,7 +2489,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
               >
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Portal Login ID / Username</label>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">Portal Login ID / Username</label>
                     <input 
                       name="username"
                       type="text" 
@@ -2507,7 +2501,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">New Password</label>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">New Password</label>
                     <input 
                       name="password"
                       type="password" 
@@ -2519,7 +2513,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Confirm New Password</label>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1.5">Confirm New Password</label>
                     <input 
                       name="confirm_password"
                       type="password" 
@@ -2539,7 +2533,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                 </button>
               </form>
 
-              <div className="mt-12 p-4 bg-amber-50 border border-amber-100 text-amber-800 text-[10px] leading-relaxed">
+              <div className="mt-12 p-4 bg-amber-50 border border-amber-100 text-amber-800 text-xs leading-relaxed">
                 <p className="font-bold flex items-center gap-1.5 mb-1 uppercase tracking-wider">
                   <AlertCircle size={12} /> Security Notice
                 </p>
@@ -2555,34 +2549,43 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
       <div id="teacher-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-2 pb-safe select-none">
         <div className="flex justify-around items-center h-16 relative">
           
-          <button
-            id="mobile-nav-dashboard"
-            onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'dashboard' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Sparkles size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Home</span>
-          </button>
+          <div className={`flex-1 flex justify-center transition-all duration-300 ${activeTab === 'dashboard' ? '-translate-y-4' : 'translate-y-0'}`}>
+            <button
+              id="mobile-nav-dashboard"
+              onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`flex flex-col items-center justify-center transition-all duration-300 ${
+                activeTab === 'dashboard' 
+                  ? 'rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-indigo-600 text-white' 
+                  : 'text-slate-400 hover:text-white p-2'
+              }`}
+              style={activeTab === 'dashboard' ? { minHeight: '52px', minWidth: '52px' } : {}}
+            >
+              <Sparkles size={activeTab === 'dashboard' ? 20 : 18} />
+              <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${activeTab === 'dashboard' ? 'font-black' : 'font-bold'}`}>Home</span>
+            </button>
+          </div>
 
-          <button
-            id="mobile-nav-marks"
-            onClick={() => {
-              handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType);
-              handleTabChange('marks');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'marks' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Award size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Grades</span>
-          </button>
+          <div className={`flex-1 flex justify-center transition-all duration-300 ${activeTab === 'marks' ? '-translate-y-4' : 'translate-y-0'}`}>
+            <button
+              id="mobile-nav-marks"
+              onClick={() => {
+                handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType);
+                handleTabChange('marks');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`flex flex-col items-center justify-center transition-all duration-300 ${
+                activeTab === 'marks' 
+                  ? 'rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-violet-600 text-white' 
+                  : 'text-slate-400 hover:text-white p-2'
+              }`}
+              style={activeTab === 'marks' ? { minHeight: '52px', minWidth: '52px' } : {}}
+            >
+              <Award size={activeTab === 'marks' ? 20 : 18} />
+              <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${activeTab === 'marks' ? 'font-black' : 'font-bold'}`}>Grades</span>
+            </button>
+          </div>
 
-          {/* QUICK ATTENDANCE PROMINENT STANDOUT CTA */}
-          <div className="flex-1 flex justify-center -translate-y-4">
+          <div className={`flex-1 flex justify-center transition-all duration-300 ${activeTab === 'attendance' ? '-translate-y-4' : 'translate-y-0'}`}>
             <button
               id="mobile-nav-attendance"
               onClick={() => {
@@ -2590,39 +2593,44 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                 handleTabChange('attendance');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              style={{ minHeight: '52px', minWidth: '52px' }}
-              className={`rounded-full flex flex-col items-center justify-center p-2.5 transition-all duration-300 shadow-xl border-4 ${
+              className={`flex flex-col items-center justify-center transition-all duration-300 ${
                 activeTab === 'attendance'
-                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 border-slate-900 text-white scale-110 ring-4 ring-emerald-500/20'
-                  : 'bg-emerald-500 hover:bg-emerald-400 border-slate-900 text-white hover:scale-105 animate-pulse'
+                  ? 'rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-emerald-600 text-white'
+                  : 'text-slate-400 hover:text-white p-2'
               }`}
+              style={activeTab === 'attendance' ? { minHeight: '52px', minWidth: '52px' } : {}}
             >
-              <CheckSquare size={20} className="stroke-[2.5]" />
-              <span className="text-[8px] font-black uppercase tracking-widest mt-0.5">Attd</span>
+              <CheckSquare size={activeTab === 'attendance' ? 20 : 18} className={activeTab === 'attendance' ? 'stroke-[2.5]' : ''} />
+              <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${activeTab === 'attendance' ? 'font-black' : 'font-bold'}`}>Attd</span>
             </button>
           </div>
 
-          <button
-            id="mobile-nav-students"
-            onClick={() => { handleTabChange('students'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'students' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Users size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Pupils</span>
-          </button>
+          <div className={`flex-1 flex justify-center transition-all duration-300 ${activeTab === 'students' ? '-translate-y-4' : 'translate-y-0'}`}>
+            <button
+              id="mobile-nav-students"
+              onClick={() => { handleTabChange('students'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`flex flex-col items-center justify-center transition-all duration-300 ${
+                activeTab === 'students' 
+                  ? 'rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-teal-600 text-white' 
+                  : 'text-slate-400 hover:text-white p-2'
+              }`}
+              style={activeTab === 'students' ? { minHeight: '52px', minWidth: '52px' } : {}}
+            >
+              <Users size={activeTab === 'students' ? 20 : 18} />
+              <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${activeTab === 'students' ? 'font-black' : 'font-bold'}`}>Pupils</span>
+            </button>
+          </div>
 
-          <button
-            id="mobile-nav-attendance"
-            onClick={() => { handleTabChange('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'attendance' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <CheckSquare size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Attendance</span>
-          </button>
+          <div className="flex-1 flex justify-center">
+            <button
+              id="mobile-nav-menu"
+              onClick={() => setSidebarOpen(true)}
+              className="flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-emerald-400 focus:outline-none"
+            >
+              <Menu size={18} />
+              <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
+            </button>
+          </div>
 
         </div>
       </div>
@@ -2652,7 +2660,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                   <div>
                     <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">{selectedStudentProfile.name}</h2>
                     <p className="text-xs text-indigo-300 font-bold tracking-widest uppercase mt-1">
-                      Roll #{selectedStudentProfile.rollNumber} • {getClassLabel(selectedStudentProfile.classId)}
+                      Roll #{selectedStudentProfile.rollNumber}
                     </p>
                   </div>
                 </div>
@@ -2668,38 +2676,38 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                 {/* Information Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   <div className="space-y-4">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Student Bio</h3>
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Student Bio</h3>
                     <div className="space-y-3">
                       <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">Academic Email</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">Academic Email</p>
                         <p className="text-xs font-bold text-slate-800">{selectedStudentProfile.email}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">Username</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">Username</p>
                         <p className="text-xs font-mono text-slate-600">{selectedStudentProfile.username}</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Guardian Context</h3>
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Guardian Context</h3>
                     <div className="space-y-3">
                       <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">Parent Phone</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">Parent Phone</p>
                         <p className="text-xs font-mono font-bold text-slate-800">{selectedStudentProfile.parentPhone}</p>
                       </div>
                       <div>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">Guardian Name</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase">Guardian Name</p>
                         <p className="text-xs font-bold text-slate-800">{selectedStudentProfile.guardianName || 'N/A'}</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Financial Status</h3>
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100 pb-2">Financial Status</h3>
                     <div className="bg-slate-50 p-3 border border-slate-100">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase">Monthly Base Fee</p>
-                      <p className="text-lg font-black text-slate-900">Rs. {selectedStudentProfile.baseFee || '0'}</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase">Monthly Base Fee</p>
+                      <p className="text-lg font-black text-slate-900">{selectedStudentProfile.baseFee || '0'}</p>
                     </div>
                   </div>
                 </div>
@@ -2716,7 +2724,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                     <div className="bg-indigo-50/50 p-6 border border-indigo-100 space-y-4 shadow-sm">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5 font-sans">
-                          <label className="text-[9px] font-black text-indigo-900 uppercase">Subject</label>
+                          <label className="text-xs font-black text-indigo-900 uppercase">Subject</label>
                           <input 
                             type="text"
                             value={profileMarkSubject}
@@ -2725,7 +2733,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                           />
                         </div>
                         <div className="space-y-1.5 font-sans">
-                          <label className="text-[9px] font-black text-indigo-900 uppercase">Max Marks</label>
+                          <label className="text-xs font-black text-indigo-900 uppercase">Max Marks</label>
                           <input 
                             type="number"
                             value={profileMarkMax}
@@ -2736,7 +2744,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                       </div>
 
                       <div className="space-y-1.5 font-sans">
-                         <label className="text-[9px] font-black text-indigo-900 uppercase">Test / Assignment Title</label>
+                         <label className="text-xs font-black text-indigo-900 uppercase">Test / Assignment Title</label>
                          <input 
                            type="text"
                            value={profileMarkExam}
@@ -2747,7 +2755,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                       </div>
 
                       <div className="space-y-1.5 font-sans">
-                         <label className="text-[9px] font-black text-indigo-900 uppercase">Marks Obtained</label>
+                         <label className="text-xs font-black text-indigo-900 uppercase">Marks Obtained</label>
                          <div className="flex items-center gap-3">
                            <input 
                              type="number"
@@ -2762,7 +2770,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
 
                       <button 
                         onClick={handleAddMarkFromProfile}
-                        className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                        className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white text-xs font-black uppercase tracking-[0.2em] shadow-lg shadow-indigo-200 transition-all active:scale-95"
                       >
                         Commit Mark to Record
                       </button>
@@ -2772,8 +2780,8 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                   {/* Existing Marks List */}
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
-                       <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Academic History</h3>
-                       <span className="text-[9px] font-bold text-indigo-600 uppercase">Latest Entries</span>
+                       <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Academic History</h3>
+                       <span className="text-xs font-bold text-indigo-600 uppercase">Latest Entries</span>
                     </div>
 
                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
@@ -2785,7 +2793,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                             <div key={m.id} className="p-4 bg-white border border-slate-100 flex items-center justify-between hover:border-indigo-200 transition-all shadow-xs rounded-none">
                               <div className="text-left">
                                 <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.examType}</h4>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{m.subject}</p>
+                                <p className="text-xs text-slate-400 font-bold uppercase mt-0.5">{m.subject}</p>
                               </div>
                               <div className="text-right">
                                 <span className={`text-base font-black  ${ (m.marksObtained / Math.max(1, m.maxMarks)) >= 0.33 ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -2798,7 +2806,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                       ) : (
                         <div className="py-12 border-2 border-dashed border-slate-100 flex flex-col items-center justify-center text-slate-400 gap-3">
                            <Award size={32} className="opacity-20" />
-                           <p className="text-[10px] font-bold uppercase tracking-widest">No academic records found</p>
+                           <p className="text-xs font-bold uppercase tracking-widest">No academic records found</p>
                         </div>
                       )}
                     </div>
@@ -2809,7 +2817,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
               <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
                 <button 
                   onClick={() => setShowProfileModal(false)}
-                  className="px-8 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+                  className="px-8 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
                 >
                   Close Profile
                 </button>
@@ -2844,17 +2852,17 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
             <div className="p-8 space-y-6">
               <div className="flex justify-between items-end border-b border-slate-50 pb-4">
                 <div className="text-left">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recipient Parent</p>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Recipient Parent</p>
                   <p className="text-sm font-bold text-slate-900">{feeNotificationPopup.guardianName}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Phone Number</p>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Phone Number</p>
                   <p className="text-xs font-mono font-bold text-slate-600">{feeNotificationPopup.parentPhone}</p>
                 </div>
               </div>
 
               <div className="space-y-2 text-left">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Message Content</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Message Content</label>
                 <textarea
                   value={feeNotificationPopup.messageText}
                   onChange={(e) => {
@@ -2873,7 +2881,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                     navigator.clipboard.writeText(feeNotificationPopup.messageText);
                     toast.success("Copied to clipboard");
                   }}
-                  className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-[0.2em] transition-all"
+                  className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-[0.2em] transition-all"
                 >
                   Copy Text
                 </button>
@@ -2884,7 +2892,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
               <button
                 type="button"
                 onClick={() => setFeeNotificationPopup(null)}
-                className="px-6 py-2 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all font-sans"
+                className="px-6 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all font-sans"
               >
                 Dismiss
               </button>

@@ -204,7 +204,7 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
               {onBackToLanding && (
                 <button 
                   onClick={onBackToLanding}
-                  className="text-[9px] font-bold text-slate-400 hover:text-slate-950 uppercase tracking-[0.2em] border-b border-slate-100 transition-all cursor-pointer"
+                  className="text-[11px] font-bold text-slate-400 hover:text-slate-950 uppercase tracking-[0.2em] border-b border-slate-100 transition-all cursor-pointer"
                 >
                   Return to Overview
                 </button>
@@ -214,7 +214,7 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
         </form>
 
         <div className="pt-8 border-t border-slate-50 dark:border-slate-900 text-center">
-            <p className="text-[8px] font-bold text-slate-300 dark:text-slate-700 uppercase tracking-widest">
+            <p className="text-[10px] font-bold text-slate-300 dark:text-slate-700 uppercase tracking-widest">
                 NSB1 Digital Management Infrastructure
             </p>
         </div>

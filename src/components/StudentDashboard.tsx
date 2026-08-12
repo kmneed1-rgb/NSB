@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
   Award, Calendar, Clock, LogOut, CheckSquare, Sparkles, BookOpen, 
-  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download
+  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint
 } from 'lucide-react';
 import { getNotifications, saveNotifications, addNotification, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -353,9 +353,9 @@ export default function StudentDashboard({
 
       {/* Mobile Top Navigation Indicator */}
       <div id="student-mobile-bar" className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
-          <span className="font-bold text-gray-900 tracking-tight">Student Campus</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="NSB1 Logo" className="w-20 h-20 object-contain" referrerPolicy="no-referrer" />
+          <h1 className="font-black text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xl sm:text-2xl">NSB1 School</h1>
         </div>
         <div className="flex items-center gap-2 relative">
           {/* Mobile Bell Button */}
@@ -367,21 +367,12 @@ export default function StudentDashboard({
           >
             <Bell size={18} />
             {notifications.filter(n => n.isUnread).length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-indigo-650 text-white font-black text-[7px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+              <span className="absolute -top-1 -right-1 bg-indigo-650 text-white font-black text-[10px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                 {notifications.filter(n => n.isUnread).length}
               </span>
             )}
           </button>
 
-          <button 
-             onClick={onLogout}
-             className="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-600 hover:text-white flex items-center gap-1.5 font-black text-[10px] uppercase transition-all shadow-sm"
-             title="Logout"
-          >
-            <LogOut size={14} />
-            EXIT
-          </button>
-          
           <button 
             id="student-sidebar-toggle" 
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -409,12 +400,12 @@ export default function StudentDashboard({
       >
         <div>
           {/* Institutional Branding */}
-          <div className="p-8 border-b border-slate-50 flex flex-col items-center gap-3">
+          <div className="p-4 border-b border-slate-50 flex flex-col items-center gap-2">
             <div className="flex items-center justify-between w-full">
               <img 
                 src="/logo.png" 
                 alt="NSB 1 ACADEMY" 
-                className="h-12 w-auto object-contain"
+                className="h-16 w-auto object-contain animate-bounce-slow"
                 referrerPolicy="no-referrer"
               />
               <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
@@ -422,8 +413,8 @@ export default function StudentDashboard({
               </button>
             </div>
             <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-lg tracking-widest uppercase  leading-none">NSB1 Academy</h1>
-              <p className="text-slate-400 font-bold text-[9px] tracking-[0.3em] uppercase mt-1">Student Portal</p>
+              <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 Academy</h1>
+              <p className="text-slate-400 font-bold text-[10px] tracking-[0.3em] uppercase mt-1">Student Portal</p>
             </div>
           </div>
 
@@ -443,7 +434,7 @@ export default function StudentDashboard({
                   handleTabChange(item.id as TabType); 
                   setSidebarOpen(false); 
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all ${
+                className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase tracking-widest text-left transition-all ${
                   activeTab === item.id 
                     ? 'bg-slate-900 text-white' 
                     : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -457,7 +448,7 @@ export default function StudentDashboard({
             {/* Install Button in Student Sidebar */}
             <button
               onClick={onInstallApp}
-              className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+              className="w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase tracking-widest text-left transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
             >
               <Download size={14} className="text-indigo-600" />
               Install App
@@ -468,12 +459,12 @@ export default function StudentDashboard({
         {/* Minimalist Account Section */}
         <div className="p-6 border-t border-slate-50">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-[10px] ">
-              {(userSession.name?.[0] || 'U').toUpperCase()}
+            <div className="w-8 h-8 rounded-none bg-slate-900 flex items-center justify-center text-white font-black text-xs ">
+              <User size={14} />
             </div>
             <div className="truncate">
-              <p className="text-slate-900 text-[11px] font-black uppercase tracking-tight truncate">{userSession.name}</p>
-              <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest truncate">Roll #{studentProfile?.rollNumber}</p>
+              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name.split(' ').slice(1).join(' ') || userSession.name}</p>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">Roll #{studentProfile?.rollNumber}</p>
             </div>
           </div>
           
@@ -494,8 +485,8 @@ export default function StudentDashboard({
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="NSB1 Logo" className="h-10 w-auto object-contain sm:block hidden" referrerPolicy="no-referrer" />
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Student portal</h1>
+              <img src="/logo.png" alt="NSB1 Logo" className="h-20 w-auto object-contain sm:block hidden" referrerPolicy="no-referrer" />
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight sm:block hidden select-none">NSB1 Academy Student portal</h2>
             </div>
             
             {/* Real-time active period locator */}
@@ -516,7 +507,7 @@ export default function StudentDashboard({
               });
 
               if (!currentPeriodObj) return (
-                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold uppercase tracking-wider">
                   <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                   No Active Class Right Now
                 </div>
@@ -525,7 +516,7 @@ export default function StudentDashboard({
               const teacherObj = teachers.find(t => t.id === currentPeriodObj.teacherId);
 
               return (
-                <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-full text-[10px] font-extrabold uppercase tracking-widest animate-pulse">
+                <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-full text-xs font-extrabold uppercase tracking-widest animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-650 animate-ping"></span>
                   CURRENT PERIOD: {currentPeriodObj.period} — {currentPeriodObj.subject} (Prof. {teacherObj?.name || 'Faculty'})
                 </div>
@@ -549,12 +540,12 @@ export default function StudentDashboard({
             <div className="relative">
               <button 
                 onClick={() => setShowNotifDropdown(!showNotifDropdown)}
-                className={`p-2 hover:bg-slate-100 border border-slate-200 rounded-none transition-all flex items-center justify-center relative uppercase font-black text-[10px] ${showNotifDropdown ? 'bg-slate-100' : 'bg-white'}`}
+                className={`p-2 hover:bg-slate-100 border border-slate-200 rounded-none transition-all flex items-center justify-center relative uppercase font-black text-xs ${showNotifDropdown ? 'bg-slate-100' : 'bg-white'}`}
                 title="Notifications"
               >
                 <Bell size={16} className="text-slate-600" />
                 {notifications.filter(n => n.isUnread).length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-[8px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-xs w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                     {notifications.filter(n => n.isUnread).length}
                   </span>
                 )}
@@ -571,15 +562,15 @@ export default function StudentDashboard({
                       className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-none shadow-xl z-50 py-3 flex flex-col font-sans"
                     >
                       <div className="px-4 pb-2 border-b border-slate-150 flex items-center justify-between">
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Campus Broadcaster</span>
+                        <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Campus Broadcaster</span>
                         <div className="flex items-center gap-2">
                           {notifications.length > 0 && (
-                            <button onClick={handleMarkAllRead} className="text-[9px] hover:underline text-indigo-600 font-bold uppercase">Mark Read</button>
+                            <button onClick={handleMarkAllRead} className="text-xs hover:underline text-indigo-600 font-bold uppercase">Mark Read</button>
                           )}
                           {notifications.length > 0 && (
                             <span className="text-slate-200">|</span>
                           )}
-                          <button onClick={handleClearNotifications} className="text-[9px] hover:underline text-rose-600 font-bold uppercase">Clear</button>
+                          <button onClick={handleClearNotifications} className="text-xs hover:underline text-rose-600 font-bold uppercase">Clear</button>
                         </div>
                       </div>
 
@@ -603,8 +594,8 @@ export default function StudentDashboard({
                                     <span className="truncate">{notif.title}</span>
                                     {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-605 shrink-0"></span>}
                                   </h4>
-                                  <p className="text-[10px] text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
-                                  <span className="text-[8px] text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
+                                  <p className="text-xs text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
+                                  <span className="text-xs text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
                                 </div>
                               </div>
                             </div>
@@ -625,8 +616,8 @@ export default function StudentDashboard({
             {/* Greeting Header */}
             <div className="bg-white rounded-none p-6 md:p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
               <div>
-                <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">STUDENT ADVISORY</span>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name}!</h1>
+                <span className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">STUDENT ADVISORY</span>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name.split(' ').slice(1).join(' ') || userSession.name}!</h1>
                 <p className="text-sm text-slate-500 mt-1">
                   Enrolled in <strong className="text-indigo-800 font-bold">{assignedClass ? `${assignedClass.className} - ${assignedClass.section}` : 'N/A Class'}</strong>.
                   {classTeacherObj && (
@@ -637,12 +628,12 @@ export default function StudentDashboard({
 
               <div className="flex gap-2.5">
                 <div className="p-4 bg-indigo-50 rounded-none border border-indigo-100/60 text-center">
-                  <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Attendance Rate</h4>
+                  <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Attendance Rate</h4>
                   <p className="text-xl font-bold text-indigo-950 mt-1">{attendancePercent}%</p>
                 </div>
 
                 <div className="p-4 bg-emerald-50 rounded-none border border-emerald-100/60 text-center">
-                  <h4 className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Marks Logged</h4>
+                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Marks Logged</h4>
                   <p className="text-xl font-bold text-emerald-900 mt-1">{myMarks.length} elements</p>
                 </div>
               </div>
@@ -669,7 +660,7 @@ export default function StudentDashboard({
                     <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-1.5">
                       <CheckCircle2 className="text-indigo-600" size={18} />
                       My Attendance Gauge
-                      <span className="text-[9px] text-gray-400 font-normal ">(Swipe to open)</span>
+                      <span className="text-xs text-gray-400 font-normal ">(Swipe to open)</span>
                     </h3>
                     <span className="text-xs font-mono font-bold text-indigo-100 bg-indigo-700 px-1.5 py-0.5">{presentDays}/{totalDays} Days</span>
                   </div>
@@ -684,7 +675,7 @@ export default function StudentDashboard({
                         style={{ width: `${attendancePercent}%` }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-2">
+                    <p className="text-xs text-slate-500 mt-2">
                       {attendancePercent >= 75 
                         ? 'Good Job! Your attendance is matching the required collegiate percentage index.' 
                         : 'Warning: Your attendance is below standard requirements (75%). please attend regular lectures.'}
@@ -718,14 +709,14 @@ export default function StudentDashboard({
                               <span className="font-semibold text-slate-900">{item.subject}</span>
                               <span className="text-slate-400 font-medium ml-1.5">({item.examType})</span>
                             </div>
-                            <span className={`font-mono font-bold px-1.5 py-0.5 rounded-none text-[10px] border-l-2 bg-slate-50 ${grade.color}`}>
+                            <span className={`font-mono font-bold px-1.5 py-0.5 rounded-none text-xs border-l-2 bg-slate-50 ${grade.color}`}>
                               Grade {grade.letter} ({item.marksObtained}/{item.maxMarks})
                             </span>
                           </div>
                         );
                       })}
                       {myMarks.length > 3 && (
-                        <p className="text-[10px] text-indigo-600 text-right font-medium ">+{myMarks.length - 3} more entries recorded...</p>
+                        <p className="text-xs text-indigo-600 text-right font-medium ">+{myMarks.length - 3} more entries recorded...</p>
                       )}
                     </div>
                   ) : (
@@ -752,7 +743,7 @@ export default function StudentDashboard({
                     Analyzing cumulative score percentages across all logged examinations and curriculum blocks.
                   </p>
                 </div>
-                <div className="text-[10px] uppercase font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850 border border-slate-150 dark:border-slate-800 px-2.5 py-1">
+                <div className="text-xs uppercase font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850 border border-slate-150 dark:border-slate-800 px-2.5 py-1">
                   Overall Academic Weightage
                 </div>
               </div>
@@ -797,7 +788,7 @@ export default function StudentDashboard({
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-extrabold text-slate-950 dark:text-white uppercase tracking-wider">{subject}</span>
                           <div className="flex items-center gap-2">
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-none font-mono ${bgColor} ${textColor}`}>
+                            <span className={`text-xs font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-none font-mono ${bgColor} ${textColor}`}>
                               {label}
                             </span>
                             <span className="font-mono font-black text-slate-900 dark:text-slate-100">{percentage}%</span>
@@ -815,7 +806,7 @@ export default function StudentDashboard({
                         </div>
 
                         {/* Micro exam data logs inside progress breakdown */}
-                        <div className="flex flex-wrap gap-1.5 mt-1 text-[9px] text-slate-400 font-medium">
+                        <div className="flex flex-wrap gap-1.5 mt-1 text-xs text-slate-400 font-medium">
                           {subjectMarks.map((m) => (
                             <span key={m.id} className="bg-slate-50 dark:bg-slate-950/45 px-1.5 py-0.5 border border-slate-100 dark:border-slate-850/50">
                               {m.examType}: <strong className="text-slate-700 dark:text-slate-300 font-bold">{m.marksObtained}/{m.maxMarks}</strong>
@@ -842,7 +833,7 @@ export default function StudentDashboard({
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase font-mono">
+                <div className="flex flex-wrap gap-2 text-xs font-bold uppercase font-mono">
                   <span className="bg-slate-100 text-slate-600 px-2 py-1">Normalized to %</span>
                   {uniqueSubjects.length > 0 && (
                     <span className="bg-indigo-50 text-indigo-700 px-2 py-1 border border-indigo-150">
@@ -914,7 +905,7 @@ export default function StudentDashboard({
             <div className="bg-slate-900 text-white rounded-none p-5 border border-slate-800 flex items-start gap-3 shadow-xs">
               <Info size={18} className="text-indigo-400 shrink-0 mt-0.5" />
               <div>
-                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Dynamic Sandbox Update :</span>
+                <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Dynamic Sandbox Update :</span>
                 <p className="text-xs text-slate-300 mt-1 font-sans">
                   You can test this portal's response: Log out, log in as principal/teacher, edit attendance logs or enter new exam scores for "Jane Doe", then re-login as student student@school.com to see instant student view synchronization.
                 </p>
@@ -956,13 +947,13 @@ export default function StudentDashboard({
             {/* Attendance Days list table */}
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
               <div className="p-4 bg-gray-50/50 border-b border-gray-100">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Attendance Log Journal</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">Attendance Log Journal</h3>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50">
+                    <tr className="border-b border-gray-100 text-sm font-bold text-gray-500 uppercase tracking-widest bg-gray-50">
                       <th className="px-6 py-3.5">Log Date</th>
                       <th className="px-6 py-3.5">Academic Calendar Period</th>
                       <th className="px-6 py-3.5 text-center">Status</th>
@@ -973,10 +964,10 @@ export default function StudentDashboard({
                       myAttendance.map(log => (
                         <tr key={log.id} className="hover:bg-gray-55/20 transition-colors">
                           <td className="px-6 py-4 font-bold text-slate-800">{log.date}</td>
-                          <td className="px-6 py-4 text-xs font-semibold text-gray-500">General Academic Session</td>
+                          <td className="px-6 py-4 text-sm font-semibold text-gray-500">General Academic Session</td>
                           <td className="px-6 py-4">
                             <div className="flex justify-center text-center">
-                              <span className={`inline-flex px-3 py-1 text-xs font-extrabold rounded-full ${
+                              <span className={`inline-flex px-3 py-1 text-sm font-extrabold rounded-full ${
                                 log.status === "present" ? "bg-emerald-600 text-white font-black shadow-xs" : log.status === "absent" ? "bg-rose-600 text-white font-black shadow-xs animate-pulse" : log.status === "late" ? "bg-amber-500 text-white font-black shadow-xs" : "bg-blue-600 text-white font-black shadow-xs"
                               }`}>
                                 {log.status.toUpperCase()}
@@ -1021,7 +1012,7 @@ export default function StudentDashboard({
                       Progress tracking of subject scores across unit and summative tests.
                     </p>
                   </div>
-                  <div className="bg-amber-50 text-amber-900 border border-amber-150 px-2.5 py-1 text-[10px] font-bold uppercase font-mono">
+                  <div className="bg-amber-50 text-amber-900 border border-amber-150 px-2.5 py-1 text-xs font-bold uppercase font-mono">
                     Scores Shown in % Scale
                   </div>
                 </div>
@@ -1095,7 +1086,7 @@ export default function StudentDashboard({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className="border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50/20">
+                        <tr className="border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-50/20">
                           <th className="px-6 py-3">Subject Name</th>
                           <th className="px-6 py-3">Marking Scored</th>
                           <th className="px-6 py-3">Percentage Scored</th>
@@ -1179,7 +1170,7 @@ export default function StudentDashboard({
                             <td key={p} className="px-3 py-3 text-center border-l border-gray-200 align-top min-w-36">
                               {(() => {
                                 if (!entry) return (
-                                  <span className="text-[11px] text-gray-300 font-medium  block py-4 select-none">
+                                  <span className="text-xs text-gray-300 font-medium  block py-4 select-none">
                                     Free Period
                                   </span>
                                 );
@@ -1212,15 +1203,15 @@ export default function StudentDashboard({
                                         {entry.subject}
                                       </div>
                                       {isLive && (
-                                        <span className="shrink-0 bg-red-650 text-white text-[7px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
+                                        <span className="shrink-0 bg-red-650 text-white text-[10px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
                                           LIVE
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-[10px] text-slate-755 mt-0.5 truncate font-medium">
+                                    <div className="text-xs text-slate-755 mt-0.5 truncate font-medium">
                                       👤 {getTeacherName(entry.teacherId)}
                                     </div>
-                                    <div className="text-[9px] font-mono text-slate-500 mt-1">
+                                    <div className="text-xs font-mono text-slate-500 mt-1">
                                       {entry.time}
                                     </div>
                                   </div>
@@ -1257,7 +1248,7 @@ export default function StudentDashboard({
           return (
             <div id="panel-student-fees" className={`space-y-8 animate-fade-in font-sans font-medium bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner ${darkTheme ? 'text-slate-100 bg-emerald-950/20 border-emerald-900' : 'text-slate-800'}`}>
               <div>
-                <span className={`text-[10px] px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-indigo-950 text-indigo-400 border border-indigo-900' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                <span className={`text-xs px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-indigo-950 text-indigo-400 border border-indigo-900' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
                   Academic Fee Passbook
                 </span>
                 <h1 className={`text-2xl font-black uppercase font-display tracking-tight mt-1 flex items-center gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>
@@ -1272,28 +1263,28 @@ export default function StudentDashboard({
               {/* KPI CARDS */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Billed</p>
-                  <p className={`text-xl font-black mt-1 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>Rs. {account.totalDue.toLocaleString()}</p>
-                  <p className="text-[9px] text-slate-400 font-mono mt-2">12 Months Core Tuition</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Total Billed</p>
+                  <p className={`text-xl font-black mt-1 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>{account.totalDue.toLocaleString()}</p>
+                  <p className="text-xs text-slate-400 font-mono mt-2">12 Months Core Tuition</p>
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100'}`}>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Total Settled</p>
-                  <p className="text-xl font-black text-emerald-650 mt-1">Rs. {account.totalPaid.toLocaleString()}</p>
-                  <p className="text-[9px] text-emerald-500 font-mono mt-2">Paid ledger transactions</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Total Settled</p>
+                  <p className="text-xl font-black text-emerald-650 mt-1">{account.totalPaid.toLocaleString()}</p>
+                  <p className="text-xs text-emerald-500 font-mono mt-2">Paid ledger transactions</p>
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-rose-950/20 border-rose-900' : 'bg-rose-50 border-rose-100'}`}>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-600">Pending Tuition</p>
-                  <p className="text-xl font-black text-rose-600 mt-1">Rs. {account.totalPending.toLocaleString()}</p>
-                  <p className="text-[9px] text-rose-500 font-mono mt-2">Outstanding installments</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-rose-600">Pending Tuition</p>
+                  <p className="text-xl font-black text-rose-600 mt-1">{account.totalPending.toLocaleString()}</p>
+                  <p className="text-xs text-rose-500 font-mono mt-2">Outstanding installments</p>
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${
                   account.grandTotalPending === 0
                     ? (darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100')
                     : (darkTheme ? 'bg-amber-950/20 border-amber-900' : 'bg-amber-50 border-amber-100')
                 }`}>
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Grand Payable</p>
-                  <p className={`text-xl font-black mt-1 ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Rs. {account.grandTotalPending.toLocaleString()}</p>
-                  <span className={`text-[9px] font-bold uppercase mt-2 block ${account.grandTotalPending === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                  <p className={`text-xs font-black uppercase tracking-widest ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Grand Payable</p>
+                  <p className={`text-xl font-black mt-1 ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>{account.grandTotalPending.toLocaleString()}</p>
+                  <span className={`text-xs font-bold uppercase mt-2 block ${account.grandTotalPending === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
                     {account.grandTotalPending === 0 ? '✓ perfect standing' : '⚠️ Settle soon'}
                   </span>
                 </div>
@@ -1324,18 +1315,18 @@ export default function StudentDashboard({
                             )}
                           </div>
                           
-                          <div className="space-y-1 text-[10px]">
+                          <div className="space-y-1 text-xs">
                             <div className="flex justify-between font-bold text-slate-400">
                               <span>Due installment:</span>
-                              <span className={darkTheme ? 'text-slate-200' : 'text-slate-700'}>Rs. {m.due}</span>
+                              <span className={darkTheme ? 'text-slate-200' : 'text-slate-700'}>{m.due}</span>
                             </div>
                             <div className="flex justify-between font-bold">
                               <span className="text-slate-400">Paid:</span>
-                              <span className="text-emerald-500 font-bold">Rs. {m.paid}</span>
+                              <span className="text-emerald-500 font-bold">{m.paid}</span>
                             </div>
                             <div className="flex justify-between font-black">
                               <span className="text-slate-400 font-bold">Pending Balance:</span>
-                              <span className={m.pending > 0 ? "text-rose-500" : "text-slate-400"}>Rs. {m.pending}</span>
+                              <span className={m.pending > 0 ? "text-rose-500" : "text-slate-400"}>{m.pending}</span>
                             </div>
                           </div>
                         </div>
@@ -1360,13 +1351,13 @@ export default function StudentDashboard({
                           }`}>
                             <div className="text-left">
                               <p className={`text-xs font-black uppercase ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{fund.desc}</p>
-                              <p className="text-[8px] text-slate-400 font-mono mt-0.5">{fund.date}</p>
+                              <p className="text-xs text-slate-400 font-mono mt-0.5">{fund.date}</p>
                             </div>
-                            <span className="text-xs font-black text-rose-500 font-mono">Rs. {fund.amount}</span>
+                            <span className="text-xs font-black text-rose-500 font-mono">{fund.amount}</span>
                           </div>
                         ))
                       ) : (
-                        <div className="py-8 text-center text-[10px] text-slate-400 uppercase tracking-widest  font-bold">
+                        <div className="py-8 text-center text-xs text-slate-400 uppercase tracking-widest  font-bold">
                           No extra fines or class funds recorded
                         </div>
                       )}
@@ -1378,7 +1369,7 @@ export default function StudentDashboard({
                     <h4 className="text-xs font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5 mb-2">
                       <Info size={14} /> Settlement Protocol
                     </h4>
-                    <p className={`text-[11px] leading-relaxed ${darkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <p className={`text-xs leading-relaxed ${darkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
                       Please deposit outstanding cash dues directly into the **Academy Accountant Registry Office** or the official **Bank Chalan**. Keep your deposit transaction slip and bring it to the coordinator desk to record payments instantly.
                     </p>
                   </div>
@@ -1393,7 +1384,7 @@ export default function StudentDashboard({
           <div className="space-y-8 animate-fade-in">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
-                <span className={`text-[10px] px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-amber-950 text-amber-400 border border-amber-900' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>
+                <span className={`text-xs px-2 py-0.5 font-black uppercase tracking-widest font-mono ${darkTheme ? 'bg-amber-950 text-amber-400 border border-amber-900' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}>
                   Student Identity Designer
                 </span>
                 <h1 className={`text-2xl font-black uppercase font-display tracking-tight mt-1 flex items-center gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>
@@ -1406,7 +1397,7 @@ export default function StudentDashboard({
               </div>
               <button 
                 onClick={() => window.print()}
-                className="flex items-center justify-center gap-2 bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+                className="flex items-center justify-center gap-2 bg-slate-900 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
               >
                 <Download size={14} />
                 Download / Print Card
@@ -1416,7 +1407,7 @@ export default function StudentDashboard({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Preview Section */}
               <div className="flex flex-col items-center justify-center space-y-6">
-                <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card Preview</h3>
+                <h3 className={`text-xs font-black uppercase tracking-[0.2em] ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card Preview</h3>
                 
                 {/* THE CARD */}
                 <div 
@@ -1441,19 +1432,19 @@ export default function StudentDashboard({
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${studentProfile?.idCardTheme === 'classic' ? 'bg-slate-900 text-white' : 'bg-white/20'}`}>
                             <Award size={18} />
                           </div>
-                          <span className="text-[10px] font-black tracking-widest uppercase">NSB1</span>
+                          <span className="text-xs font-black tracking-widest uppercase">NSB1</span>
                         </div>
                         <h2 className="text-xl font-black uppercase tracking-tight leading-none truncate max-w-[180px]">
-                          {studentProfile?.name}
+                          {studentProfile?.name ? (studentProfile.name.split(' ').slice(1).join(' ') || studentProfile.name) : 'Name Placeholder'}
                         </h2>
-                        <p className="text-[9px] font-bold opacity-70 uppercase tracking-widest mt-1">
-                          {assignedClass?.className} ({assignedClass?.section}) • Roll: {studentProfile?.rollNumber}
+                        <p className="text-xs font-bold opacity-70 uppercase tracking-widest mt-1">
+                          Roll: {studentProfile?.rollNumber}
                         </p>
                       </div>
 
                       <div className="mt-auto">
-                        <p className="text-[8px] font-black uppercase tracking-[0.2em] opacity-50">Student Identity</p>
-                        <p className="text-[10px] font-mono font-bold mt-0.5">#{studentProfile?.id.substring(2, 10).toUpperCase()}</p>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] opacity-50">Student Identity</p>
+                        <p className="text-xs font-mono font-bold mt-0.5">#{studentProfile?.id.substring(2, 10).toUpperCase()}</p>
                       </div>
                     </div>
 
@@ -1471,7 +1462,7 @@ export default function StudentDashboard({
                   </div>
                 </div>
 
-                <p className="text-[9px] text-slate-400 font-medium ">Note: Card displays your official WebP profile photo for data efficiency.</p>
+                <p className="text-xs text-slate-400 font-medium ">Note: Card displays your official WebP profile photo for data efficiency.</p>
               </div>
 
               {/* Controls Section */}
@@ -1483,7 +1474,7 @@ export default function StudentDashboard({
                 <div className="space-y-6">
                   {/* Theme Selection */}
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Theme</label>
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Select Theme</label>
                     <div className="grid grid-cols-3 gap-3">
                       {['classic', 'dark', 'vibrant'].map((theme) => (
                         <button
@@ -1496,7 +1487,7 @@ export default function StudentDashboard({
                           }`}
                         >
                           <div className={`w-8 h-4 rounded-sm ${theme === 'dark' ? 'bg-slate-900' : theme === 'vibrant' ? 'bg-indigo-600' : 'bg-slate-200 border border-slate-300'}`} />
-                          <span className="text-[9px] font-black uppercase tracking-widest">{theme}</span>
+                          <span className="text-xs font-black uppercase tracking-widest">{theme}</span>
                         </button>
                       ))}
                     </div>
@@ -1504,7 +1495,7 @@ export default function StudentDashboard({
 
                   {/* Accent Color Selection */}
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Accent Color</label>
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Accent Color</label>
                     <div className="flex flex-wrap gap-3">
                       {['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#0ea5e9', '#d946ef', '#f97316'].map((color) => (
                         <button
@@ -1520,7 +1511,7 @@ export default function StudentDashboard({
                   </div>
 
                   <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 mt-4">
-                    <p className="text-[10px] text-amber-700 leading-relaxed font-medium">
+                    <p className="text-xs text-amber-700 leading-relaxed font-medium">
                       <strong className="block mb-1">💡 Professional Tip:</strong>
                       Dark themes look best with vibrant accent colors (Cyan, Pink). Classic theme works perfectly with Indigo or Emerald for a corporate academic feel.
                     </p>
@@ -1535,61 +1526,45 @@ export default function StudentDashboard({
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
       <div id="student-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-2 pb-safe select-none">
         <div className="flex justify-around items-center h-16 relative">
+          {[
+            { id: 'dashboard', label: 'Campus', icon: Sparkles, color: 'indigo' },
+            { id: 'attendance', label: 'Attd', icon: CheckSquare, color: 'emerald' },
+            { id: 'marks', label: 'Marks', icon: Award, color: 'violet' },
+            { id: 'id_card', label: 'ID', icon: Fingerprint, color: 'rose' },
+          ].map((item) => {
+            const isActive = activeTab === item.id;
+            const Icon = item.icon;
+            
+            return (
+              <div key={item.id} className={`flex-1 flex justify-center transition-all duration-300 ${isActive ? '-translate-y-4' : 'translate-y-0'}`}>
+                <button
+                  onClick={() => { handleTabChange(item.id as any); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className={`flex flex-col items-center justify-center transition-all duration-300 ${
+                    isActive 
+                      ? `rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-${item.color}-600 text-white` 
+                      : 'text-slate-400 hover:text-white p-2'
+                  }`}
+                  style={isActive ? { minHeight: '52px', minWidth: '52px' } : {}}
+                >
+                  <Icon size={isActive ? 20 : 18} />
+                  <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${isActive ? 'font-black' : 'font-bold'}`}>
+                    {item.label}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
           
-          <button
-            id="mobile-nav-dashboard"
-            onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'dashboard' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Sparkles size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Campus</span>
-          </button>
-          
-          <button
-            id="mobile-nav-attendance"
-            onClick={() => { handleTabChange('attendance'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'attendance' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <CheckSquare size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Attd</span>
-          </button>
-
-          <button
-            id="mobile-nav-marks"
-            onClick={() => { handleTabChange('marks'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'marks' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Award size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Marks</span>
-          </button>
-          <button
-            id="mobile-nav-timetable"
-            onClick={() => { handleTabChange('timetable'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'timetable' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Calendar size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">Schedule</span>
-          </button>
-
-          <button
-            id="mobile-nav-idcard"
-            onClick={() => { handleTabChange('id_card'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'id_card' ? 'text-indigo-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Award size={18} />
-            <span className="text-[9px] mt-0.5 font-semibold uppercase tracking-wider">ID Card</span>
-          </button>
-
+          <div className="flex-1 flex justify-center">
+            <button
+              id="mobile-nav-menu"
+              onClick={() => setSidebarOpen(true)}
+              className="flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-indigo-400 focus:outline-none"
+            >
+              <Menu size={18} />
+              <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
+            </button>
+          </div>
         </div>
       </div>
 

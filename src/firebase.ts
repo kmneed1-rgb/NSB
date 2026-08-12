@@ -12,14 +12,10 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 
-// Enable persistence for faster offline/cache performance
+// Enable offline persistence safely for better offline/slow connection resiliency
 if (typeof window !== "undefined") {
   enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-        console.warn("Firestore persistence failed: Multiple tabs open");
-    } else if (err.code === 'unimplemented') {
-        console.warn("Firestore persistence failed: Browser not supported");
-    }
+    console.warn("Firestore offline persistence failed to initialize:", err.message);
   });
 }
 

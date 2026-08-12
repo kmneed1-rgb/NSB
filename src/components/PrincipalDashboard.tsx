@@ -3,11 +3,12 @@ import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/fi
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, getStudentPhoto } from '../types';
+import { HoldActionWrapper } from './HoldActionWrapper';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -159,7 +160,6 @@ export default function PrincipalDashboard({
   const [attendanceSearch, setAttendanceSearch] = useState('');
   const [recordsFeeSearch, setRecordsFeeSearch] = useState('');
   const [recordsFeeClassFilter, setRecordsFeeClassFilter] = useState('all');
-  const [recordsFeeViewMode, setRecordsFeeViewMode] = useState<'roster' | 'receipts'>('roster');
   const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
   const [quickCollectStudentId, setQuickCollectStudentId] = useState('');
   const [quickCollectMonth, setQuickCollectMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
@@ -238,28 +238,10 @@ export default function PrincipalDashboard({
     });
   }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch]);
 
-  const filteredFeesReceipts = React.useMemo(() => {
-    return fees.filter(f => {
-      const student = studentsMap.get(String(f.studentId));
-      if (recordsFeeClassFilter !== 'all' && student && student.classId !== recordsFeeClassFilter) return false;
-      if (!recordsFeeSearch.trim()) return true;
-
-      const feeStudent = feeStudentsMap.get(String(f.studentId));
-      const sName = (student?.name || feeStudent?.name || (f as any).studentName || '').toLowerCase();
-      const sMonth = (f.month || '').toLowerCase();
-      const sId = String(f.id).toLowerCase();
-      const q = recordsFeeSearch.toLowerCase();
-      return sName.includes(q) || sMonth.includes(q) || sId.includes(q);
-    }).slice().reverse();
-  }, [fees, studentsMap, feeStudentsMap, recordsFeeClassFilter, recordsFeeSearch]);
-
   const visibleAttendance = React.useMemo(() => {
     return filteredAttendance.slice(0, attendanceDisplayLimit);
   }, [filteredAttendance, attendanceDisplayLimit]);
 
-  const visibleFeesReceipts = React.useMemo(() => {
-    return filteredFeesReceipts.slice(0, feesDisplayLimit);
-  }, [filteredFeesReceipts, feesDisplayLimit]);
 
   const handleRecordQuickFee = () => {
     if (!quickCollectStudentId) {
@@ -314,7 +296,7 @@ export default function PrincipalDashboard({
 
     setShowQuickCollectModal(false);
     setQuickCollectNotes('');
-    toast.success(`Fee Rs. ${amountNum.toLocaleString()} collected for ${studentName} (${quickCollectMonth})! Receipt #${newFeeRecord.id}`);
+    toast.success(`Fee ${amountNum.toLocaleString()} collected for ${studentName} (${quickCollectMonth})! Receipt #${newFeeRecord.id}`);
   };
 
   // PRINCIPAL ATTENDANCE MARKING ENGINE
@@ -328,42 +310,7 @@ export default function PrincipalDashboard({
     }
   }, [markAttendanceClassId, showMarkAttendanceModal, students]);
 
-  const handleExportJSON = () => {
-    const exportData = {
-      version: "1.1",
-      schoolName: "NSB Academic System",
-      exportDate: new Date().toISOString(),
-      teachers,
-      classes,
-      students,
-      attendance,
-      fees,
-      coordinators,
-      marks,
-      timetable,
-      feeStudents,
-      appSettings
-    };
-    
-    const jsonString = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    
-    // Formatting current date for filename as requested
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('en-GB').split('/').join('-'); // DD-MM-YYYY
-    const fileName = `nsb1_school_${dateStr}.json`;
-    
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    toast.success(`Data exported to ${fileName}`);
-  };
+
 
   const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -475,7 +422,7 @@ export default function PrincipalDashboard({
                 window.open(waUrl, '_blank');
                 toast.dismiss(t);
               }}
-              className="bg-emerald-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase cursor-pointer"
+              className="bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-black uppercase cursor-pointer"
             >
               Send
             </button>
@@ -489,38 +436,7 @@ export default function PrincipalDashboard({
     window.print();
   };
 
-  const handleDownloadSummary = () => {
-    const filtered = students.filter(s => reportClassFilter === 'all' || s.classId === reportClassFilter);
-    
-    let csv = "Student Name,Roll Number,Class,Fee Status,Test Average,Pending Amount\n";
-    
-    filtered.forEach(s => {
-      const sClass = classes.find(c => c.id === s.classId);
-      const feeData = feeStudents.find(fs => String(fs.id) === String(s.id));
-      const feeSummary = feeData ? getMonthlySummary(feeData, reportMonth, new Date().getFullYear()) : null;
-      const totalPending = feeData ? getTotalPending(feeData) + getTotalOtherFunds(feeData) : 0;
-      
-      const studentMarks = marks.filter(m => m.studentId === s.id);
-      const avg = studentMarks.length > 0 
-        ? Math.round(studentMarks.reduce((sum, m) => sum + Number(m.marksObtained), 0) / studentMarks.length)
-        : 0;
 
-      const feeStatus = feeSummary?.pending === 0 ? "Paid" : "Unpaid";
-      
-      csv += `"${s.name}","${s.rollNumber || 'N/A'}","${sClass?.className || 'N/A'}","${feeStatus}","${avg}%","Rs. ${totalPending}"\n`;
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `NSB1_School_Summary_${reportMonth}_${new Date().getFullYear()}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Summary report downloaded successfully.");
-  };
 
   const handleSendFeeNotification = (student: Student | StudentFeeData, type: 'payment' | 'charge' | 'reminder', amount: number, details: string) => {
     // Find fee data to get total pending
@@ -539,10 +455,10 @@ export default function PrincipalDashboard({
     const className = sClass ? `${sClass.className} - ${sClass.section}` : ((student as any).class || 'N/A');
 
     const template = type === 'payment' 
-      ? `Greetings! We have received a payment of Rs. ${amount} for ${details} from ${student.name} (${className}). Your remaining balance is Rs. ${totalPending}. Thank you for your cooperation. NSB1 School.`
+      ? `Greetings! We have received a payment of ${amount} for ${details} from ${student.name} (${className}). Your remaining balance is ${totalPending}. Thank you for your cooperation. NSB1 School.`
       : type === 'charge'
-      ? `Greetings! A charge of Rs. ${amount} has been added for ${details} to ${student.name}'s (${className}) school account. Your total pending balance is Rs. ${totalPending}. Please contact office for details. NSB1 School.`
-      : `Greetings! This is a reminder regarding the pending school fees for ${student.name} (${className}). Total outstanding balance is Rs. ${totalPending}. Please settle the dues at your earliest convenience. NSB1 School.`;
+      ? `Greetings! A charge of ${amount} has been added for ${details} to ${student.name}'s (${className}) school account. Your total pending balance is ${totalPending}. Please contact office for details. NSB1 School.`
+      : `Greetings! This is a reminder regarding the pending school fees for ${student.name} (${className}). Total outstanding balance is ${totalPending}. Please settle the dues at your earliest convenience. NSB1 School.`;
     
     // Check both potential phone fields
     const phone = (student as any).parentPhone || (student as any).studentPhone || (student as any).phone || '';
@@ -575,7 +491,7 @@ export default function PrincipalDashboard({
                 window.open(waUrl, '_blank');
                 toast.dismiss(t);
               }}
-              className="bg-indigo-600 text-white px-3 py-1 rounded-md text-[10px] font-black uppercase cursor-pointer"
+              className="bg-indigo-600 text-white px-3 py-1 rounded-md text-xs font-black uppercase cursor-pointer"
             >
               Send
             </button>
@@ -819,39 +735,7 @@ export default function PrincipalDashboard({
     p => !(appSettings.deletedPeriods[selectedTimetableClass] || []).includes(p)
   );
 
-  const handleBackupDatabase = () => {
-    try {
-      const backupData = {
-        timestamp: new Date().toISOString(),
-        appName: "AcadaMis - NSB1 School System",
-        data: {
-          teachers,
-          classes,
-          students,
-          coordinators,
-          timetable,
-          fees,
-          broadcastLogs,
-          appSettings
-        }
-      };
 
-      const dataStr = JSON.stringify(backupData, null, 2);
-      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-      
-      const exportFileDefaultName = `nsb1_school_backup_${new Date().toISOString().split('T')[0]}.json`;
-      
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', dataUri);
-      linkElement.setAttribute('download', exportFileDefaultName);
-      linkElement.click();
-      
-      toast.success("Database backup generated and download started!");
-    } catch (error) {
-      console.error("Backup failed:", error);
-      toast.error("Failed to generate database backup.");
-    }
-  };
 
   const handleDeletePeriod = (periodToDelete: string, day: string) => {
     // We only need to check if we should block deletion based on total slots if really necessary,
@@ -1458,19 +1342,11 @@ export default function PrincipalDashboard({
       
       {/* Mobile Top Header Indicator */}
       <div id="mobile-top-bar" className={`md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20 ${selectedStudentReport ? 'print:hidden' : ''}`}>
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="NSB1 Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
-          <span className="font-bold text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xs">NSB1 School</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="NSB1 Logo" className="w-20 h-20 object-contain" referrerPolicy="no-referrer" />
+          <h1 className="font-black text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xl sm:text-2xl">NSB1 School</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-             onClick={onLogout}
-             className="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-600 hover:text-white flex items-center gap-1.5 font-black text-[10px] uppercase transition-all"
-             title="Logout"
-          >
-            <LogOut size={16} />
-            EXIT
-          </button>
           <button 
             id="sidebar-toggle-mobile" 
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1498,13 +1374,13 @@ export default function PrincipalDashboard({
       >
         <div>
           {/* Brand header - Minimalist */}
-          <div className="p-8 pb-10 flex flex-col items-center border-b border-slate-50 mb-6">
-            <div className="mb-4">
-              <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain" referrerPolicy="no-referrer" />
+          <div className="p-4 pb-5 flex flex-col items-center border-b border-slate-50 mb-4">
+            <div className="mb-2">
+              <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
             </div>
             <div className="flex flex-col items-center gap-1">
-              <h1 className="text-slate-900 font-black text-xs tracking-[0.2em] uppercase">NSB1 School</h1>
-              <span className="text-[8px] font-black text-indigo-600 uppercase tracking-[0.4em]">Principal Office</span>
+              <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
+              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">Principal Office</span>
             </div>
           </div>
 
@@ -1525,7 +1401,7 @@ export default function PrincipalDashboard({
                 <button
                   key={link.id}
                   onClick={() => { handleTabChange(link.id as any); setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl ${
                     isActive 
                       ? 'text-white bg-emerald-600 shadow-lg shadow-emerald-200' 
                       : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -1540,7 +1416,7 @@ export default function PrincipalDashboard({
             {/* Install Button in Sidebar */}
             <button
               onClick={onInstallApp}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 mt-2 border border-indigo-100"
             >
               <Download size={14} className="text-indigo-600" />
               Install App
@@ -1567,9 +1443,9 @@ export default function PrincipalDashboard({
           <div className="bg-amber-100 border border-amber-200 p-3 mb-6 flex items-center justify-between shadow-sm animate-pulse">
             <div className="flex items-center gap-2 text-amber-800">
               <ShieldAlert size={16} />
-              <span className="text-[10px] font-black uppercase tracking-widest">Developer Mode Active: Tracking Principal Dashboard</span>
+              <span className="text-xs font-black uppercase tracking-widest">Developer Mode Active: Tracking Principal Dashboard</span>
             </div>
-            <div className="text-[9px] font-bold text-amber-600 uppercase">Superuser Access (KM)</div>
+            <div className="text-xs font-bold text-amber-600 uppercase">Superuser Access (KM)</div>
           </div>
         )}
         
@@ -1580,9 +1456,9 @@ export default function PrincipalDashboard({
           <div id="panel-principal-dashboard" className="space-y-8 animate-fade-in bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner">
             {/* Greeting Header */}
             <div className="bg-emerald-600 p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tighter font-display uppercase leading-[0.9]">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tighter font-display uppercase leading-tight truncate whitespace-nowrap">
                 {userSession.role === 'developer' ? 'System Tracking Dashboard' : 'Academic Command Center'}
-              </h1>
+              </h2>
             </div>
 
             {/* Metrics cards bar - Elegant Minimalist */}
@@ -1617,15 +1493,15 @@ export default function PrincipalDashboard({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: 'Fees Collected', val: `Rs. ${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Fees Unpaid', val: `Rs. ${totalPendingJune.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: 'Fees Collected', val: `${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: 'Fees Unpaid', val: `${totalPendingJune.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
                         { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ])
                     ].map(stat => (
                       <div key={stat.label} className={`group p-6 border border-transparent hover:border-slate-100 transition-all ${stat.bg}`}>
-                        <span className={`block text-[9px] font-black uppercase tracking-[0.3em] mb-3 ${stat.color}`}>{stat.label}</span>
+                        <span className={`block text-xs font-black uppercase tracking-[0.3em] mb-3 ${stat.color}`}>{stat.label}</span>
                         <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{stat.val}</span>
                       </div>
                     ))}
@@ -1636,33 +1512,33 @@ export default function PrincipalDashboard({
                     {userSession.role === 'principal' || userSession.role === 'coordinator' ? (
                       <>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">
                             {userSession.role === 'principal' ? 'Total JUN Collection' : 'Students Paid Fee'}
                           </span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `Rs. ${totalCollectedJune.toLocaleString()}` : paidStudentsCount}
+                            {userSession.role === 'principal' ? `${totalCollectedJune.toLocaleString()}` : paidStudentsCount}
                           </span>
                         </div>
                         <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">
                             {userSession.role === 'principal' ? 'JUN Target' : 'Total Students'}
                           </span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `Rs. ${totalExpectedJune.toLocaleString()}` : students.length}
+                            {userSession.role === 'principal' ? `${totalExpectedJune.toLocaleString()}` : students.length}
                           </span>
                         </div>
                         <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">
                             {userSession.role === 'principal' ? 'JUN Pending' : 'Students Pending Fee'}
                           </span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `Rs. ${totalPendingJune.toLocaleString()}` : pendingStudentsCount}
+                            {userSession.role === 'principal' ? `${totalPendingJune.toLocaleString()}` : pendingStudentsCount}
                           </span>
                         </div>
                       </>
                     ) : (
                       <div className="col-span-3 p-6 bg-slate-50/50 border border-slate-100 text-center">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[.2em]">Operational Overview Active</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-[.2em]">Operational Overview Active</p>
                       </div>
                     )}
                   </div>
@@ -1674,9 +1550,13 @@ export default function PrincipalDashboard({
             {/* Quick action grid */}
             <div className="bg-white border border-slate-200 shadow-sm rounded-none p-6">
               <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2 uppercase tracking-wide font-display">
-                <PlusCircle size={20} className="text-blue-600" />
                 {userSession.role === 'principal' ? 'Principal Fast-Track Actions' : 'Coordinator Fast-Track Actions'}
               </h2>
+
+              <div className="mb-6 bg-slate-50 border-l-4 border-slate-900 py-3 px-4 flex items-center gap-2">
+                <Plus size={16} className="text-slate-900" />
+                <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Add New Entity</span>
+              </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <button
@@ -1684,7 +1564,7 @@ export default function PrincipalDashboard({
                   className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
                 >
                   <Users size={16} />
-                  Add New Teacher
+                  Teacher
                 </button>
 
                 <button
@@ -1692,7 +1572,7 @@ export default function PrincipalDashboard({
                   className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
                 >
                   <Users size={16} />
-                  Add New Student
+                  Student
                 </button>
 
                 <button
@@ -1700,7 +1580,7 @@ export default function PrincipalDashboard({
                   className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
                 >
                   <BookOpen size={16} />
-                  Add New Class
+                  Class
                 </button>
 
                 <button
@@ -1708,7 +1588,7 @@ export default function PrincipalDashboard({
                   className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
                 >
                   <Calendar size={16} />
-                  Add Schedule Entry
+                  Schedule
                 </button>
               </div>
             </div>
@@ -1718,7 +1598,7 @@ export default function PrincipalDashboard({
               <Shield size={18} className="text-blue-600 shrink-0 mt-0.5" />
               <div>
                 <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">Data Policy Note :</span>
-                <p className="text-xs text-blue-800 mt-1">All additions, edits, and deletions are saved immediately onto the local sandbox of your browser. Logouts preserve state; you can refresh safely.</p>
+                <p className="text-xs text-blue-800 mt-1 truncate whitespace-nowrap">All additions, edits, and deletions are saved immediately onto the local sandbox of your browser. Logouts preserve state; you can refresh safely.</p>
               </div>
             </div>
           </div>
@@ -1731,7 +1611,7 @@ export default function PrincipalDashboard({
             <div className="bg-white border border-slate-200 p-2 shadow-sm flex flex-wrap gap-2 sticky top-0 z-10">
               <button
                 onClick={() => setManagementSubTab('teachers')}
-                className={`flex-1 min-w-[120px] py-3.5 px-4 text-[10px] uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
                   managementSubTab === 'teachers' 
                     ? 'bg-slate-900 text-white shadow-lg' 
                     : 'bg-white text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -1742,7 +1622,7 @@ export default function PrincipalDashboard({
               </button>
               <button
                 onClick={() => setManagementSubTab('students')}
-                className={`flex-1 min-w-[120px] py-3.5 px-4 text-[10px] uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
                   managementSubTab === 'students' 
                     ? 'bg-slate-900 text-white shadow-lg' 
                     : 'bg-white text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -1753,7 +1633,7 @@ export default function PrincipalDashboard({
               </button>
               <button
                 onClick={() => setManagementSubTab('classes')}
-                className={`flex-1 min-w-[120px] py-3.5 px-4 text-[10px] uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
                   managementSubTab === 'classes' 
                     ? 'bg-slate-900 text-white shadow-lg' 
                     : 'bg-white text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -1764,7 +1644,7 @@ export default function PrincipalDashboard({
               </button>
               <button
                 onClick={() => setManagementSubTab('coordinators')}
-                className={`flex-1 min-w-[120px] py-3.5 px-4 text-[10px] uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
                   managementSubTab === 'coordinators' 
                     ? 'bg-slate-900 text-white shadow-lg' 
                     : 'bg-white text-slate-400 hover:text-slate-900 hover:bg-slate-50'
@@ -1786,7 +1666,7 @@ export default function PrincipalDashboard({
                     </div>
                     <button
                       onClick={() => openAddModal('teacher')}
-                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-indigo-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
+                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg"
                     >
                       <Plus size={14} />
                       Register New Teacher
@@ -1820,7 +1700,7 @@ export default function PrincipalDashboard({
                             <div className="flex items-center gap-4">
                               <div>
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5">{t.name}</h3>
-                                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none">{t.subject}</p>
+                                <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest leading-none">{t.subject}</p>
                               </div>
                             </div>
                             <ChevronDown className={`text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -1830,31 +1710,31 @@ export default function PrincipalDashboard({
                             <div className="px-5 pb-5 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in font-sans">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Login Status</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Login Status</span>
                                   <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1  uppercase tracking-tighter">Login using Name</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Access Password</span>
                                   <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{t.password || 'nsb123'}</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 col-span-2 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Contact Details</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Contact Details</span>
                                   <div className="space-y-1.5">
-                                    <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2"><Mail size={12} className="text-slate-400" /> {t.email}</p>
-                                    <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2"><Phone size={12} className="text-slate-400" /> {t.phone}</p>
+                                    <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Mail size={12} className="text-slate-400" /> {t.email}</p>
+                                    <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Phone size={12} className="text-slate-400" /> {t.phone}</p>
                                   </div>
                                 </div>
                               </div>
                               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 mt-2">
                                 <button
                                   onClick={() => openEditModal('teacher', t.id)}
-                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 font-black text-[9px] uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-xs"
+                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-xs"
                                 >
                                   Edit Info
                                 </button>
                                 <button
                                   onClick={() => handleDeleteTeacher(t.id)}
-                                  className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 font-black text-[9px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-xs"
+                                  className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 font-black text-xs uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-xs"
                                 >
                                   Delete
                                 </button>
@@ -1877,7 +1757,7 @@ export default function PrincipalDashboard({
                     </div>
                     <button
                       onClick={() => openAddModal('student')}
-                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
+                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-emerald-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg"
                     >
                       <Plus size={14} />
                       Add Student
@@ -1921,16 +1801,15 @@ export default function PrincipalDashboard({
                               {s.photo ? (
                                 <img src={s.photo} alt={s.name} className="w-8 h-8 rounded-full object-cover border border-slate-200" />
                               ) : (
-                                <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-[10px] border border-slate-800">
-                                  {s.name.charAt(0)}
+                                <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xs border border-slate-800">
+                                  <User size={14} />
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate leading-none mb-1">{s.name}</h3>
+                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-sm truncate leading-none mb-1">{s.name.split(' ').slice(1).join(' ') || s.name}</h3>
                                 <div className="flex items-center gap-2">
-                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">{getClassName(s.classId)}</p>
                                   {s.category === 'Academy' && (
-                                    <span className="text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Academy</span>
+                                    <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Academy</span>
                                   )}
                                 </div>
                               </div>
@@ -1943,14 +1822,14 @@ export default function PrincipalDashboard({
                             <div className="px-5 pb-5 pt-3 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Guardian Contact</span>
-                                  <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Guardian Contact</span>
+                                  <p className="text-xs font-bold text-slate-700 flex items-center gap-2">
                                     <Phone size={10} className="text-emerald-500" /> {s.parentPhone}
                                   </p>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Fee Settings</span>
-                                  <p className="text-[10px] font-bold text-indigo-600 flex items-center gap-2">
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Fee Settings</span>
+                                  <p className="text-xs font-bold text-indigo-600 flex items-center gap-2">
                                     <CreditCard size={10} /> Base Fee: {s.baseFee}
                                   </p>
                                 </div>
@@ -1958,10 +1837,10 @@ export default function PrincipalDashboard({
 
                               {s.category === 'Academy' && s.academySubjects && s.academySubjects.length > 0 && (
                                 <div className="p-3 bg-indigo-50/50 border border-indigo-100 shadow-xs">
-                                  <span className="text-[8px] font-black text-indigo-400 uppercase block mb-1.5">Academy Subjects Focus</span>
+                                  <span className="text-xs font-black text-indigo-400 uppercase block mb-1.5">Academy Subjects Focus</span>
                                   <div className="flex flex-wrap gap-1.5">
                                     {s.academySubjects.map((sub, idx) => (
-                                      <span key={idx} className="bg-white border border-indigo-200 text-indigo-700 text-[9px] font-bold px-2 py-0.5 uppercase ">
+                                      <span key={idx} className="bg-white border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 uppercase ">
                                         {sub}
                                       </span>
                                     ))}
@@ -1976,7 +1855,7 @@ export default function PrincipalDashboard({
                                 </div>
                                 <button 
                                   onClick={() => { setFeeSearch(s.name); handleTabChange('fees'); window.scrollTo({top:0, behavior:'smooth'}); }}
-                                  className="px-4 py-2 bg-emerald-600 text-white font-black text-[9px] uppercase tracking-widest hover:bg-slate-900 transition-all shadow-md "
+                                  className="px-4 py-2 bg-emerald-600 text-white font-black text-xs uppercase tracking-widest hover:bg-slate-900 transition-all shadow-md "
                                 >
                                   Collect Fee ➔
                                 </button>
@@ -1999,7 +1878,7 @@ export default function PrincipalDashboard({
                     </div>
                     <button
                       onClick={() => openAddModal('class')}
-                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-900 hover:bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
+                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-900 hover:bg-indigo-600 text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg"
                     >
                       <Plus size={14} />
                       Add New Section
@@ -2021,27 +1900,27 @@ export default function PrincipalDashboard({
                             }}
                             className="flex items-center gap-5 relative z-10 w-full cursor-pointer"
                           >
-                            <div className="w-16 h-16 bg-slate-950 text-white flex flex-col items-center justify-center border-l-4 border-indigo-600 shrink-0">
-                              <span className="text-lg font-black ">{c.className}</span>
-                              <span className="text-[8px] font-bold uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{c.section}</span>
+                            <div className="w-16 h-16 bg-slate-950 text-white flex flex-col items-center justify-center border-l-4 border-indigo-600 shrink-0 overflow-hidden">
+                              <span className="text-xs font-black w-full text-center px-1 uppercase leading-tight">{c.className}</span>
+                              <span className="text-xs font-bold uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5 px-1 truncate">{c.section}</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1 leading-none">Class Teacher</h4>
+                              <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1 leading-none">Class Teacher</h4>
                               <p className="text-sm font-black text-slate-900 uppercase  mb-2 truncate">{classTeacher?.name || 'Vacant Slot'}</p>
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 flex items-center gap-1 uppercase tracking-tighter">
+                                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 flex items-center gap-1 uppercase tracking-tighter">
                                   <Users size={10}/> {studentCount} Enrolled
                                 </span>
                               </div>
                               {c.subjects && c.subjects.length > 0 && (
                                 <div className="mt-2 flex flex-wrap gap-1">
                                   {c.subjects.slice(0, 3).map(sub => (
-                                    <span key={sub} className="text-[7px] font-bold text-slate-400 border border-slate-100 px-1.5 py-0.5 uppercase tracking-tighter">
+                                    <span key={sub} className="text-[10px] font-bold text-slate-400 border border-slate-100 px-1.5 py-0.5 uppercase tracking-tighter">
                                       {sub}
                                     </span>
                                   ))}
                                   {c.subjects.length > 3 && (
-                                    <span className="text-[7px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 uppercase tracking-tighter">
+                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 uppercase tracking-tighter">
                                       +{c.subjects.length - 3} More
                                     </span>
                                   )}
@@ -2053,13 +1932,13 @@ export default function PrincipalDashboard({
                           <div className="flex gap-2 w-full pt-4 border-t border-slate-50 relative z-10">
                             <button
                               onClick={() => openEditModal('class', c.id)}
-                              className="flex-1 py-1.5 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-white transition-all border border-slate-100 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
+                              className="flex-1 py-1.5 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-white transition-all border border-slate-100 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
                             >
                               <Edit2 size={12} /> Edit
                             </button>
                             <button
                               onClick={() => handleDeleteClass(c.id)}
-                              className="flex-1 py-1.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-white transition-all border border-slate-100 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
+                              className="flex-1 py-1.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-white transition-all border border-slate-100 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5"
                             >
                               <Trash2 size={12} /> Delete
                             </button>
@@ -2080,7 +1959,7 @@ export default function PrincipalDashboard({
                     </div>
                     <button
                       onClick={() => openAddModal('coordinator')}
-                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-900 hover:bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest transition-all shadow-lg"
+                      className="flex items-center justify-center gap-2 py-2.5 px-6 bg-slate-900 hover:bg-indigo-600 text-white font-black text-xs uppercase tracking-widest transition-all shadow-lg"
                     >
                       <Plus size={14} />
                       Register New Coordinator
@@ -2114,7 +1993,7 @@ export default function PrincipalDashboard({
                             <div className="flex items-center gap-4">
                               <div>
                                 <h3 className="font-black text-slate-900 uppercase tracking-tight leading-none mb-1.5">{c.name}</h3>
-                                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none">Academic Coordinator</p>
+                                <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest leading-none">Academic Coordinator</p>
                               </div>
                             </div>
                             <ChevronDown className={`text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -2124,21 +2003,21 @@ export default function PrincipalDashboard({
                             <div className="px-5 pb-5 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-4 animate-fade-in font-sans">
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Login Status</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Login Status</span>
                                   <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1  uppercase tracking-tighter">Login using Name</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Access Password</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Access Password</span>
                                   <span className="font-mono text-xs font-bold text-emerald-600 bg-emerald-50 px-1">{c.password || 'nsb123'}</span>
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 col-span-2 shadow-xs">
-                                  <span className="text-[8px] font-black text-slate-400 uppercase block mb-1">Contact Details</span>
+                                  <span className="text-xs font-black text-slate-400 uppercase block mb-1">Contact Details</span>
                                   <div className="space-y-1.5">
-                                    <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                    <p className="text-xs font-bold text-slate-700 flex items-center gap-2">
                                       <Mail size={12} className="text-slate-400" /> {c.email}
                                     </p>
                                     {c.phone && (
-                                      <p className="text-[10px] font-bold text-slate-700 flex items-center gap-2">
+                                      <p className="text-xs font-bold text-slate-700 flex items-center gap-2">
                                         <Phone size={12} className="text-slate-400" /> Phone: {c.phone}
                                       </p>
                                     )}
@@ -2148,13 +2027,13 @@ export default function PrincipalDashboard({
                               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 mt-2">
                                 <button
                                   onClick={() => openEditModal('coordinator', c.id)}
-                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 font-black text-[9px] uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-xs"
+                                  className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-900 hover:text-white transition-all shadow-xs"
                                 >
                                   Edit Info
                                 </button>
                                 <button
                                   onClick={() => handleDeleteCoordinator(c.id)}
-                                  className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 font-black text-[9px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-xs"
+                                  className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 font-black text-xs uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-xs"
                                 >
                                   Delete
                                 </button>
@@ -2234,7 +2113,7 @@ export default function PrincipalDashboard({
              {/* Extra Periods Info */}
              <div className="flex flex-wrap gap-1.5 mt-2">
                 {allPeriods.length > 5 && (
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-md uppercase tracking-wide">
+                  <span className="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-md uppercase tracking-wide">
                     {allPeriods.length - 5} Extra Period(s) Active
                   </span>
                 )}
@@ -2245,7 +2124,7 @@ export default function PrincipalDashboard({
                  {DAYS.map(day => (
                    <div key={day} className="space-y-3">
                      <div className="flex items-center justify-between px-2 pt-2 border-l-2 border-slate-200">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">{day} Schedule</h3>
+                        <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">{day} Schedule</h3>
                         <button 
                           onClick={() => {
                             setTtDay(day);
@@ -2255,7 +2134,7 @@ export default function PrincipalDashboard({
                             setTtPeriod(`Period ${existingCount + 1}`);
                             openAddModal('timetable');
                           }}
-                          className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded text-[9px] font-black uppercase tracking-widest transition-all shadow-sm group"
+                          className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-sm group"
                         >
                           <Plus size={12} className="group-hover:rotate-90 transition-transform" />
                           <span>Append Period</span>
@@ -2289,7 +2168,7 @@ export default function PrincipalDashboard({
                              >
                                <div className="flex justify-between items-center mb-1 sm:mb-2 pb-0.5 sm:pb-1 border-b border-dashed border-slate-100/80">
                                  <div className="flex items-center gap-0.5 sm:gap-1.5 overflow-hidden">
-                                    <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-widest text-slate-500 truncate" style={{ color: statusCol }}>{p}</span>
+                                    <span className="text-[10px] sm:text-xs font-black uppercase tracking-tight sm:tracking-widest text-slate-500 truncate" style={{ color: statusCol }}>{p}</span>
                                     {allPeriods.length > 1 && (
                                       <button
                                         type="button"
@@ -2326,7 +2205,7 @@ export default function PrincipalDashboard({
 
                                          toast.info(`Creating schedule slot for ${nextPeriodName} on ${day}. Fill timetable details to save!`);
                                        }}
-                                       className="p-0.5 sm:p-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-[6px] sm:text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-0.5 sm:gap-1 shadow-sm px-1 sm:px-2"
+                                       className="p-0.5 sm:p-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-[6px] sm:text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-0.5 sm:gap-1 shadow-sm px-1 sm:px-2"
                                        title="Add Next Period"
                                      >
                                        <Plus size={8} className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5 stroke-[3]" /> <span className="hidden xs:inline">Add</span>
@@ -2336,8 +2215,8 @@ export default function PrincipalDashboard({
                                </div>
                                {entry ? (
                                  <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
-                                   <p className="font-extrabold text-[8px] sm:text-xs uppercase tracking-tight  text-slate-900 truncate" style={{ color: col }} title={entry.subject}>{entry.subject}</p>
-                                   <p className="text-slate-500 text-[6px] sm:text-[9px] font-bold uppercase tracking-wider sm:tracking-widest truncate" title={getTeacherName(entry.teacherId)}>{getTeacherName(entry.teacherId)}</p>
+                                   <p className="font-extrabold text-xs sm:text-xs uppercase tracking-tight  text-slate-900 truncate" style={{ color: col }} title={entry.subject}>{entry.subject}</p>
+                                   <p className="text-slate-500 text-[6px] sm:text-xs font-bold uppercase tracking-wider sm:tracking-widest truncate" title={getTeacherName(entry.teacherId)}>{getTeacherName(entry.teacherId)}</p>
                                    <div className="flex items-center gap-1 sm:gap-2 pt-0.5 sm:pt-2 border-t border-slate-200/50 mt-1 sm:mt-2">
                                      <button onClick={() => openEditModal('timetable', entry.id)} className="text-slate-400 hover:text-slate-700 transition-colors"><Edit2 size={8} className="w-2 h-2 sm:w-2.5 sm:h-2.5" /></button>
                                      <button onClick={() => handleDeleteTimetableEntry(entry.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={8} className="w-2 h-2 sm:w-2.5 sm:h-2.5" /></button>
@@ -2350,7 +2229,7 @@ export default function PrincipalDashboard({
                                        setTtPeriod(p);
                                        openAddModal('timetable');
                                    }}
-                                   className="w-full text-slate-400 hover:text-slate-600 font-bold text-[7px] sm:text-[10px] uppercase  text-left pt-0.5 sm:pt-1 truncate"
+                                   className="w-full text-slate-400 hover:text-slate-600 font-bold text-[10px] sm:text-xs uppercase  text-left pt-0.5 sm:pt-1 truncate"
                                  >
                                    + Assign
                                  </button>
@@ -2422,13 +2301,6 @@ export default function PrincipalDashboard({
                   </h2>
                   <div className="flex gap-2 print:hidden">
                     <button 
-                      onClick={handleDownloadSummary}
-                      className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-                      title="Download CSV"
-                    >
-                      <Download size={14} className="text-slate-600" />
-                    </button>
-                    <button 
                       onClick={handlePrintSummary}
                       className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
                       title="Print Summary"
@@ -2441,10 +2313,10 @@ export default function PrincipalDashboard({
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-900 text-white">
-                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight">Student</th>
-                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-center">Fee Status</th>
-                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-center">Test Avg</th>
-                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-tight text-right">Pending</th>
+                        <th className="px-1.5 py-2 text-xs font-black uppercase tracking-tight">Student</th>
+                        <th className="px-1.5 py-2 text-xs font-black uppercase tracking-tight text-center">Fee Status</th>
+                        <th className="px-1.5 py-2 text-xs font-black uppercase tracking-tight text-center">Test Avg</th>
+                        <th className="px-1.5 py-2 text-xs font-black uppercase tracking-tight text-right">Pending</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2477,33 +2349,25 @@ export default function PrincipalDashboard({
                           >
                             <td className="px-1.5 py-2">
                               <div className="flex items-center gap-2">
-                                {s.photo ? (
-                                  <img src={s.photo} alt={s.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
-                                ) : (
-                                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-[8px] border border-slate-800">
-                                    {s.name.charAt(0)}
-                                  </div>
-                                )}
                                 <div>
-                                  <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors leading-tight">{s.name}</p>
-                                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Class {classes.find(c => c.id === s.classId)?.className}</p>
+                                  <p className="text-xs font-black text-slate-900 uppercase tracking-tight group-hover:text-indigo-600 transition-colors leading-tight">{s.name}</p>
                                 </div>
                               </div>
                             </td>
                             <td className="px-1.5 py-2 text-center">
                               {feeSummary?.pending === 0 ? (
-                                <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase border border-emerald-100">Paid</span>
+                                <span className="bg-emerald-50 text-emerald-600 text-xs font-black px-1.5 py-0.5 rounded-full uppercase border border-emerald-100">Paid</span>
                               ) : (
-                                <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase border border-rose-100">Unpaid</span>
+                                <span className="bg-rose-50 text-rose-600 text-xs font-black px-1.5 py-0.5 rounded-full uppercase border border-rose-100">Unpaid</span>
                               )}
                             </td>
                             <td className="px-1.5 py-2 text-center">
-                              <span className="text-[10px] font-black text-slate-900">{avg > 0 ? `${avg}%` : '0%'}</span>
+                              <span className="text-xs font-black text-slate-900">{avg > 0 ? `${avg}%` : '0%'}</span>
                             </td>
                             <td className="px-1.5 py-2 text-right">
                               <div className="flex items-center justify-end gap-1.5">
-                                <span className={`text-[10px] font-black leading-none ${totalPending > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                                  Rs.{totalPending}
+                                <span className={`text-xs font-black leading-none ${totalPending > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                                  {totalPending}
                                 </span>
                                 <button 
                                   onClick={(e) => {
@@ -2536,11 +2400,11 @@ export default function PrincipalDashboard({
               </div>
               <div className="flex items-center gap-2">
                 <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-lg text-rose-600">
-                  <span className="text-[9px] font-black uppercase block leading-none">High Priority</span>
+                  <span className="text-xs font-black uppercase block leading-none">High Priority</span>
                   <span className="text-lg font-black leading-none">{fees.filter(f => f.status === 'unpaid').length}</span>
                 </div>
                 <div className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
-                  <span className="text-[9px] font-black uppercase block leading-none">History Logs</span>
+                  <span className="text-xs font-black uppercase block leading-none">History Logs</span>
                   <span className="text-lg font-black leading-none">{broadcastLogs.length}</span>
                 </div>
               </div>
@@ -2553,7 +2417,7 @@ export default function PrincipalDashboard({
                   return (
                     <div className="py-20 text-center border-2 border-dashed border-slate-100 rounded-xl">
                       <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-4 opacity-20" />
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">System Ledger Clear</p>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">System Ledger Clear</p>
                     </div>
                   );
                 }
@@ -2592,18 +2456,18 @@ export default function PrincipalDashboard({
                     >
                       <div className="flex items-center gap-4 w-full md:w-auto">
                         <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs uppercase ">
-                           {student.name.charAt(0)}
+                           <User size={18} />
                         </div>
                         <div className="text-left">
-                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name}</h3>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                            {classObj?.className}-{classObj?.section} • Rs. {totalPending}
+                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name.split(' ').slice(1).join(' ') || student.name}</h3>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
+                            {classObj?.className}-{classObj?.section} • {totalPending}
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="hidden lg:block text-[9px] text-slate-400  max-w-[200px] truncate overflow-hidden bg-slate-50 px-2 py-1 rounded">
+                        <div className="hidden lg:block text-xs text-slate-400  max-w-[200px] truncate overflow-hidden bg-slate-50 px-2 py-1 rounded">
                           "{waMessage}"
                         </div>
                         <a 
@@ -2616,13 +2480,13 @@ export default function PrincipalDashboard({
                               recipient: `${student.name}'s Parent`,
                               phone: student.parentPhone || '',
                               type: 'WhatsApp',
-                              text: `Sent consolidated alert for Rs. ${totalPending}`,
+                              text: `Sent consolidated alert for ${totalPending}`,
                               timestamp: new Date().toLocaleString(),
                               status: 'Sent'
                             }, ...prev]);
                             toast.success(`Alert dispatched for ${student.name}`);
                           }}
-                          className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-slate-900 text-white px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
+                          className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-slate-900 text-white px-5 py-2.5 rounded text-xs font-black uppercase tracking-widest transition-all"
                         >
                           <Phone size={14} fill="currentColor" />
                           Send Alert
@@ -2643,10 +2507,10 @@ export default function PrincipalDashboard({
             <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 sm:p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50 rounded-b-2xl text-white">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h1 className="text-2xl sm:text-4xl font-black tracking-tight font-display uppercase leading-none flex items-center gap-3">
-                    <Database size={28} className="text-emerald-200 shrink-0" />
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight font-display uppercase leading-none flex items-center gap-3 whitespace-nowrap">
+                    <Database size={24} className="text-emerald-200 shrink-0" />
                     School Registers & Records
-                  </h1>
+                  </h2>
                 </div>
                 <div className="flex items-center gap-2 bg-emerald-900/40 backdrop-blur-sm px-4 py-2 rounded-xl border border-emerald-400/20 text-xs font-bold">
                   <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse" />
@@ -2659,23 +2523,23 @@ export default function PrincipalDashboard({
             <div className="bg-white border border-slate-200 p-2 shadow-sm flex flex-wrap gap-2 sticky top-0 z-10 rounded-2xl mb-8">
               <button
                 onClick={() => setRegistersSubTab('fees')}
-                className={`flex-1 min-w-[150px] py-3.5 px-4 text-xs uppercase font-black tracking-widest transition-all flex items-center justify-center gap-3 rounded-xl cursor-pointer ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-widest transition-all flex items-center justify-center gap-2.5 rounded-xl cursor-pointer ${
                   registersSubTab === 'fees'
                     ? 'bg-emerald-600 text-white shadow-md scale-[1.01]'
                     : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <CreditCard size={18} /> Fees Ledger ({fees.length})
+                <CreditCard size={16} /> Fees
               </button>
               <button
                 onClick={() => setRegistersSubTab('attendance')}
-                className={`flex-1 min-w-[150px] py-3.5 px-4 text-xs uppercase font-black tracking-widest transition-all flex items-center justify-center gap-3 rounded-xl cursor-pointer ${
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-widest transition-all flex items-center justify-center gap-2.5 rounded-xl cursor-pointer ${
                   registersSubTab === 'attendance'
                     ? 'bg-emerald-600 text-white shadow-md scale-[1.01]'
                     : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <CheckCircle2 size={18} /> Attendance Register ({attendance.length})
+                <CheckCircle2 size={16} /> Attendance
               </button>
             </div>
 
@@ -2686,7 +2550,7 @@ export default function PrincipalDashboard({
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4 mb-2">
                   <div>
                     <h2 className="text-lg sm:text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
-                      <CreditCard className="text-emerald-600 shrink-0" size={20} /> Student Fee Collection & History Ledger
+                      <CreditCard className="text-emerald-600 shrink-0" size={20} /> Student Fee Collection
                     </h2>
                   </div>
                   <div className="flex items-center gap-2.5 w-full md:w-auto">
@@ -2695,330 +2559,153 @@ export default function PrincipalDashboard({
                         setQuickCollectStudentId(students[0]?.id || '');
                         setShowQuickCollectModal(true);
                       }}
-                      className="flex-1 md:flex-none px-4 sm:px-5 py-2.5 bg-emerald-600 text-white text-[10px] sm:text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-slate-900 transition-all shadow-md rounded-xl cursor-pointer"
+                      className="flex-1 md:flex-none px-4 sm:px-5 py-2.5 bg-emerald-600 text-white text-xs sm:text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-slate-900 transition-all shadow-md rounded-xl cursor-pointer"
                     >
                       <Plus size={16} /> ⚡ Collect Fee
                     </button>
-                    <button
-                      onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8," 
-                          + "ID,Date,Student,Class,Month,Amount,PaymentMethod,FeeType\n"
-                          + fees.map(f => {
-                              const st = students.find(s => String(s.id) === String(f.studentId));
-                              return `"${f.id}","${f.paidDate || ''}","${st?.name || (f as any).studentName || ''}","${st?.classId ? getClassName(st.classId) : ''}","${f.month}","${f.amount}","${f.paymentMethod || 'Cash'}","${f.feeType || 'Tuition Fee'}"`;
-                            }).join("\n");
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement("a");
-                        link.setAttribute("href", encodedUri);
-                        link.setAttribute("download", `NSB1_School_Fee_Ledger_${new Date().toISOString().split('T')[0]}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        toast.success("Fee ledger exported as CSV!");
-                      }}
-                      className="px-3.5 sm:px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[10px] sm:text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all rounded-xl shadow-xs cursor-pointer"
-                    >
-                      <Download size={15} /> Export
-                    </button>
+
                   </div>
                 </div>
 
-                {/* Filter, Search & View Controls */}
-                <div className="bg-white p-3 sm:p-4 border border-slate-200 rounded-2xl shadow-sm space-y-3">
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                    {/* View Mode Switcher */}
-                    <div className="flex items-center gap-1.5 w-full sm:w-auto bg-slate-100 p-1 rounded-xl">
-                      <button
-                        onClick={() => setRecordsFeeViewMode('roster')}
-                        className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-[10px] sm:text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                          recordsFeeViewMode === 'roster'
-                            ? 'bg-slate-900 text-white shadow-xs'
-                            : 'text-slate-600 hover:bg-white/50'
-                        }`}
-                      >
-                        <Users size={14} /> Fee Roster
-                      </button>
-                      <button
-                        onClick={() => setRecordsFeeViewMode('receipts')}
-                        className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-[10px] sm:text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                          recordsFeeViewMode === 'receipts'
-                            ? 'bg-slate-900 text-white shadow-xs'
-                            : 'text-slate-600 hover:bg-white/50'
-                        }`}
-                      >
-                        <Receipt size={14} /> Receipts ({fees.length})
-                      </button>
-                    </div>
 
-                    {/* Class Filter Dropdown */}
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <div className="relative flex-1 min-w-[160px]">
-                        <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
-                        <select
-                          value={recordsFeeClassFilter}
-                          onChange={(e) => setRecordsFeeClassFilter(e.target.value)}
-                          className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-500 rounded-xl appearance-none cursor-pointer"
-                        >
-                          <option value="all">All Classes</option>
-                          {classes.map(c => {
-                            const count = students.filter(s => s.classId === c.id).length;
-                            return (
-                              <option key={c.id} value={c.id}>
-                                {c.className} - {c.section} ({count} Std)
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Search Bar */}
-                  <div className="relative w-full pt-1">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
-                    <input
-                      type="text"
-                      value={recordsFeeSearch}
-                      onChange={(e) => setRecordsFeeSearch(e.target.value)}
-                      placeholder="Search student by name, roll number, or month..."
-                      className="w-full pl-10 pr-8 py-2.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 transition-all placeholder:text-slate-400 placeholder:font-normal"
-                    />
-                    {recordsFeeSearch && (
-                      <button
-                        onClick={() => setRecordsFeeSearch('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Stat Summary Cards */}
-                {(() => {
-                  const filteredStudentsList = filteredFeesRoster;
-
-                  const totalExpected = filteredStudentsList.reduce((acc, s) => acc + (s.baseFee || 5500), 0);
-                  const totalCollected = fees.filter(f => filteredStudentsList.some(s => String(s.id) === String(f.studentId)))
-                    .reduce((sum, f) => sum + Number(f.amount || 0), 0);
-                  const totalOutstanding = Math.max(0, totalExpected - totalCollected);
-
-                  return (
-                    <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
-                      <div className="bg-white p-3.5 sm:p-5 border border-slate-200 rounded-2xl shadow-xs">
-                        <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 truncate">Roster Students</p>
-                        <h3 className="text-base sm:text-2xl font-black text-slate-900 tracking-tight">
-                          {filteredStudentsList.length} <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase">Enrolled</span>
-                        </h3>
-                      </div>
-                      <div className="bg-white p-3.5 sm:p-5 border border-emerald-100 bg-emerald-50/20 rounded-2xl shadow-xs">
-                        <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 truncate">Revenue Collected</p>
-                        <h3 className="text-base sm:text-2xl font-black text-emerald-700 tracking-tight">
-                          Rs. {totalCollected.toLocaleString()}
-                        </h3>
-                      </div>
-                      <div className="bg-white p-3.5 sm:p-5 border border-rose-100 bg-rose-50/20 rounded-2xl shadow-xs">
-                        <p className="text-[9px] sm:text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1 truncate">Pending Balance</p>
-                        <h3 className="text-base sm:text-2xl font-black text-rose-700 tracking-tight">
-                          Rs. {totalOutstanding.toLocaleString()}
-                        </h3>
-                      </div>
-                      <div className="bg-white p-3.5 sm:p-5 border border-slate-200 rounded-2xl shadow-xs">
-                        <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 truncate">Collection Rate</p>
-                        <h3 className="text-base sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                          {totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0}%
-                        </h3>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Content based on recordsFeeViewMode */}
-                {recordsFeeViewMode === 'roster' ? (
-                  /* ================= MODE 1: STUDENT FEE ROSTER & IN-PLACE COLLECT ================= */
-                  <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-2xl">
-                    <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center flex-wrap gap-2">
-                      <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
-                        <Users size={16} className="text-emerald-600 shrink-0" /> Class Student Fee History & Direct Collection
+                {/* Student Fee Roster & In-Place Collect */}
+                <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-3xl">
+                    <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                      <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 whitespace-nowrap">
+                        Student Fee Roster
                       </h3>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
-                        Click "Collect Fee" to collect payment instantly
-                      </span>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Paid
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
+                          <div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
+                          <div className="w-2 h-2 rounded-full bg-rose-500"></div> Unpaid
+                        </div>
+                      </div>
                     </div>
 
                     {/* MOBILE CARD VIEW (< md) */}
-                    <div className="block md:hidden divide-y divide-slate-100">
+                    <div className="block md:hidden">
                       {(() => {
                         if (filteredFeesRoster.length === 0) {
                           return (
-                            <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
-                              No students found matching current class and search filters.
+                            <div className="py-20 text-center px-6">
+                              <Search size={32} className="text-slate-200 mx-auto mb-2" />
+                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No matching students</p>
                             </div>
                           );
                         }
 
-                        return filteredFeesRoster.map(student => {
-                          const sFees = fees.filter(f => String(f.studentId) === String(student.id));
-                          const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-                          const monthlyFee = student.baseFee || 5500;
-                          const isPaidCurrent = totalPaid >= monthlyFee;
-                          const isExpanded = expandedStudentFeeId === String(student.id);
-                          const sClass = getClassName(student.classId);
-                          const photo = getStudentPhoto(student);
+                        // Grouping for mobile
+                        const groupedStudents: Record<string, Student[]> = {};
+                        filteredFeesRoster.forEach(s => {
+                          const cid = s.classId || 'other';
+                          if (!groupedStudents[cid]) groupedStudents[cid] = [];
+                          groupedStudents[cid].push(s);
+                        });
 
+                        return Object.entries(groupedStudents).map(([classId, classStudents]) => {
+                          const className = classId === 'other' ? 'Other' : getClassName(classId);
+                          
                           return (
-                            <div key={student.id} className="p-4 space-y-3 bg-white border-b border-slate-100 last:border-b-0">
-                              {/* Header & Status (Clicking toggles expansion) */}
-                              <div
-                                onClick={() => setExpandedStudentFeeId(isExpanded ? null : String(student.id))}
-                                className="flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/80 p-1.5 rounded-xl transition-colors"
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  {photo ? (
-                                    <img
-                                      src={photo}
-                                      alt={student.name}
-                                      className="w-10 h-10 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="w-10 h-10 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
-                                  )}
-                                  <div className="min-w-0">
-                                    <h4 className={`font-black uppercase tracking-tight text-xs truncate ${
-                                      isPaidCurrent ? 'text-slate-900' : 'text-rose-600'
-                                    }`}>
-                                      {student.name}
-                                    </h4>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
-                                      Roll: {student.rollNumber || 'N/A'} • Class {sClass}
-                                    </p>
-                                  </div>
+                            <div key={classId} className="mb-2">
+                              {recordsFeeClassFilter === 'all' && (
+                                <div className="px-4 py-2 bg-slate-50 border-y border-slate-100">
+                                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Class {className} ({classStudents.length})</span>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {isPaidCurrent ? (
-                                    <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[9px] font-black tracking-wider border border-emerald-100 rounded-full uppercase flex items-center gap-1">
-                                      <CheckCircle2 size={10} /> Paid
-                                    </span>
-                                  ) : totalPaid > 0 ? (
-                                    <span className="bg-amber-50 text-amber-700 px-2.5 py-1 text-[9px] font-black tracking-wider border border-amber-100 rounded-full uppercase flex items-center gap-1">
-                                      <Clock size={10} /> Partial
-                                    </span>
-                                  ) : (
-                                    <span className="bg-rose-50 text-rose-700 px-2.5 py-1 text-[9px] font-black tracking-wider border border-rose-100 rounded-full uppercase flex items-center gap-1">
-                                      <AlertTriangle size={10} /> Unpaid
-                                    </span>
-                                  )}
-                                  <ChevronDown size={15} className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                </div>
-                              </div>
+                              )}
+                              <div className="divide-y divide-slate-50">
+                                {classStudents.map(student => {
+                                  const sFees = fees.filter(f => String(f.studentId) === String(student.id));
+                                  const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+                                  const monthlyFee = student.baseFee || 5500;
+                                  const isPaidCurrent = totalPaid >= monthlyFee;
+                                  const isExpanded = expandedStudentFeeId === String(student.id);
+                                  const photo = getStudentPhoto(student);
 
-                              {/* Mobile Expanded Details & Actions (Revealed ONLY on Click) */}
-                              {isExpanded && (
-                                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-3 mt-2 animate-fade-in">
-                                  {/* Action Toolbar Header */}
-                                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                                      <FileText size={14} className="text-emerald-600 shrink-0" />
-                                      Student Fee Details
-                                    </span>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setQuickCollectStudentId(String(student.id));
-                                        setQuickCollectAmount(String(student.baseFee || 5500));
-                                        setShowQuickCollectModal(true);
-                                      }}
-                                      className="px-3 py-1.5 bg-emerald-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1 cursor-pointer shrink-0"
-                                    >
-                                      <Plus size={13} /> Collect Fee
-                                    </button>
-                                  </div>
-                                  {/* Fee Metrics Breakdown */}
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-white p-3 rounded-xl border border-slate-200 text-xs shadow-2xs">
-                                    <div>
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">Monthly Fee</span>
-                                      <span className="font-black text-slate-800">Rs. {monthlyFee.toLocaleString()}</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">Total Paid</span>
-                                      <span className={`font-black ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        Rs. {totalPaid.toLocaleString()}
-                                      </span>
-                                    </div>
-                                    <div className="col-span-2 sm:col-span-1">
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">Pending Balance</span>
-                                      <span className={`font-black ${monthlyFee - totalPaid <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        Rs. {Math.max(0, monthlyFee - totalPaid).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                                      <Receipt size={13} className="text-emerald-600" />
-                                      Payment History ({sFees.length})
-                                    </span>
-                                    {student.parentPhone && (
-                                      <span className="text-[9px] font-bold text-slate-500 uppercase font-mono">
-                                        📱 {student.parentPhone}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {sFees.length === 0 ? (
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase py-2 text-center">
-                                      No payment receipts logged yet.
-                                    </p>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      {sFees.map(f => (
-                                        <div key={f.id} className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1.5 text-xs shadow-2xs">
-                                          <div className="flex items-center justify-between">
-                                            <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded font-mono">
-                                              #{String(f.id).slice(-6)}
-                                            </span>
-                                            <span className="text-emerald-700 font-black">Rs. {Number(f.amount).toLocaleString()}</span>
+                                  return (
+                                    <div key={student.id} className={`bg-white transition-all ${isExpanded ? 'bg-indigo-50/10' : ''}`}>
+                                      <div
+                                        onClick={() => setExpandedStudentFeeId(isExpanded ? null : String(student.id))}
+                                        className="p-4 flex items-center justify-between gap-3 cursor-pointer active:bg-slate-50"
+                                      >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <div className="relative">
+                                            {photo ? (
+                                              <img src={photo} alt={student.name} className="w-10 h-10 rounded-xl object-cover ring-1 ring-slate-100" />
+                                            ) : (
+                                              <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300"><User size={18} /></div>
+                                            )}
+                                            <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${isPaidCurrent ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                                           </div>
-                                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
-                                            <span>Month: {f.month}</span>
-                                            <span>{f.paymentMethod || 'Cash'}</span>
+                                          <div className="min-w-0">
+                                            <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate mb-0.5">{student.name}</h4>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Roll #{student.rollNumber || '000'}</p>
                                           </div>
-                                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                                            <span className="text-[9px] text-slate-400">{f.paidDate || f.dueDate}</span>
-                                            <div className="flex items-center gap-1">
-                                              {student.parentPhone && (
-                                                <button
-                                                  onClick={() => {
-                                                    const text = `Fee Receipt: Received Rs. ${f.amount} for ${student.name} (${f.month}). Receipt #${f.id}. Thank you! - NSB Academy`;
-                                                    window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-                                                  }}
-                                                  className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
-                                                  title="WhatsApp Receipt"
-                                                >
-                                                  <MessageSquare size={13} />
-                                                </button>
+                                        </div>
+                                        <ChevronDown size={14} className={`text-slate-300 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                                      </div>
+
+                                      {isExpanded && (
+                                        <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                          <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-lg space-y-4">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Status</span>
+                                                <span className={`text-[10px] font-black uppercase ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? 'Partial' : 'Unpaid'}
+                                                </span>
+                                              </div>
+                                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Balance</span>
+                                                <span className="text-[10px] font-black text-slate-900">PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}</span>
+                                              </div>
+                                            </div>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setQuickCollectStudentId(String(student.id));
+                                                setQuickCollectAmount(String(student.baseFee || 5500));
+                                                setShowQuickCollectModal(true);
+                                              }}
+                                              className="w-full py-3 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                                            >
+                                              <Plus size={14} /> Collect Payment
+                                            </button>
+
+                                            <div className="space-y-2">
+                                              <div className="flex items-center justify-between border-b border-slate-100 pb-1">
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">History Log</span>
+                                                <span className="text-[10px] font-bold text-slate-400">{sFees.length} Receipts</span>
+                                              </div>
+                                              {sFees.length === 0 ? (
+                                                <p className="text-[10px] text-center text-slate-300 py-2 font-bold uppercase">No records found</p>
+                                              ) : (
+                                                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                                  {sFees.map(f => (
+                                                    <div key={f.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
+                                                      <div>
+                                                        <span className="block text-[10px] font-black text-slate-900 uppercase leading-none mb-1">{f.month} Payment</span>
+                                                        <span className="block text-[9px] font-bold text-slate-400 uppercase tabular-nums">{f.paidDate}</span>
+                                                      </div>
+                                                      <span className="text-xs font-black text-emerald-600">PKR {Number(f.amount).toLocaleString()}</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
                                               )}
-                                              <button
-                                                onClick={() => {
-                                                  if (window.confirm(`Delete receipt #${f.id}?`)) {
-                                                    setFees(prev => prev.filter(item => item.id !== f.id));
-                                                    toast.success("Receipt removed");
-                                                  }
-                                                }}
-                                                className="p-1 text-rose-400 hover:text-rose-600 rounded"
-                                                title="Delete Receipt"
-                                              >
-                                                <Trash2 size={13} />
-                                              </button>
                                             </div>
                                           </div>
                                         </div>
-                                      ))}
+                                      )}
                                     </div>
-                                  )}
-                                </div>
-                              )}
+                                  );
+                                })}
+                              </div>
                             </div>
                           );
                         });
@@ -3027,13 +2714,12 @@ export default function PrincipalDashboard({
 
                     {/* DESKTOP TABLE VIEW (>= md) */}
                     <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-500">
+                      <table className="w-full text-left border-separate border-spacing-0">
+                        <thead className="bg-slate-50/80 border-b border-slate-200 uppercase text-[10px] font-black tracking-[0.2em] text-slate-500 sticky top-0 z-10 backdrop-blur-md">
                           <tr>
-                            <th className="px-5 py-4">Student & Roll #</th>
-                            <th className="px-5 py-4">Class</th>
-                            <th className="px-5 py-4">Fee Status</th>
-                            <th className="px-5 py-4 text-right">Fee Details & Collect</th>
+                            <th className="px-6 py-4 border-b border-slate-200">Student & Roll No.</th>
+                            <th className="px-6 py-4 border-b border-slate-200">Current Status</th>
+                            <th className="px-6 py-4 border-b border-slate-200 text-right">Payment Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -3041,195 +2727,213 @@ export default function PrincipalDashboard({
                             if (filteredFeesRoster.length === 0) {
                               return (
                                 <tr>
-                                  <td colSpan={4} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
-                                    No students found matching current class and search filters.
+                                  <td colSpan={3} className="py-20 text-center">
+                                    <div className="flex flex-col items-center gap-2">
+                                      <Search size={32} className="text-slate-200" />
+                                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No student matches your search criteria</p>
+                                    </div>
                                   </td>
                                 </tr>
                               );
                             }
 
-                            return filteredFeesRoster.map(student => {
-                              const sFees = fees.filter(f => String(f.studentId) === String(student.id));
-                              const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-                              const monthlyFee = student.baseFee || 5500;
-                              const isPaidCurrent = totalPaid >= monthlyFee;
-                              const isExpanded = expandedStudentFeeId === String(student.id);
-                              const sClass = getClassName(student.classId);
-                              const photo = getStudentPhoto(student);
+                            // Grouping logic for "terteeb"
+                            const groupedStudents: Record<string, Student[]> = {};
+                            filteredFeesRoster.forEach(s => {
+                              const cid = s.classId || 'other';
+                              if (!groupedStudents[cid]) groupedStudents[cid] = [];
+                              groupedStudents[cid].push(s);
+                            });
 
+                            return Object.entries(groupedStudents).map(([classId, classStudents]) => {
+                              const className = classId === 'other' ? 'Other' : getClassName(classId);
+                              
                               return (
-                                <React.Fragment key={student.id}>
-                                  <tr
-                                    onClick={() => setExpandedStudentFeeId(isExpanded ? null : String(student.id))}
-                                    className="hover:bg-slate-50/80 transition-colors cursor-pointer"
-                                  >
-                                    <td className="px-5 py-4">
-                                      <div className="flex items-center gap-3">
-                                        {photo ? (
-                                          <img
-                                            src={photo}
-                                            alt={student.name}
-                                            className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                          />
-                                        ) : (
-                                          <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
-                                        )}
-                                        <div>
-                                          <span className={`block uppercase tracking-tight text-xs leading-tight ${
-                                            isPaidCurrent ? 'text-slate-900 font-black' : 'text-rose-600 font-black'
-                                          }`}>
-                                            {student.name}
-                                          </span>
-                                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mt-0.5">
-                                            Roll #{student.rollNumber || 'N/A'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </td>
-                                    <td className="px-5 py-4 text-xs font-bold text-slate-700 uppercase tracking-wider">
-                                      <span className="bg-slate-100 text-slate-800 px-2.5 py-1 text-[10px] font-black border border-slate-200 rounded-md">
-                                        Class {sClass}
-                                      </span>
-                                    </td>
-                                    <td className="px-5 py-4">
-                                      {isPaidCurrent ? (
-                                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[10px] font-black tracking-wider border border-emerald-100 rounded-full uppercase flex items-center gap-1 w-fit">
-                                          <CheckCircle2 size={12} /> Paid
-                                        </span>
-                                      ) : totalPaid > 0 ? (
-                                        <span className="bg-amber-50 text-amber-700 px-2.5 py-1 text-[10px] font-black tracking-wider border border-amber-100 rounded-full uppercase flex items-center gap-1 w-fit">
-                                          <Clock size={12} /> Partial
-                                        </span>
-                                      ) : (
-                                        <span className="bg-rose-50 text-rose-700 px-2.5 py-1 text-[10px] font-black tracking-wider border border-rose-100 rounded-full uppercase flex items-center gap-1 w-fit">
-                                          <AlertTriangle size={12} /> Unpaid
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td className="px-5 py-4 text-right">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setExpandedStudentFeeId(isExpanded ? null : String(student.id));
-                                        }}
-                                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ml-auto cursor-pointer"
-                                      >
-                                        <FileText size={13} /> {isExpanded ? 'Hide Details' : 'Click for Details'}
-                                        <ChevronDown size={13} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                      </button>
-                                    </td>
-                                  </tr>
-
-                                  {/* Expanded Payment History & Collect Fee Section */}
-                                  {isExpanded && (
-                                    <tr>
-                                      <td colSpan={4} className="bg-slate-50/90 p-4 border-y border-slate-200">
-                                        <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 shadow-inner">
-                                          {/* Top Bar inside Expanded Row */}
-                                          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                            <div>
-                                              <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                                <Receipt size={14} className="text-emerald-600" />
-                                                Fee Record & History for {student.name}
-                                              </h4>
-                                              <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">
-                                                Roll #{student.rollNumber || 'N/A'} • Class {sClass} • Phone: {student.parentPhone || 'N/A'}
-                                              </p>
-                                            </div>
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setQuickCollectStudentId(String(student.id));
-                                                setQuickCollectAmount(String(student.baseFee || 5500));
-                                                setShowQuickCollectModal(true);
-                                              }}
-                                              className="px-4 py-2 bg-emerald-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-                                            >
-                                              <Plus size={14} /> Collect Fee
-                                            </button>
-                                          </div>
-
-                                          {/* Fee Metrics Summary Banner */}
-                                          <div className="grid grid-cols-3 gap-3 bg-slate-50/80 p-3 rounded-xl border border-slate-200 text-xs">
-                                            <div>
-                                              <span className="text-[10px] font-black text-slate-400 uppercase block">Monthly Base Fee</span>
-                                              <span className="text-sm font-black text-slate-800">Rs. {monthlyFee.toLocaleString()}</span>
-                                            </div>
-                                            <div>
-                                              <span className="text-[10px] font-black text-slate-400 uppercase block">Total Amount Paid</span>
-                                              <span className={`text-sm font-black ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                Rs. {totalPaid.toLocaleString()}
-                                              </span>
-                                            </div>
-                                            <div>
-                                              <span className="text-[10px] font-black text-slate-400 uppercase block">Pending Balance</span>
-                                              <span className={`text-sm font-black ${monthlyFee - totalPaid <= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                Rs. {Math.max(0, monthlyFee - totalPaid).toLocaleString()}
-                                              </span>
-                                            </div>
-                                          </div>
-
-                                          <div className="flex items-center justify-between border-b border-slate-100 pb-2 pt-1">
-                                            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                                              <Receipt size={14} className="text-emerald-600" />
-                                              Fee History Log for {student.name} ({sClass})
-                                            </h4>
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                              Total Receipts: {sFees.length}
-                                            </span>
-                                          </div>
-
-                                          {sFees.length === 0 ? (
-                                            <p className="text-xs text-slate-400 font-bold uppercase py-4 text-center">
-                                              No fee payment records logged for this student yet. Click "Collect Fee" above to add payment.
-                                            </p>
-                                          ) : (
-                                            <div className="space-y-2">
-                                              {sFees.map(f => (
-                                                <div key={f.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs font-bold gap-3">
-                                                  <div className="flex items-center gap-3">
-                                                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-2 py-0.5 rounded uppercase font-mono">
-                                                      #{String(f.id).slice(-6)}
-                                                    </span>
-                                                    <span className="text-slate-700 font-black">Month: {f.month}</span>
-                                                    <span className="text-slate-400 text-[10px]">Paid Date: {f.paidDate || f.dueDate}</span>
-                                                    <span className="bg-slate-200 text-slate-700 text-[9px] px-2 py-0.5 rounded uppercase">{f.paymentMethod || 'Cash'}</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-3">
-                                                    <span className="text-emerald-700 font-black text-sm">Rs. {Number(f.amount).toLocaleString()}</span>
-                                                    {student.parentPhone && (
-                                                      <button
-                                                        onClick={() => {
-                                                          const text = `Fee Receipt: Received Rs. ${f.amount} for ${student.name} (${f.month}). Receipt #${f.id}. Thank you! - NSB Academy`;
-                                                          window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-                                                        }}
-                                                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
-                                                        title="WhatsApp Receipt"
-                                                      >
-                                                        <MessageSquare size={14} />
-                                                      </button>
-                                                    )}
-                                                    <button
-                                                      onClick={() => {
-                                                        if (window.confirm(`Delete receipt #${f.id}?`)) {
-                                                          setFees(prev => prev.filter(item => item.id !== f.id));
-                                                          toast.success("Receipt removed");
-                                                        }
-                                                      }}
-                                                      className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded"
-                                                      title="Delete Receipt"
-                                                    >
-                                                      <Trash2 size={14} />
-                                                    </button>
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
+                                <React.Fragment key={classId}>
+                                  {/* Class Group Header - Only show if showing all classes */}
+                                  {recordsFeeClassFilter === 'all' && (
+                                    <tr className="bg-slate-50">
+                                      <td colSpan={3} className="px-6 py-3 border-y border-slate-200/60">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-1.5 h-4 bg-emerald-500 rounded-full"></div>
+                                          <span className="text-[10px] font-black text-slate-900 uppercase tracking-[0.15em]">Class {className} — {classStudents.length} Students</span>
                                         </div>
                                       </td>
                                     </tr>
                                   )}
+
+                                  {classStudents.map(student => {
+                                    const sFees = fees.filter(f => String(f.studentId) === String(student.id));
+                                    const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+                                    const monthlyFee = student.baseFee || 5500;
+                                    const isPaidCurrent = totalPaid >= monthlyFee;
+                                    const isExpanded = expandedStudentFeeId === String(student.id);
+                                    const photo = getStudentPhoto(student);
+
+                                    return (
+                                      <React.Fragment key={student.id}>
+                                        <tr
+                                          onClick={() => setExpandedStudentFeeId(isExpanded ? null : String(student.id))}
+                                          className={`hover:bg-indigo-50/30 transition-all cursor-pointer group ${isExpanded ? 'bg-indigo-50/20' : ''}`}
+                                        >
+                                          <td className="px-6 py-4">
+                                            <div className="flex items-center gap-4">
+                                              <div className="relative">
+                                                {photo ? (
+                                                  <img
+                                                    src={photo}
+                                                    alt={student.name}
+                                                    className="w-10 h-10 rounded-2xl object-cover border-2 border-white shadow-sm ring-1 ring-slate-100 shrink-0"
+                                                  />
+                                                ) : (
+                                                  <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0 border border-slate-200">
+                                                    <User size={18} />
+                                                  </div>
+                                                )}
+                                                <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ${isPaidCurrent ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                              </div>
+                                              <div>
+                                                <span className="block font-black text-slate-900 uppercase tracking-tight text-xs leading-none mb-1 group-hover:text-emerald-600 transition-colors">
+                                                  {student.name}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block">
+                                                  Roll No. {student.rollNumber || '000'} • {className}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </td>
+                                          <td className="px-6 py-4">
+                                            {isPaidCurrent ? (
+                                              <div className="flex items-center gap-2">
+                                                <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black tracking-wider rounded-lg border border-emerald-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                                  <CheckCircle2 size={12} /> Full Paid
+                                                </div>
+                                              </div>
+                                            ) : totalPaid > 0 ? (
+                                              <div className="px-2.5 py-1.5 bg-amber-50 text-amber-700 text-[10px] font-black tracking-wider rounded-lg border border-amber-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                                <Clock size={12} /> Partial ({Math.round((totalPaid/monthlyFee)*100)}%)
+                                              </div>
+                                            ) : (
+                                              <div className="px-2.5 py-1.5 bg-rose-50 text-rose-700 text-[10px] font-black tracking-wider rounded-lg border border-rose-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                                <AlertTriangle size={12} /> Pending
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td className="px-6 py-4 text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setQuickCollectStudentId(String(student.id));
+                                                  setQuickCollectAmount(String(student.baseFee || 5500));
+                                                  setShowQuickCollectModal(true);
+                                                }}
+                                                className="h-8 px-3 bg-emerald-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                                              >
+                                                <Plus size={12} /> Collect
+                                              </button>
+                                              <div className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                                                <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+
+                                        {isExpanded && (
+                                          <tr>
+                                            <td colSpan={3} className="p-0 border-none overflow-hidden">
+                                              <div className="px-6 pb-6 pt-2 bg-indigo-50/10 border-b border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                <div className="bg-white p-6 rounded-3xl border border-slate-200 space-y-5 shadow-lg">
+                                                  {/* History Header */}
+                                                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                                                    <div className="flex items-center gap-3">
+                                                      <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                                        <Receipt size={20} />
+                                                      </div>
+                                                      <div>
+                                                        <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Fee Ledger History</h4>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 tracking-tight">Financial Record for {student.name}</p>
+                                                      </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                      <div className="text-right mr-4">
+                                                        <span className="block text-[10px] font-black text-slate-400 uppercase">Base Fee</span>
+                                                        <span className="block text-sm font-black text-slate-900">PKR {monthlyFee.toLocaleString()}</span>
+                                                      </div>
+                                                      <button
+                                                        onClick={() => {
+                                                          const text = `Fee Reminder: A payment is pending for ${student.name}. Balance: ${monthlyFee - totalPaid}. Please clear it soon. - NSB Academy`;
+                                                          if (student.parentPhone) window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
+                                                        }}
+                                                        className="p-2 bg-white border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 text-slate-700 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm"
+                                                        title="Send WhatsApp Fee Reminder"
+                                                      >
+                                                        <MessageSquare size={14} />
+                                                      </button>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* History Log List */}
+                                                  {sFees.length === 0 ? (
+                                                    <div className="py-10 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No previous transaction receipts found</p>
+                                                    </div>
+                                                  ) : (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                      {sFees.map(f => (
+                                                        <div key={f.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 group/receipt hover:border-emerald-200 transition-colors">
+                                                          <div className="flex items-center justify-between">
+                                                            <span className="px-2 py-1 bg-white border border-slate-200 text-[10px] font-black text-slate-400 rounded-lg font-mono">#{String(f.id).slice(-6)}</span>
+                                                            <span className="text-xs font-black text-emerald-700">PKR {Number(f.amount).toLocaleString()}</span>
+                                                          </div>
+                                                          <div className="flex flex-col gap-1.5">
+                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                                                              <span>Month cycle</span>
+                                                              <span className="text-slate-900">{f.month}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                                                              <span>Paid On</span>
+                                                              <span className="text-slate-900">{f.paidDate || 'N/A'}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                                                              <span>Method</span>
+                                                              <span className="text-slate-900">{f.paymentMethod || 'Cash'}</span>
+                                                            </div>
+                                                          </div>
+                                                          <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 mt-1 opacity-0 group-hover/receipt:opacity-100 transition-opacity">
+                                                            <button 
+                                                              onClick={() => {
+                                                                const text = `Fee Receipt: Received ${f.amount} for ${student.name} (${f.month}). Receipt #${f.id}. Thank you! - NSB Academy`;
+                                                                if (student.parentPhone) window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
+                                                              }}
+                                                              className="flex-1 py-1.5 bg-white border border-slate-200 text-emerald-600 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition-colors"
+                                                            >
+                                                              <MessageSquare size={12} /> Share
+                                                            </button>
+                                                            <button 
+                                                              onClick={() => {
+                                                                if (window.confirm(`Delete receipt #${f.id}?`)) {
+                                                                  setFees(prev => prev.filter(item => item.id !== f.id));
+                                                                  toast.success("Receipt removed");
+                                                                }
+                                                              }}
+                                                              className="w-8 h-8 bg-white border border-slate-200 text-rose-400 rounded-lg flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                                                            >
+                                                              <Trash2 size={12} />
+                                                            </button>
+                                                          </div>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
                                 </React.Fragment>
                               );
                             });
@@ -3238,281 +2942,21 @@ export default function PrincipalDashboard({
                       </table>
                     </div>
                   </div>
-                ) : (
-                  /* ================= MODE 2: TRANSACTION RECEIPTS LOG ================= */
-                  <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-2xl">
-                    <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                      <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
-                        <Receipt size={16} className="text-emerald-600 shrink-0" /> Individual Payment Receipts Log
-                      </h3>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        {fees.length} Total Receipts
-                      </span>
-                    </div>
-
-                    {/* MOBILE RECEIPT CARDS (< md) */}
-                    <div className="block md:hidden divide-y divide-slate-100">
-                      {(() => {
-                        if (filteredFeesReceipts.length === 0) {
-                          return (
-                            <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
-                              No transaction receipts found matching current filters.
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <>
-                            {visibleFeesReceipts.map(fee => {
-                              const student = studentsMap.get(String(fee.studentId));
-                              const feeStudent = feeStudentsMap.get(String(fee.studentId));
-                              const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
-                              const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
-                              const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
-                              const photo = getStudentPhoto(student || { name: sName });
-
-                              return (
-                                <div key={fee.id} className="p-4 space-y-2.5 bg-white">
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-mono text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-bold">
-                                      #{String(fee.id).slice(-6)}
-                                    </span>
-                                    <span className="text-[10px] font-bold text-slate-400">{fee.paidDate || 'N/A'}</span>
-                                  </div>
-
-                                  <div className="flex items-center gap-3">
-                                    {photo ? (
-                                      <img
-                                        src={photo}
-                                        alt={sName}
-                                        className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                      />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
-                                    )}
-                                    <div className="min-w-0">
-                                      <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
-                                        {sName}
-                                      </h4>
-                                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                                        {sRoll} • {sClass}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center justify-between pt-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[9px] font-black tracking-wider border border-emerald-100 rounded uppercase">
-                                        {fee.month}
-                                      </span>
-                                      <span className="text-[10px] font-bold text-slate-500 uppercase">
-                                        {fee.paymentMethod || 'Cash'}
-                                      </span>
-                                    </div>
-                                    <span className="text-emerald-700 font-black text-sm">
-                                      Rs. {Number(fee.amount).toLocaleString()}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
-                                    {student?.parentPhone && (
-                                      <button
-                                        onClick={() => {
-                                          const text = `Fee Receipt: Received Rs. ${fee.amount} for ${student.name} (${fee.month}). Receipt #${fee.id}. Thank you! - NSB Academy`;
-                                          window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-                                        }}
-                                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-lg flex items-center gap-1"
-                                      >
-                                        <MessageSquare size={12} /> WhatsApp
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        if (window.confirm(`Delete fee record for ${sName}?`)) {
-                                          setFees(prev => prev.filter(f => f.id !== fee.id));
-                                          toast.success(`Fee record removed`);
-                                        }
-                                      }}
-                                      className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                                      title="Delete Record"
-                                    >
-                                      <Trash2 size={15} />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {filteredFeesReceipts.length > feesDisplayLimit && (
-                              <div className="p-6 flex justify-center">
-                                <button 
-                                  onClick={() => setFeesDisplayLimit(prev => prev + 100)}
-                                  className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md active:scale-95"
-                                >
-                                  Load More Records ({filteredFeesReceipts.length - feesDisplayLimit} remaining)
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* DESKTOP RECEIPTS TABLE (>= md) */}
-                    <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-500">
-                          <tr>
-                            <th className="px-5 py-4">Receipt ID</th>
-                            <th className="px-5 py-4">Date Paid</th>
-                            <th className="px-5 py-4">Student & Roll</th>
-                            <th className="px-5 py-4">Class</th>
-                            <th className="px-5 py-4">Fee Month</th>
-                            <th className="px-5 py-4">Amount</th>
-                            <th className="px-5 py-4">Method</th>
-                            <th className="px-5 py-4 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {(() => {
-                            if (filteredFeesReceipts.length === 0) {
-                              return (
-                                <tr>
-                                  <td colSpan={8} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
-                                    No transaction receipts found matching current filters.
-                                  </td>
-                                </tr>
-                              );
-                            }
-
-                            return (
-                              <>
-                                {visibleFeesReceipts.map(fee => {
-                                  const student = studentsMap.get(String(fee.studentId));
-                                  const feeStudent = feeStudentsMap.get(String(fee.studentId));
-                                  const sName = student?.name || feeStudent?.name || (fee as any).studentName || (`Student #${String(fee.studentId || '').slice(-4)}`);
-                                  const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
-                                  const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'General';
-                                  const photo = getStudentPhoto(student || { name: sName });
-
-                                  return (
-                                    <tr key={fee.id} className="hover:bg-slate-50/60 transition-colors">
-                                      <td className="px-5 py-4 font-mono text-xs text-slate-400 font-bold">
-                                        #{String(fee.id).slice(-6)}
-                                      </td>
-                                      <td className="px-5 py-4 text-xs font-bold text-slate-600 tabular-nums">
-                                        {fee.paidDate || 'N/A'}
-                                      </td>
-                                      <td className="px-5 py-4">
-                                        <div className="flex items-center gap-3">
-                                            {photo ? (
-                                              <img
-                                                src={photo}
-                                                alt={sName}
-                                                className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100 shrink-0"
-                                              />
-                                            ) : (
-                                              <div className="w-8 h-8 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
-                                            )}
-                                          <div>
-                                            <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
-                                              {sName}
-                                            </span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block mt-0.5">
-                                              {sRoll}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </td>
-                                      <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                                        {sClass}
-                                      </td>
-                                      <td className="px-5 py-4">
-                                        <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 text-[10px] font-black tracking-widest border border-emerald-100 rounded-md uppercase">
-                                          {fee.month}
-                                        </span>
-                                      </td>
-                                      <td className="px-5 py-4 text-emerald-600 font-black text-sm tracking-tight tabular-nums">
-                                        Rs. {Number(fee.amount).toLocaleString()}
-                                      </td>
-                                      <td className="px-5 py-4 text-xs font-bold text-slate-500 uppercase">
-                                        {fee.paymentMethod || 'Cash'}
-                                      </td>
-                                      <td className="px-5 py-4 text-right">
-                                        <button
-                                          onClick={() => {
-                                            if (window.confirm(`Delete fee record for ${sName}?`)) {
-                                              setFees(prev => prev.filter(f => f.id !== fee.id));
-                                              toast.success(`Fee record removed`);
-                                            }
-                                          }}
-                                          className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                                          title="Delete Record"
-                                        >
-                                          <Trash2 size={16} />
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                                {filteredFeesReceipts.length > feesDisplayLimit && (
-                                  <tr>
-                                    <td colSpan={8} className="px-5 py-8 text-center bg-white border-t border-slate-50">
-                                      <button 
-                                        onClick={() => setFeesDisplayLimit(prev => prev + 100)}
-                                        className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
-                                      >
-                                        Load More Records ({filteredFeesReceipts.length - feesDisplayLimit} remaining)
-                                      </button>
-                                    </td>
-                                  </tr>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               /* ================= ATTENDANCE REGISTER ================= */
               <div id="audit-attendance-section" className="space-y-6 animate-fade-in">
                 {/* Filters & Control Bar */}
                 <div className="bg-white p-4 border border-slate-200 rounded-2xl shadow-sm space-y-3">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                    {/* Date, Mode & Class Controls */}
-                    <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-                      <div className="relative flex-1 min-w-[150px]">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                        <input
-                          type="date"
-                          value={attendanceFilterDate}
-                          onChange={(e) => {
-                            setAttendanceFilterDate(e.target.value);
-                            if (e.target.value) setAttendanceShowAllDates(false);
-                          }}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-500 rounded-xl"
-                        />
-                      </div>
-
-                      <button
-                        onClick={() => setAttendanceShowAllDates(!attendanceShowAllDates)}
-                        className={`px-3.5 py-2 text-[11px] font-black uppercase tracking-wider border transition-all rounded-xl cursor-pointer ${
-                          attendanceShowAllDates
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {attendanceShowAllDates ? '📅 History Mode' : '📆 Daily Mode'}
-                      </button>
-
-                      <div className="relative flex-1 min-w-[150px]">
+                  <div className="space-y-3">
+                    {/* Row 1: All Classes & Mark Attendance */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="relative flex-1">
                         <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                         <select
                           value={attendanceFilterClass}
                           onChange={(e) => setAttendanceFilterClass(e.target.value)}
-                          className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-500 rounded-xl appearance-none cursor-pointer"
+                          className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-500 rounded-xl appearance-none cursor-pointer"
                         >
                           <option value="all">All Classes</option>
                           {classes.map(c => {
@@ -3527,28 +2971,46 @@ export default function PrincipalDashboard({
                         </select>
                         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
                       </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setShowMarkAttendanceModal(true);
+                            setMarkAttendanceClassId(attendanceFilterClass !== 'all' ? attendanceFilterClass : '');
+                          }}
+                          className="px-3 py-1.5 bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center hover:bg-emerald-600 transition-all shadow-xs rounded-lg cursor-pointer whitespace-nowrap"
+                        >
+                          Mark Attendance
+                        </button>
+
+                        {(userSession.role === 'coordinator' || userSession.role === 'principal') && (
+                          <button
+                            onClick={handleSendBulkAbsenceWhatsApp}
+                            title="WhatsApp Absents"
+                            className="p-1.5 bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm rounded-lg cursor-pointer flex items-center justify-center"
+                          >
+                            <MessageSquare size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                      <button
-                        onClick={() => {
-                          setShowMarkAttendanceModal(true);
-                          setMarkAttendanceClassId(attendanceFilterClass !== 'all' ? attendanceFilterClass : '');
-                        }}
-                        className="flex-1 md:flex-none px-5 py-2.5 bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-emerald-600 transition-all shadow-md rounded-xl cursor-pointer"
-                      >
-                        <Plus size={15} /> Mark Attendance
-                      </button>
-
-                      {(userSession.role === 'coordinator' || userSession.role === 'principal') && (
-                        <button
-                          onClick={handleSendBulkAbsenceWhatsApp}
-                          className="flex-1 md:flex-none px-4 py-2.5 bg-emerald-600 text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-md rounded-xl cursor-pointer"
-                        >
-                          <MessageSquare size={15} /> WhatsApp Absents
-                        </button>
-                      )}
+                    {/* Row 2: History Mode */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 flex-1">
+                        <div className="relative w-full">
+                          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                          <input
+                            type="date"
+                            value={attendanceFilterDate}
+                            onChange={(e) => {
+                              setAttendanceFilterDate(e.target.value);
+                              if (e.target.value) setAttendanceShowAllDates(false);
+                            }}
+                            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-500 rounded-xl"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -3577,7 +3039,7 @@ export default function PrincipalDashboard({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white p-5 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">
                         Daily Attendance Average
                       </p>
                       <h3 className="text-3xl font-black text-emerald-600">
@@ -3596,7 +3058,7 @@ export default function PrincipalDashboard({
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
-                        <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest">
+                        <p className="text-xs font-black text-rose-600 uppercase tracking-widest">
                           Absentees ({
                             attendance.filter(a => {
                               const matchesDate = attendanceShowAllDates || a.date === attendanceFilterDate;
@@ -3607,7 +3069,7 @@ export default function PrincipalDashboard({
                           })
                         </p>
                       </div>
-                      <span className="text-[9px] font-bold text-rose-500 uppercase tracking-wider">
+                      <span className="text-xs font-bold text-rose-500 uppercase tracking-wider">
                         1-Click WhatsApp Alert
                       </span>
                     </div>
@@ -3618,7 +3080,7 @@ export default function PrincipalDashboard({
 
                         if (absents.length === 0) {
                           return (
-                            <p className="text-[11px] font-bold text-slate-400 uppercase">
+                            <p className="text-xs font-bold text-slate-400 uppercase">
                               No absents recorded for this selection 🎉
                             </p>
                           );
@@ -3633,10 +3095,10 @@ export default function PrincipalDashboard({
                               key={acc.id}
                               className="bg-white border border-rose-200 pl-1.5 pr-2.5 py-1 rounded-lg flex items-center gap-2 shadow-xs hover:border-rose-400 transition-all"
                             >
-                              <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-[9px] shrink-0">
-                                {stName.charAt(0)}
+                              <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-xs shrink-0">
+                                <User size={10} />
                               </div>
-                              <span className="text-[10px] font-black text-slate-800 uppercase">{stName}</span>
+                              <span className="text-xs font-black text-slate-800 uppercase">{stName}</span>
                               {st && (
                                 <button
                                   onClick={() => handleSendIndividualWhatsApp(st, acc.date)}
@@ -3662,7 +3124,7 @@ export default function PrincipalDashboard({
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
                         Live Sync
                       </span>
                     </div>
@@ -3706,13 +3168,13 @@ export default function PrincipalDashboard({
                                       <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">
                                         {sName}
                                       </h4>
-                                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
-                                        {sRoll} • {sClass}
+                                      <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                                        {sRoll}
                                       </p>
                                     </div>
                                   </div>
                                   {attendanceShowAllDates && (
-                                    <span className="text-[10px] font-bold text-slate-400 font-mono">
+                                    <span className="text-xs font-bold text-slate-400 font-mono">
                                       {record.date}
                                     </span>
                                   )}
@@ -3723,10 +3185,10 @@ export default function PrincipalDashboard({
                                     {record.status === 'absent' && student && (
                                       <button
                                         onClick={() => handleSendIndividualWhatsApp(student, record.date)}
-                                        className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer"
+                                        className="p-1.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-600 hover:text-white rounded-lg flex items-center justify-center transition-colors cursor-pointer"
                                         title="Send WhatsApp Alert to Parent"
                                       >
-                                        <Phone size={12} fill="currentColor" /> Parent Alert
+                                        <Phone size={14} fill="currentColor" />
                                       </button>
                                     )}
                                   </div>
@@ -3738,7 +3200,7 @@ export default function PrincipalDashboard({
                                       setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
                                       toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
                                     }}
-                                    className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
+                                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
                                       record.status === 'present'
                                         ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
                                         : record.status === 'absent'
@@ -3775,10 +3237,9 @@ export default function PrincipalDashboard({
                   {/* DESKTOP ATTENDANCE TABLE (>= md) */}
                   <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-500">
+                      <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-500">
                         <tr>
                           <th className="px-5 py-4">Student & Roll</th>
-                          <th className="px-5 py-4">Class</th>
                           {attendanceShowAllDates && <th className="px-5 py-4">Date</th>}
                           <th className="px-5 py-4 text-right">Attendance Status</th>
                         </tr>
@@ -3788,7 +3249,7 @@ export default function PrincipalDashboard({
                           if (filteredAttendance.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={attendanceShowAllDates ? 4 : 3} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
+                                <td colSpan={attendanceShowAllDates ? 3 : 2} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
                                   {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
                                 </td>
                               </tr>
@@ -3819,22 +3280,18 @@ export default function PrincipalDashboard({
                                           <div className="w-9 h-9 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
                                         )}
                                         <div>
-                                          <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-xs leading-tight">
+                                          <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-sm leading-tight">
                                             {sName}
                                           </span>
-                                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
+                                          <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
                                             {sRoll}
                                           </span>
                                         </div>
                                       </div>
                                     </td>
 
-                                    <td className="px-5 py-4 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                                      {sClass}
-                                    </td>
-
                                     {attendanceShowAllDates && (
-                                      <td className="px-5 py-4 text-xs font-bold text-slate-500 tabular-nums">
+                                      <td className="px-5 py-4 text-sm font-bold text-slate-500 tabular-nums">
                                         {record.date}
                                       </td>
                                     )}
@@ -3857,7 +3314,7 @@ export default function PrincipalDashboard({
                                           setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
                                           toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
                                         }}
-                                        className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
+                                        className={`px-3 py-1.5 text-sm font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
                                           record.status === 'present'
                                             ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
                                             : record.status === 'absent'
@@ -3910,20 +3367,20 @@ export default function PrincipalDashboard({
               return (
                 <div className="grid grid-cols-3 sm:grid-cols-2 md:grid-cols-4 gap-1.5 sm:gap-4">
                   <div className="bg-white p-2 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-tight sm:tracking-widest truncate">Total Students</p>
+                    <p className="text-xs sm:text-xs font-black text-slate-400 uppercase tracking-tight sm:tracking-widest truncate">Total Students</p>
                     <p className="text-xs sm:text-xl font-black text-slate-900">{stats.totalStudents}</p>
                   </div>
                   <div className="bg-emerald-50 p-2 sm:p-4 rounded-2xl border border-emerald-100 shadow-sm">
-                    <p className="text-[8px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-tight sm:tracking-widest truncate">Collected</p>
-                    <p className="text-xs sm:text-xl font-black text-emerald-700">Rs. {stats.totalCollected.toLocaleString()}</p>
+                    <p className="text-xs sm:text-xs font-black text-emerald-600 uppercase tracking-tight sm:tracking-widest truncate">Collected</p>
+                    <p className="text-xs sm:text-xl font-black text-emerald-700">{stats.totalCollected.toLocaleString()}</p>
                   </div>
                   <div className="bg-rose-50 p-2 sm:p-4 rounded-2xl border border-rose-100 shadow-sm">
-                    <p className="text-[8px] sm:text-[10px] font-black text-rose-600 uppercase tracking-tight sm:tracking-widest truncate">Pending</p>
-                    <p className="text-xs sm:text-xl font-black text-rose-700">Rs. {stats.totalPending.toLocaleString()}</p>
+                    <p className="text-xs sm:text-xs font-black text-rose-600 uppercase tracking-tight sm:tracking-widest truncate">Pending</p>
+                    <p className="text-xs sm:text-xl font-black text-rose-700">{stats.totalPending.toLocaleString()}</p>
                   </div>
                   <div className="bg-amber-50 p-2 sm:p-4 rounded-2xl border border-amber-100 shadow-sm">
-                    <p className="text-[8px] sm:text-[10px] font-black text-amber-600 uppercase tracking-tight sm:tracking-widest truncate">Other Funds</p>
-                    <p className="text-xs sm:text-xl font-black text-amber-700">Rs. {stats.totalOther.toLocaleString()}</p>
+                    <p className="text-xs sm:text-xs font-black text-amber-600 uppercase tracking-tight sm:tracking-widest truncate">Other Funds</p>
+                    <p className="text-xs sm:text-xl font-black text-amber-700">{stats.totalOther.toLocaleString()}</p>
                   </div>
                 </div>
               );
@@ -3938,7 +3395,7 @@ export default function PrincipalDashboard({
                 </h1>
                 <button 
                   onClick={() => handleTabChange('registers')}
-                  className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all rounded-xl border border-slate-100 sm:border-none"
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all rounded-xl border border-slate-100 sm:border-none"
                 >
                   <ArrowLeft size={16} /> Return to Audits
                 </button>
@@ -4001,7 +3458,7 @@ export default function PrincipalDashboard({
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[9px] font-black tracking-widest text-slate-400">
+                        <thead className="bg-slate-50 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-400">
                           <tr>
                             <th className="px-6 py-4">Student</th>
                             <th className="px-6 py-4">Class</th>
@@ -4019,13 +3476,13 @@ export default function PrincipalDashboard({
                               <tr key={st.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-6 py-4 text-slate-900 font-black">{st.name}</td>
                                 <td className="px-6 py-4 text-slate-500">{st.class}</td>
-                                <td className="px-6 py-4 text-slate-700">Rs. {st.monthlyFee}</td>
-                                <td className="px-6 py-4 text-emerald-600 font-black">Rs. {totalPaid}</td>
-                                <td className="px-6 py-4 text-rose-600 font-black">Rs. {pending}</td>
+                                <td className="px-6 py-4 text-slate-700">{st.monthlyFee}</td>
+                                <td className="px-6 py-4 text-emerald-600 font-black">{totalPaid}</td>
+                                <td className="px-6 py-4 text-rose-600 font-black">{pending}</td>
                                 <td className="px-6 py-4 text-right">
                                   <button
                                     onClick={() => setSelectedStudentForFee(String(st.id))}
-                                    className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-indigo-700 transition-all shadow-xs"
+                                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-indigo-700 transition-all shadow-xs"
                                   >
                                     Manage Account
                                   </button>
@@ -4052,13 +3509,13 @@ export default function PrincipalDashboard({
                         {studentProfile?.photo ? (
                           <img src={studentProfile.photo} alt={student.name} className="w-full h-full object-cover" />
                         ) : (
-                          <span className="text-4xl font-black text-slate-300 uppercase">{student.name.charAt(0)}</span>
+                          <User size={40} className="text-slate-200" />
                         )}
                       </div>
                       <div className="flex-1 text-center sm:text-left space-y-1">
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name}</h2>
-                          <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest">Roll: {studentProfile?.rollNumber || 'N/A'}</span>
+                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name.split(' ').slice(1).join(' ') || student.name}</h2>
+                          <span className="bg-indigo-100 text-indigo-700 text-xs font-black px-2 py-1 rounded-lg uppercase tracking-widest">Roll: {studentProfile?.rollNumber || 'N/A'}</span>
                         </div>
                         <p className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-2">
                           <Users size={14} /> {student.class}
@@ -4066,7 +3523,7 @@ export default function PrincipalDashboard({
                         <div className="flex items-center justify-center sm:justify-start gap-3 pt-2">
                            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 rounded-full border border-emerald-100">
                              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                             <span className="text-[10px] font-black text-emerald-700 uppercase">Active Profile</span>
+                             <span className="text-xs font-black text-emerald-700 uppercase">Active Profile</span>
                            </div>
                         </div>
                       </div>
@@ -4091,7 +3548,7 @@ export default function PrincipalDashboard({
                             <div key={idx} className={`${fund.bg} p-4 rounded-2xl border border-slate-100 flex flex-col gap-3`}>
                               <div className="flex items-center gap-2">
                                 <fund.icon size={16} className={fund.color} />
-                                <span className={`text-[10px] font-black uppercase tracking-wider ${fund.color}`}>{fund.label}</span>
+                                <span className={`text-xs font-black uppercase tracking-wider ${fund.color}`}>{fund.label}</span>
                               </div>
                               <div className="flex gap-2">
                                 <input 
@@ -4111,7 +3568,7 @@ export default function PrincipalDashboard({
                                     amtInput.value = '';
                                     toast.success(`${fund.label} entry added!`);
                                   }}
-                                  className="px-3 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
+                                  className="px-3 py-2 bg-slate-900 text-white rounded-lg text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
                                 >
                                   Add
                                 </button>
@@ -4127,14 +3584,15 @@ export default function PrincipalDashboard({
                           <Send size={14} className="text-emerald-500" /> Dispatch Alerts
                         </h3>
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                          <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Outstanding</p>
-                          <p className="text-2xl font-black text-rose-600 ">Rs. {getTotalPending(student) + getTotalOtherFunds(student)}</p>
+                          <p className="text-xs text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Outstanding</p>
+                          <p className="text-2xl font-black text-rose-600 ">{getTotalPending(student) + getTotalOtherFunds(student)}</p>
                         </div>
                         <button 
                           onClick={() => handleSendFeeNotification(student, 'reminder', 0, '')}
-                          className="w-full py-3.5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                          title="Send WhatsApp Reminder"
+                          className="w-full py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center hover:bg-emerald-700 transition-all shadow-md active:scale-95 cursor-pointer"
                         >
-                          <Send size={16} /> Send WhatsApp Reminder
+                          <Send size={18} />
                         </button>
                       </div>
                     </div>
@@ -4146,20 +3604,20 @@ export default function PrincipalDashboard({
                     {/* Summary Cards */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                       <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
-                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Due</span>
-                        <span className="text-xl font-black text-slate-900">Rs. {account.totalDue}</span>
+                        <span className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Due</span>
+                        <span className="text-xl font-black text-slate-900">{account.totalDue}</span>
                       </div>
                       <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
-                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Paid</span>
-                        <span className="text-xl font-black text-emerald-600">Rs. {account.totalPaid}</span>
+                        <span className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Total Yearly Paid</span>
+                        <span className="text-xl font-black text-emerald-600">{account.totalPaid}</span>
                       </div>
                       <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-center">
-                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Other Funds</span>
-                        <span className="text-xl font-black text-amber-500">Rs. {account.otherFundsTotal}</span>
+                        <span className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Other Funds</span>
+                        <span className="text-xl font-black text-amber-500">{account.otherFundsTotal}</span>
                       </div>
                       <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 shadow-xl flex flex-col justify-center text-white">
-                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Grand Pending</span>
-                        <span className="text-xl font-black text-rose-500">Rs. {account.grandTotalPending}</span>
+                        <span className="text-xs font-black uppercase text-slate-400 tracking-widest mb-1">Grand Pending</span>
+                        <span className="text-xl font-black text-rose-500">{account.grandTotalPending}</span>
                       </div>
                     </div>
 
@@ -4167,7 +3625,7 @@ export default function PrincipalDashboard({
                     <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                         <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Yearly Ledger (Jan-Dec 2026)</h3>
-                        <div className="flex gap-4 text-[10px] font-black uppercase">
+                        <div className="flex gap-4 text-xs font-black uppercase">
                           <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div> Paid</span>
                           <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-500"></div> Pending</span>
                         </div>
@@ -4199,9 +3657,9 @@ export default function PrincipalDashboard({
                             title={`Click to record payment for ${m.month}`}
                           >
                             <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] sm:text-xs font-black text-slate-900 uppercase truncate pr-1">{m.month}</span>
+                              <span className="text-xs sm:text-xs font-black text-slate-900 uppercase truncate pr-1">{m.month}</span>
                               {m.isFutureMonth ? (
-                                <span className="text-[8px] font-black uppercase text-slate-300">Upcoming</span>
+                                <span className="text-xs font-black uppercase text-slate-300">Upcoming</span>
                               ) : m.isComplete ? (
                                 <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
                               ) : (
@@ -4209,13 +3667,13 @@ export default function PrincipalDashboard({
                               )}
                             </div>
                             <div className="space-y-1 mb-2">
-                              <div className="flex flex-col text-[9px] sm:text-[10px] font-bold">
+                              <div className="flex flex-col text-xs sm:text-xs font-bold">
                                 <span className="text-slate-400">Paid:</span>
-                                <span className={m.paid > 0 ? "text-emerald-600" : "text-slate-300"}>Rs. {m.paid}</span>
+                                <span className={m.paid > 0 ? "text-emerald-600" : "text-slate-300"}>{m.paid}</span>
                               </div>
-                              <div className="flex flex-col text-[9px] sm:text-[10px] font-black">
+                              <div className="flex flex-col text-xs sm:text-xs font-black">
                                 <span className="text-slate-400 uppercase">Pend:</span>
-                                <span className={m.pending > 0 ? "text-rose-600" : "text-slate-300"}>Rs. {m.pending}</span>
+                                <span className={m.pending > 0 ? "text-rose-600" : "text-slate-300"}>{m.pending}</span>
                               </div>
                             </div>
                             <div className="mt-auto w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
@@ -4233,20 +3691,20 @@ export default function PrincipalDashboard({
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-500">Total Yearly Due:</span>
-                            <span className="text-sm font-black text-slate-900">Rs. {account.totalDue.toLocaleString()}</span>
+                            <span className="text-sm font-black text-slate-900">{account.totalDue.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-500">Total Yearly Paid:</span>
-                            <span className="text-sm font-black text-emerald-600">Rs. {account.totalPaid.toLocaleString()}</span>
+                            <span className="text-sm font-black text-emerald-600">{account.totalPaid.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between items-center pb-2">
                             <span className="text-xs font-bold text-slate-500">Other Funds (Fine/Dues):</span>
-                            <span className="text-sm font-black text-amber-600">Rs. {account.otherFundsTotal.toLocaleString()}</span>
+                            <span className="text-sm font-black text-amber-600">{account.otherFundsTotal.toLocaleString()}</span>
                           </div>
                           <div className="pt-3 border-t border-slate-200 flex flex-col gap-1">
                             <div className="flex justify-between items-center">
                               <span className="text-xs font-black text-rose-600 uppercase">Grand Total Pending:</span>
-                              <span className="text-lg font-black text-rose-700">Rs. {account.grandTotalPending.toLocaleString()}</span>
+                              <span className="text-lg font-black text-rose-700">{account.grandTotalPending.toLocaleString()}</span>
                             </div>
                           </div>
                         </div>
@@ -4260,10 +3718,10 @@ export default function PrincipalDashboard({
                             <div key={f.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100 group">
                               <div className="flex-1">
                                 <p className="text-xs font-black text-slate-800 capitalize">{f.desc}</p>
-                                <p className="text-[9px] text-slate-400 font-bold">{f.date}</p>
+                                <p className="text-xs text-slate-400 font-bold">{f.date}</p>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                                <span className="text-xs font-black text-slate-900">{f.amount}</span>
                                 <div className="flex items-center gap-1 transition-opacity">
                                   <button 
                                     onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: f.id, studentId: String(student.id), amount: String(f.amount), desc: f.desc })}
@@ -4286,7 +3744,7 @@ export default function PrincipalDashboard({
                               </div>
                             </div>
                           )) : (
-                            <div className="h-full flex items-center justify-center text-[10px] text-slate-300 font-bold  uppercase">No extra entries found</div>
+                            <div className="h-full flex items-center justify-center text-xs text-slate-300 font-bold  uppercase">No extra entries found</div>
                           )}
                         </div>
                       </div>
@@ -4295,7 +3753,7 @@ export default function PrincipalDashboard({
                       <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                         <h3 className="text-xs font-black uppercase text-indigo-600 tracking-widest border-b pb-2 flex justify-between items-center">
                           Monthly Fee Payment History
-                          <span className="text-[9px] text-slate-400 font-bold ">Latest transactions first</span>
+                          <span className="text-xs text-slate-400 font-bold ">Latest transactions first</span>
                         </h3>
                         <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2">
                           {student.payments && student.payments.length > 0 ? student.payments.slice().reverse().map((p) => (
@@ -4303,12 +3761,12 @@ export default function PrincipalDashboard({
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-black text-slate-900 uppercase ">{p.month} {p.year}</span>
-                                  <span className="text-[8px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Fee</span>
+                                  <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Fee</span>
                                 </div>
-                                <p className="text-[9px] text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
+                                <p className="text-xs text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className="text-xs font-black text-emerald-600">Rs. {p.amount}</span>
+                                <span className="text-xs font-black text-emerald-600">{p.amount}</span>
                                 <div className="flex items-center gap-1 transition-opacity">
                                   <button 
                                     onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}` })}
@@ -4333,7 +3791,7 @@ export default function PrincipalDashboard({
                           )) : (
                             <div className="py-10 flex flex-col items-center justify-center text-slate-300 gap-2">
                               <CreditCard size={24} />
-                              <p className="text-[10px] font-black uppercase tracking-widest">No payment records found</p>
+                              <p className="text-xs font-black uppercase tracking-widest">No payment records found</p>
                             </div>
                           )}
                         </div>
@@ -4358,7 +3816,7 @@ export default function PrincipalDashboard({
                 <div>
                   <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                     Cloud Ledger Sync
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       CONNECTED
                     </span>
                   </h3>
@@ -4544,16 +4002,16 @@ export default function PrincipalDashboard({
                   className="space-y-4"
                 >
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Administrative ID</label>
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">New Administrative ID</label>
                     <input name="username" type="text" placeholder="Enter new username/ID..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Password</label>
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest">New Password</label>
                       <input name="password" type="password" placeholder="••••••••" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Confirm Password</label>
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Confirm Password</label>
                       <input name="confirm_password" type="password" placeholder="••••••••" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" />
                     </div>
                   </div>
@@ -4563,37 +4021,7 @@ export default function PrincipalDashboard({
                 </form>
               </div>
 
-              {/* Data Export / Backup Section */}
-              <div className="bg-white rounded-none p-8 border border-slate-200 shadow-sm border-t-4 border-t-amber-500 flex flex-col">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-amber-50 rounded-none border border-amber-100">
-                    <DownloadCloud size={24} className="text-amber-600" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Offline Backup</h2>
-                  </div>
-                </div>
-                
-                <div className="flex-1 space-y-4">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
-                    This backup contains all students, teachers, classes, attendance records, and fee ledgers in a JSON format. Recommended for long-term archiving and data safety.
-                  </p>
-                  <ul className="text-[10px] text-slate-500 font-bold space-y-1 my-4">
-                    <li>• Student Rosters & ID Info</li>
-                    <li>• Teacher & Staff Profiles</li>
-                    <li>• Grade-wise Academic Records</li>
-                    <li>• Complete Financial Ledgers</li>
-                  </ul>
-                </div>
 
-                <button 
-                  onClick={handleExportJSON}
-                  className="w-full py-4 bg-slate-900 text-white font-black uppercase tracking-[0.2em] text-xs hover:bg-amber-600 transition-all rounded-xl flex items-center justify-center gap-3 shadow-lg group"
-                >
-                  <Download size={20} className="group-hover:animate-bounce" />
-                  Download Data (JSON)
-                </button>
-              </div>
 
               {/* Data Import / System Restore Section (Developer Only) */}
               {userSession.role === 'developer' && (
@@ -4608,11 +4036,11 @@ export default function PrincipalDashboard({
                   </div>
                   
                   <div className="flex-1 space-y-4">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-relaxed">
                       Upload a previously exported JSON backup to overwrite current data. This action is irreversible once completed.
                     </p>
                     <div className="p-3 bg-rose-50 border border-dashed border-rose-200 rounded-lg">
-                      <p className="text-[9px] text-rose-700 font-bold uppercase leading-tight ">
+                      <p className="text-xs text-rose-700 font-bold uppercase leading-tight ">
                         Caution: All existing records (Attendance, Fees, Marks) will be replaced by the contents of the uploaded file.
                       </p>
                     </div>
@@ -4659,7 +4087,7 @@ export default function PrincipalDashboard({
 
                   <div className="bg-slate-50 p-5 border border-slate-200 space-y-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Primary Bank Account</label>
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-400">Primary Bank Account</label>
                       <input 
                         type="text" 
                         defaultValue="Allied Bank - A/C 2233-4455-6677"
@@ -4667,7 +4095,7 @@ export default function PrincipalDashboard({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cash Collection Hours</label>
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-400">Cash Collection Hours</label>
                       <input 
                         type="text" 
                         defaultValue="08:00 AM to 01:30 PM (Mon-Sat)"
@@ -4675,14 +4103,14 @@ export default function PrincipalDashboard({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Collection Notes for Parents</label>
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-400">Collection Notes for Parents</label>
                       <textarea 
                         rows={3}
-                        defaultValue="Fees must be submitted by the 10th of each month. Late surcharges of Rs. 50 apply after the due date. Please present the original voucher copy at the registrar desk."
+                        defaultValue="Fees must be submitted by the 10th of each month. Late surcharges of 50 apply after the due date. Please present the original voucher copy at the registrar desk."
                         className="w-full bg-white border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:border-slate-400"
                       />
                     </div>
-                    <button className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest py-2 px-4 hover:bg-slate-800 transition-all">
+                    <button className="bg-slate-900 text-white text-xs font-black uppercase tracking-widest py-2 px-4 hover:bg-slate-800 transition-all">
                       Save Protocols
                     </button>
                   </div>
@@ -4703,8 +4131,8 @@ export default function PrincipalDashboard({
                   <div className="bg-slate-50 p-5 border border-slate-200 space-y-4">
                     <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                       <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase text-slate-800">Auto-Generate Credentials</p>
-                        <p className="text-[9px] text-slate-400">Automatically creates IDs for new students/teachers.</p>
+                        <p className="text-xs font-black uppercase text-slate-800">Auto-Generate Credentials</p>
+                        <p className="text-xs text-slate-400">Automatically creates IDs for new students/teachers.</p>
                       </div>
                       <div className="w-10 h-5 bg-emerald-500 rounded-full flex items-center px-1">
                         <div className="w-3 h-3 bg-white rounded-full ml-auto"></div>
@@ -4713,8 +4141,8 @@ export default function PrincipalDashboard({
 
                     <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                       <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase text-slate-800">Allow Password Resets</p>
-                        <p className="text-[9px] text-slate-400">Enables users to change passwords from their dashboards.</p>
+                        <p className="text-xs font-black uppercase text-slate-800">Allow Password Resets</p>
+                        <p className="text-xs text-slate-400">Enables users to change passwords from their dashboards.</p>
                       </div>
                       <div className="w-10 h-5 bg-emerald-500 rounded-full flex items-center px-1">
                         <div className="w-3 h-3 bg-white rounded-full ml-auto"></div>
@@ -4723,8 +4151,8 @@ export default function PrincipalDashboard({
 
                     <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                       <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase text-slate-800">Strict Teacher Isolation</p>
-                        <p className="text-[9px] text-slate-400">Lock teachers to their assigned classroom data only.</p>
+                        <p className="text-xs font-black uppercase text-slate-800">Strict Teacher Isolation</p>
+                        <p className="text-xs text-slate-400">Lock teachers to their assigned classroom data only.</p>
                       </div>
                       <div className="w-10 h-5 bg-emerald-500 rounded-full flex items-center px-1">
                         <div className="w-3 h-3 bg-white rounded-full ml-auto"></div>
@@ -4748,8 +4176,8 @@ export default function PrincipalDashboard({
                   <div className="bg-slate-50 dark:bg-slate-900 p-5 border border-slate-200 dark:border-slate-800 space-y-4">
                     <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                       <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase text-slate-800 dark:text-white">Dark Theme / Dark Mode</p>
-                        <p className="text-[9px] text-slate-405">Enable an eye-friendly dark look for all management dashboards.</p>
+                        <p className="text-xs font-black uppercase text-slate-800 dark:text-white">Dark Theme / Dark Mode</p>
+                        <p className="text-xs text-slate-405">Enable an eye-friendly dark look for all management dashboards.</p>
                       </div>
                       <button 
                         type="button"
@@ -4763,7 +4191,7 @@ export default function PrincipalDashboard({
                       </button>
                     </div>
 
-                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 text-[10px] text-indigo-800 dark:text-indigo-200 leading-relaxed rounded-none">
+                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 text-xs text-indigo-800 dark:text-indigo-200 leading-relaxed rounded-none">
                       <strong>✨ Note:</strong> Theme preference is synchronized in real-time. Changing this updates your portal view immediately and sets your persistent local workspace styling preference.
                     </div>
                   </div>
@@ -4782,10 +4210,10 @@ export default function PrincipalDashboard({
                     <div className="bg-slate-50 p-5 border border-slate-200 space-y-4">
                       <div className="flex items-center justify-between p-3 bg-white border border-slate-200 ring-2 ring-emerald-500/20">
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-black uppercase text-indigo-600 flex items-center gap-1">
+                          <p className="text-xs font-black uppercase text-indigo-600 flex items-center gap-1">
                             <Zap size={10} /> Auto-Redirect WhatsApp
                           </p>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Open WA tab automatically</p>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Open WA tab automatically</p>
                         </div>
                         <button 
                           onClick={() => {
@@ -4799,8 +4227,8 @@ export default function PrincipalDashboard({
 
                       <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-black uppercase text-slate-800">Fee Auto-Reminders</p>
-                          <p className="text-[9px] text-slate-400">Auto-send WhatsApp on invoice generation.</p>
+                          <p className="text-xs font-black uppercase text-slate-800">Fee Auto-Reminders</p>
+                          <p className="text-xs text-slate-400">Auto-send WhatsApp on invoice generation.</p>
                         </div>
                         <button 
                           onClick={() => updateSetting('whatsAppAutoFee', !appSettings.whatsAppAutoFee)}
@@ -4812,8 +4240,8 @@ export default function PrincipalDashboard({
 
                       <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-black uppercase text-slate-800">Absence Alerts</p>
-                          <p className="text-[9px] text-slate-400">Auto-ping parents when student is marked absent.</p>
+                          <p className="text-xs font-black uppercase text-slate-800">Absence Alerts</p>
+                          <p className="text-xs text-slate-400">Auto-ping parents when student is marked absent.</p>
                         </div>
                         <button 
                           onClick={() => updateSetting('whatsAppAutoAbsence', !appSettings.whatsAppAutoAbsence)}
@@ -4825,8 +4253,8 @@ export default function PrincipalDashboard({
 
                       <div className="flex items-center justify-between p-3 bg-white border border-slate-200">
                         <div className="space-y-0.5">
-                          <p className="text-[10px] font-black uppercase text-slate-800">Results Broadcasting</p>
-                          <p className="text-[9px] text-slate-400">Send report cards via WhatsApp automatically.</p>
+                          <p className="text-xs font-black uppercase text-slate-800">Results Broadcasting</p>
+                          <p className="text-xs text-slate-400">Send report cards via WhatsApp automatically.</p>
                         </div>
                         <button 
                           onClick={() => updateSetting('whatsAppAutoResult', !appSettings.whatsAppAutoResult)}
@@ -4838,19 +4266,19 @@ export default function PrincipalDashboard({
                     </div>
 
                     <div className="bg-slate-900 text-white p-5 space-y-4 shadow-xl">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Bulk Execution Logs</h4>
+                      <h4 className="text-xs font-black uppercase tracking-widest text-emerald-400">Bulk Execution Logs</h4>
                       <div className="space-y-2 h-40 overflow-y-auto pr-2 custom-scrollbar">
                         {broadcastLogs.length === 0 ? (
-                          <p className="text-[9px] text-slate-500 ">No recent autopilot activity.</p>
+                          <p className="text-xs text-slate-500 ">No recent autopilot activity.</p>
                         ) : (
                           broadcastLogs.map(log => (
                             <div key={log.id} className="p-2 border-b border-white/10 last:border-0">
                               <div className="flex justify-between items-start gap-2">
-                                <p className="text-[10px] font-bold text-slate-200">{log.recipient}</p>
-                                <span className="text-[8px] px-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">{log.status}</span>
+                                <p className="text-xs font-bold text-slate-200">{log.recipient}</p>
+                                <span className="text-xs px-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">{log.status}</span>
                               </div>
-                              <p className="text-[9px] text-slate-400 truncate mt-0.5">{log.text}</p>
-                              <p className="text-[7px] text-slate-600 mt-0.5">{log.timestamp}</p>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">{log.text}</p>
+                              <p className="text-[10px] text-slate-600 mt-0.5">{log.timestamp}</p>
                             </div>
                           ))
                         )}
@@ -4874,7 +4302,7 @@ export default function PrincipalDashboard({
                           ]);
                           toast.success(`Arrears reminder triggered for ${unpaidCount} students.`);
                         }}
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase py-2 tracking-widest transition-all"
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase py-2 tracking-widest transition-all"
                       >
                         ⚡ Run Batch Fee Reminders
                       </button>
@@ -4899,8 +4327,8 @@ export default function PrincipalDashboard({
                   {/* Absentee Template custom box */}
                   <div className="space-y-3 bg-white p-5 border border-slate-200">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Absent Alarm Template</span>
-                      <span className="text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold px-2 py-0.5 rounded-full uppercase">Absent Alert</span>
+                      <span className="text-xs font-black uppercase tracking-widest text-slate-400 block">Absent Alarm Template</span>
+                      <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold px-2 py-0.5 rounded-full uppercase">Absent Alert</span>
                     </div>
                     
                     <textarea 
@@ -4911,8 +4339,8 @@ export default function PrincipalDashboard({
                       className="w-full bg-slate-50 text-xs border border-slate-200 p-3  font-medium focus:outline-none focus:border-indigo-600 focus:bg-white"
                     />
                     
-                    <div className="space-y-1 bg-slate-50 p-3 text-[9px] text-slate-500 font-mono">
-                      <p className="font-bold uppercase text-[8px] text-indigo-700">Available Tags (Auto Replaced):</p>
+                    <div className="space-y-1 bg-slate-50 p-3 text-xs text-slate-500 font-mono">
+                      <p className="font-bold uppercase text-xs text-indigo-700">Available Tags (Auto Replaced):</p>
                       <ul className="list-disc list-inside space-y-0.5">
                         <li><code className="text-rose-600 font-bold">{`{student_name}`}</code> - Name of the absentee</li>
                         <li><code className="text-rose-600 font-bold">{`{roll_number}`}</code> - Roll registry number</li>
@@ -4934,16 +4362,16 @@ export default function PrincipalDashboard({
                   {/* Fee Reminder Template custom box */}
                   <div className="space-y-3 bg-white p-5 border border-slate-200">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Dues & Fee Reminder Template</span>
+                      <span className="text-xs font-black uppercase tracking-widest text-slate-400 block">Dues & Fee Reminder Template</span>
                       <div className="flex gap-2">
                         <select 
-                          className="text-[9px] bg-white border border-slate-200 font-bold px-2 py-0.5 rounded uppercase focus:ring-1 focus:ring-emerald-500 outline-none"
+                          className="text-xs bg-white border border-slate-200 font-bold px-2 py-0.5 rounded uppercase focus:ring-1 focus:ring-emerald-500 outline-none"
                           onChange={(e) => {
                             const val = e.target.value;
                             let newTpl = "";
-                            if (val === "short") newTpl = "Reminder: Rs. {total_pending} outstanding for {student_name}. Please settle soon. - Principal.";
-                            else if (val === "standard") newTpl = "Greetings! NSB1 Reminder: Guardian of {student_name}. Pending balance: Rs {total_pending}. Kindly settle today. Thank you.";
-                            else if (val === "urgent") newTpl = "🚨 URGENT: Rs. {total_pending} outstanding for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
+                            if (val === "short") newTpl = "Reminder: {total_pending} outstanding for {student_name}. Please settle soon. - Principal.";
+                            else if (val === "standard") newTpl = "Greetings! NSB1 Reminder: Guardian of {student_name}. Pending balance: {total_pending}. Kindly settle today. Thank you.";
+                            else if (val === "urgent") newTpl = "🚨 URGENT: {total_pending} outstanding for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
                             
                             if (newTpl) {
                               updateSetting('feeTemplate', newTpl);
@@ -4956,7 +4384,7 @@ export default function PrincipalDashboard({
                           <option value="standard">Standard (Polite)</option>
                           <option value="urgent">Urgent (Warning)</option>
                         </select>
-                        <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold px-2 py-0.5 rounded-full uppercase">Fee Dues</span>
+                        <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold px-2 py-0.5 rounded-full uppercase">Fee Dues</span>
                       </div>
                     </div>
                     
@@ -4968,8 +4396,8 @@ export default function PrincipalDashboard({
                       className="w-full bg-slate-50 text-xs border border-slate-200 p-3  font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
                     />
                     
-                    <div className="space-y-1 bg-slate-50 p-3 text-[9px] text-slate-500 font-mono">
-                      <p className="font-bold uppercase text-[8px] text-emerald-700">Available Tags (Auto Replaced):</p>
+                    <div className="space-y-1 bg-slate-50 p-3 text-xs text-slate-500 font-mono">
+                      <p className="font-bold uppercase text-xs text-emerald-700">Available Tags (Auto Replaced):</p>
                       <ul className="list-disc list-inside space-y-0.5">
                         <li><code className="text-rose-600 font-bold">{`{student_name}`}</code> - Name of the student debtor</li>
                         <li><code className="text-rose-600 font-bold">{`{class_name}`}</code> - Enrolled classroom handle</li>
@@ -4993,7 +4421,7 @@ export default function PrincipalDashboard({
                   </div>
 
                   <div className="md:col-span-2 flex justify-between items-center bg-white p-3.5 border border-slate-200">
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
                       ✨ Status: Personalized template patterns are instantly autosaved to regional memory.
                     </p>
                     <button 
@@ -5001,7 +4429,7 @@ export default function PrincipalDashboard({
                       onClick={() => {
                         toast.success("Templates are automatically synced to the cloud!");
                       }}
-                      className="bg-slate-900 hover:bg-slate-850 text-white font-black text-[10px] uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
+                      className="bg-slate-900 hover:bg-slate-850 text-white font-black text-xs uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
                     >
                       Sync Status
                     </button>
@@ -5009,38 +4437,7 @@ export default function PrincipalDashboard({
                 </div>
               </div>
 
-              {/* Data Safety & Backups Section */}
-              <div className="mt-10 pt-10 border-t border-slate-200 space-y-6">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-black uppercase text-slate-800 flex items-center gap-2">
-                    <Database size={18} className="text-red-500" />
-                    Data Governance & Local Backups
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Download a complete snapshot of your school portal data as a JSON file for your local safety records. This is a manual safety measure.
-                  </p>
-                </div>
 
-                <div className="bg-red-50 p-6 border border-red-100 space-y-4">
-                  <div className="flex items-start gap-3 bg-white p-4 border border-red-100">
-                    <ShieldAlert size={20} className="text-red-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-black text-slate-900 uppercase">Principal Local Backup Protocol</p>
-                      <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                        This backup contains all user profiles, fee records, and timetables. Store this file in a secure vault on your local machine.
-                      </p>
-                    </div>
-                  </div>
-                  
-                    <button 
-                      onClick={handleBackupDatabase}
-                      className="w-full bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-[0.2em] py-4 px-6 transition-all shadow-lg flex items-center justify-center gap-3"
-                    >
-                      <Download size={16} />
-                      Export Database to JSON (Safety Measure)
-                    </button>
-                </div>
-              </div>
 
               <div className="mt-12 pt-8 border-t border-dashed border-slate-200">
                 <div className="bg-amber-50 p-6 border border-amber-100 flex items-start gap-4">
@@ -5239,7 +4636,7 @@ export default function PrincipalDashboard({
                           >
                             <s.icon size={18} strokeWidth={2.5} />
                           </div>
-                          <span className={`text-[9px] font-black uppercase tracking-widest ${formStep === s.step ? 'text-indigo-600' : 'text-slate-400'}`}>
+                          <span className={`text-xs font-black uppercase tracking-widest ${formStep === s.step ? 'text-indigo-600' : 'text-slate-400'}`}>
                             {s.label}
                           </span>
                         </div>
@@ -5269,13 +4666,13 @@ export default function PrincipalDashboard({
                         </div>
                         <div>
                           <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Student Profile Image</h4>
-                          <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">A clear photo helps in identification</p>
+                          <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">A clear photo helps in identification</p>
                         </div>
                       </div>
 
                       <div className="space-y-4 pt-2">
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Full Student Name</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Full Student Name</label>
                           <input
                             type="text"
                             required
@@ -5288,7 +4685,7 @@ export default function PrincipalDashboard({
 
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Username</label>
+                            <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Username</label>
                             <input
                               type="text"
                               required
@@ -5299,7 +4696,7 @@ export default function PrincipalDashboard({
                             />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Password</label>
+                            <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Password</label>
                             <input
                               type="text"
                               required
@@ -5312,7 +4709,7 @@ export default function PrincipalDashboard({
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Parent's WhatsApp Number</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Parent's WhatsApp Number</label>
                           <div className="relative">
                             <Phone size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
@@ -5331,7 +4728,7 @@ export default function PrincipalDashboard({
                         <button 
                           type="button" 
                           onClick={() => setFormStep(2)}
-                          className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-2"
+                          className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-2"
                         >
                           Continue to Academic <ArrowUpRight size={14} />
                         </button>
@@ -5344,7 +4741,7 @@ export default function PrincipalDashboard({
                     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Assigned Class</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Assigned Class</label>
                           <select
                             value={sClassId}
                             onChange={(e) => setSClassId(e.target.value)}
@@ -5357,7 +4754,7 @@ export default function PrincipalDashboard({
                           </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Roll Number</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Roll Number</label>
                           <input
                             type="text"
                             required
@@ -5371,7 +4768,7 @@ export default function PrincipalDashboard({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Student Contact (Optional)</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Student Contact (Optional)</label>
                           <input
                             type="text"
                             value={sStudentPhone}
@@ -5381,7 +4778,7 @@ export default function PrincipalDashboard({
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Email Address</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Email Address</label>
                           <input
                             type="email"
                             value={sEmail}
@@ -5393,7 +4790,7 @@ export default function PrincipalDashboard({
                       </div>
 
                       <div className="space-y-1 pt-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Enrollment Date</label>
+                        <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Enrollment Date</label>
                         <select
                           value={sEnrollmentMonth}
                           onChange={(e) => setSEnrollmentMonth(e.target.value)}
@@ -5409,14 +4806,14 @@ export default function PrincipalDashboard({
                         <button 
                           type="button" 
                           onClick={() => setFormStep(1)}
-                          className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
+                          className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
                         >
                           Back to Identity
                         </button>
                         <button 
                           type="button" 
                           onClick={() => setFormStep(3)}
-                          className="flex-1 py-3 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
+                          className="flex-1 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95"
                         >
                           Next: Fee & Academy
                         </button>
@@ -5434,14 +4831,14 @@ export default function PrincipalDashboard({
                           </div>
                           <div>
                             <h4 className="text-sm font-black text-emerald-900 uppercase tracking-tight ">Fee Management</h4>
-                            <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Set the monthly base fee for this student</p>
+                            <p className="text-xs text-emerald-600 font-bold uppercase tracking-wider">Set the monthly base fee for this student</p>
                           </div>
                         </div>
                         
                         <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase tracking-widest text-emerald-700 ml-1">Monthly School Fee (Rs.)</label>
+                          <label className="text-xs font-black uppercase tracking-widest text-emerald-700 ml-1">Monthly School Fee ()</label>
                           <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 font-black text-xs">Rs.</span>
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 font-black text-xs"></span>
                             <input
                               type="number"
                               required
@@ -5460,7 +4857,7 @@ export default function PrincipalDashboard({
                             <h4 className="text-sm font-black uppercase tracking-tight  flex items-center gap-2">
                               <Zap size={18} className="text-amber-400" /> Academy Enrollment
                             </h4>
-                            <p className="text-[10px] text-indigo-300 font-medium leading-relaxed max-w-[200px]">
+                            <p className="text-xs text-indigo-300 font-medium leading-relaxed max-w-[200px]">
                               Is this student also attending evening academy classes?
                             </p>
                           </div>
@@ -5475,7 +4872,7 @@ export default function PrincipalDashboard({
 
                         {sIsAcademy && (
                           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2 pt-2 border-t border-white/10">
-                            <label className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Select Academy Subjects</label>
+                            <label className="text-xs font-black text-indigo-300 uppercase tracking-widest">Select Academy Subjects</label>
                             <input
                               type="text"
                               value={sAcademySubjects}
@@ -5492,18 +4889,18 @@ export default function PrincipalDashboard({
                           <button 
                             type="button" 
                             onClick={() => setFormStep(2)}
-                            className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
+                            className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-all active:scale-95"
                           >
                             Back to Academic
                           </button>
                           <button 
                             type="submit"
-                            className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2"
                           >
                             <Save size={16} /> Complete Registration
                           </button>
                         </div>
-                        <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest">Ensure all data is correct before committing to cloud ledger</p>
+                        <p className="text-xs text-center text-slate-400 font-bold uppercase tracking-widest">Ensure all data is correct before committing to cloud ledger</p>
                       </div>
                     </motion.div>
                   )}
@@ -5554,7 +4951,7 @@ export default function PrincipalDashboard({
                   </div>
 
                   <div className="space-y-3 p-4 bg-slate-50 border border-slate-200">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Manage Class Subjects</label>
+                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">Manage Class Subjects</label>
                     
                     <div className="space-y-2">
                       <div className="flex gap-2">
@@ -5602,7 +4999,7 @@ export default function PrincipalDashboard({
                                 toast.error("Subject already exists in list.");
                               }
                             }}
-                            className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-md"
+                            className="px-4 py-2 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-md"
                           >
                             Add
                           </button>
@@ -5612,7 +5009,7 @@ export default function PrincipalDashboard({
 
                     <div className="flex flex-wrap gap-2">
                       {cSubjects.map(sub => (
-                        <span key={sub} className="flex items-center gap-1.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2.5 py-1 rounded-full border border-indigo-200">
+                        <span key={sub} className="flex items-center gap-1.5 bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-200">
                           {sub}
                           <button 
                             type="button"
@@ -5624,7 +5021,7 @@ export default function PrincipalDashboard({
                         </span>
                       ))}
                       {cSubjects.length === 0 && (
-                        <p className="text-[10px] text-slate-400 ">No subjects added yet. Pick from the dropdown above.</p>
+                        <p className="text-xs text-slate-400 ">No subjects added yet. Pick from the dropdown above.</p>
                       )}
                     </div>
                   </div>
@@ -5802,14 +5199,11 @@ export default function PrincipalDashboard({
                     )}
                   </div>
                   <div>
-                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-1.5">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-1.5">
                       Student Official Report
                     </span>
                     <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight">{selectedStudentReport.name}</h2>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      <span className="bg-white/10 text-white/90 px-3 py-1 rounded-lg text-xs font-bold border border-white/10">
-                        Class: {classes.find(c => c.id === selectedStudentReport.classId)?.className || selectedStudentReport.classId || 'N/A'}
-                      </span>
                       <span className="bg-white/10 text-white/90 px-3 py-1 rounded-lg text-xs font-mono font-bold border border-white/10">
                         Roll #{selectedStudentReport.rollNumber}
                       </span>
@@ -5832,15 +5226,15 @@ export default function PrincipalDashboard({
                 {/* Contact & Profile Quick Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Parent Phone</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">Parent Phone</p>
                     <p className="text-sm font-mono font-bold text-slate-800 mt-1">{selectedStudentReport.parentPhone || 'N/A'}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Guardian Name</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">Guardian Name</p>
                     <p className="text-sm font-bold text-slate-800 mt-1">{selectedStudentReport.guardianName || 'N/A'}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Academic Email</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">Academic Email</p>
                     <p className="text-sm font-bold text-slate-800 mt-1 truncate">{selectedStudentReport.email || 'N/A'}</p>
                   </div>
                 </div>
@@ -5850,7 +5244,7 @@ export default function PrincipalDashboard({
                   {/* Attendance Card */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Attendance Rate</span>
+                      <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Attendance Rate</span>
                       <CalendarDays size={18} className="text-blue-500 print:hidden" />
                     </div>
                     <div>
@@ -5862,14 +5256,14 @@ export default function PrincipalDashboard({
                           return `${Math.round((present / stats.length) * 100)}%`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Presence</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Presence</p>
                     </div>
                   </div>
 
                   {/* Academics Card */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Academic Score</span>
+                      <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Academic Score</span>
                       <Award size={18} className="text-indigo-500 print:hidden" />
                     </div>
                     <div>
@@ -5881,25 +5275,25 @@ export default function PrincipalDashboard({
                           return `${avg}%`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Marks</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5">Average Marks</p>
                     </div>
                   </div>
 
                   {/* Financials Card */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fee Balance</span>
+                      <span className="text-xs font-black uppercase text-slate-400 tracking-wider">Fee Balance</span>
                       <CreditCard size={18} className="text-emerald-500 print:hidden" />
                     </div>
                     <div>
                       <div className="text-3xl font-black text-slate-900">
                         {(() => {
                           const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
-                          if (!fData) return 'Rs. 0';
-                          return `Rs. ${getTotalPending(fData) + getTotalOtherFunds(fData)}`;
+                          if (!fData) return '0';
+                          return `${getTotalPending(fData) + getTotalOtherFunds(fData)}`;
                         })()}
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Total Pending Dues</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5">Total Pending Dues</p>
                     </div>
                   </div>
                 </div>
@@ -5922,7 +5316,7 @@ export default function PrincipalDashboard({
                             <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                               <div>
                                 <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{m.subject}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">{m.examType}</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase">{m.examType}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-xs font-black text-indigo-600">{m.marksObtained} / {m.maxMarks}</p>
@@ -5979,7 +5373,7 @@ export default function PrincipalDashboard({
                       return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
-                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">Paid History</p>
+                            <p className="text-xs font-black uppercase text-slate-400 tracking-wider mb-2">Paid History</p>
                             <div className="space-y-2">
                               {fData.payments.length === 0 ? (
                                 <p className="text-xs text-slate-400 ">No payments recorded.</p>
@@ -5987,14 +5381,14 @@ export default function PrincipalDashboard({
                                 fData.payments.slice(0, 5).map((p, i) => (
                                   <div key={i} className="flex items-center justify-between p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100">
                                     <span className="text-xs font-bold text-emerald-900 uppercase">{p.month} {p.year}</span>
-                                    <span className="text-xs font-black text-emerald-700">Rs. {p.amount}</span>
+                                    <span className="text-xs font-black text-emerald-700">{p.amount}</span>
                                   </div>
                                 ))
                               )}
                             </div>
                           </div>
                           <div>
-                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">Other Charges</p>
+                            <p className="text-xs font-black uppercase text-slate-400 tracking-wider mb-2">Other Charges</p>
                             <div className="space-y-2">
                               {fData.otherFunds.length === 0 ? (
                                 <p className="text-xs text-slate-400 ">No extra charges on record.</p>
@@ -6002,7 +5396,7 @@ export default function PrincipalDashboard({
                                 fData.otherFunds.slice(0, 5).map((f, i) => (
                                   <div key={i} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
                                     <span className="text-xs font-bold text-slate-800 uppercase">{f.desc}</span>
-                                    <span className="text-xs font-black text-slate-900">Rs. {f.amount}</span>
+                                    <span className="text-xs font-black text-slate-900">{f.amount}</span>
                                   </div>
                                 ))
                               )}
@@ -6052,7 +5446,7 @@ export default function PrincipalDashboard({
                   </div>
                   <div>
                     <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight leading-tight">Direct Attendance Marking</h2>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest tracking-[0.2em]">{attendanceFilterDate}</p>
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest tracking-[0.2em]">{attendanceFilterDate}</p>
                   </div>
                 </div>
                 
@@ -6064,7 +5458,7 @@ export default function PrincipalDashboard({
                       setAttendanceMode(mode);
                       if (mode === 'swipe') setActiveSwipeIndex(0);
                     }}
-                    className="appearance-none pl-3 pr-8 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                    className="appearance-none pl-3 pr-8 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                   >
                     <option value="grid">Grid View</option>
                     <option value="list">List View</option>
@@ -6084,7 +5478,7 @@ export default function PrincipalDashboard({
               <div className="flex-1 overflow-y-auto p-8 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Target Class</label>
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block">Target Class</label>
                     <select 
                       value={markAttendanceClassId}
                       onChange={(e) => setMarkAttendanceClassId(e.target.value)}
@@ -6095,7 +5489,7 @@ export default function PrincipalDashboard({
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Recording Date</label>
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block">Recording Date</label>
                     <input 
                       type="date"
                       value={attendanceFilterDate}
@@ -6124,7 +5518,7 @@ export default function PrincipalDashboard({
                               {/* Progress indicators */}
                               <div className="flex justify-between items-center text-xs text-slate-600 font-bold px-1">
                                 <span>Student {activeSwipeIndex + 1} of {markAttRecords.length}</span>
-                                <span className="font-mono bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-indigo-100">
+                                <span className="font-mono bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-xs font-bold border border-indigo-100">
                                   {Math.round((activeSwipeIndex / markAttRecords.length) * 100)}% Complete
                                 </span>
                               </div>
@@ -6180,20 +5574,20 @@ export default function PrincipalDashboard({
                                         )}
                                       </div>
                                       <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">{currentStudent?.name}</h2>
-                                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll Number #{currentStudent?.rollNumber}</p>
+                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Roll Number #{currentStudent?.rollNumber}</p>
                                       
                                       <div className="mt-8 flex justify-center gap-6">
                                         <div className="flex flex-col items-center gap-2">
                                           <div className="w-10 h-10 rounded-full border-2 border-rose-100 flex items-center justify-center text-rose-500">
                                             <ArrowLeft size={20} />
                                           </div>
-                                          <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest">Swipe Left: Absent</span>
+                                          <span className="text-xs font-black text-rose-500 uppercase tracking-widest">Swipe Left: Absent</span>
                                         </div>
                                         <div className="flex flex-col items-center gap-2">
                                           <div className="w-10 h-10 rounded-full border-2 border-emerald-100 flex items-center justify-center text-emerald-500">
                                             <ArrowRight size={20} />
                                           </div>
-                                          <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Swipe Right: Present</span>
+                                          <span className="text-xs font-black text-emerald-500 uppercase tracking-widest">Swipe Right: Present</span>
                                         </div>
                                       </div>
                                     </div>
@@ -6212,7 +5606,7 @@ export default function PrincipalDashboard({
                           <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest font-bold">You have reviewed all student attendance records.</p>
                           <button
                             onClick={() => setActiveSwipeIndex(0)}
-                            className="mt-6 px-6 py-2 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest"
+                            className="mt-6 px-6 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest"
                           >
                             Restart Swipe Session
                           </button>
@@ -6233,7 +5627,7 @@ export default function PrincipalDashboard({
                         return (
                           <div key={rec.studentId} className="flex items-center justify-between p-3 bg-white hover:bg-slate-50">
                             <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-black text-slate-400 w-6">#{idx+1}</span>
+                              <span className="text-xs font-black text-slate-400 w-6">#{idx+1}</span>
                               <p className="text-xs font-black text-slate-900 uppercase truncate max-w-[120px]">{student?.name}</p>
                             </div>
                             <div className="flex items-center gap-1">
@@ -6243,7 +5637,7 @@ export default function PrincipalDashboard({
                                   onClick={() => {
                                     setMarkAttRecords(prev => prev.map(p => p.studentId === rec.studentId ? {...p, status} : p));
                                   }}
-                                  className={`px-2 py-1 text-[8px] font-black uppercase tracking-tighter ${
+                                  className={`px-2 py-1 text-xs font-black uppercase tracking-tighter ${
                                     rec.status === status 
                                       ? status === 'present' ? 'bg-emerald-600 text-white shadow-sm' :
                                         status === 'absent' ? 'bg-rose-600 text-white shadow-sm' :
@@ -6265,17 +5659,17 @@ export default function PrincipalDashboard({
                   /* Grid Mode (Default) */
                   <div className="space-y-3">
                     <div className="flex justify-between items-center mb-1">
-                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-900">Student Roll Call ({markAttRecords.length})</h3>
+                       <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Student Roll Call ({markAttRecords.length})</h3>
                        <div className="flex gap-2">
                           <button 
                             onClick={() => setMarkAttRecords(prev => prev.map(p => ({...p, status: 'present'})))}
-                            className="text-[9px] font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-50 px-2 py-1"
+                            className="text-xs font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-50 px-2 py-1"
                           >
                             All Present
                           </button>
                           <button 
                             onClick={() => setMarkAttRecords(prev => prev.map(p => ({...p, status: 'absent'})))}
-                            className="text-[9px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 px-2 py-1"
+                            className="text-xs font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 px-2 py-1"
                           >
                             All Absent
                           </button>
@@ -6293,8 +5687,8 @@ export default function PrincipalDashboard({
                                 <div className="w-10 h-10 rounded-xl border border-slate-100 bg-slate-50" />
                               )}
                               <div>
-                                <p className="text-[11px] font-black text-slate-900 uppercase leading-none">{student?.name}</p>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Roll #{student?.rollNumber}</p>
+                                <p className="text-xs font-black text-slate-900 uppercase leading-none">{student?.name}</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Roll #{student?.rollNumber}</p>
                               </div>
                             </div>
                             <div className="flex items-center justify-between gap-1 p-1 bg-slate-50 rounded-none">
@@ -6304,7 +5698,7 @@ export default function PrincipalDashboard({
                                   onClick={() => {
                                     setMarkAttRecords(prev => prev.map(p => p.studentId === rec.studentId ? {...p, status} : p));
                                   }}
-                                  className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                                  className={`flex-1 py-1.5 text-xs font-black uppercase tracking-widest transition-all ${
                                     rec.status === status 
                                       ? status === 'present' ? 'bg-emerald-600 text-white shadow-md' :
                                         status === 'absent' ? 'bg-rose-600 text-white shadow-md' :
@@ -6328,14 +5722,14 @@ export default function PrincipalDashboard({
               <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4">
                 <button
                   onClick={() => setShowMarkAttendanceModal(false)}
-                  className="px-6 py-3 border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-white transition-all rounded-none"
+                  className="px-6 py-3 border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest hover:bg-white transition-all rounded-none"
                 >
                   Discard Changes
                 </button>
                 <button
                   disabled={!markAttendanceClassId}
                   onClick={handlePrincipalMarkAttendance}
-                  className="px-8 py-3 bg-slate-950 text-white text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 hover:bg-emerald-600 disabled:opacity-50 disabled:bg-slate-400 transition-all rounded-none shadow-xl"
+                  className="px-8 py-3 bg-slate-950 text-white text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2 hover:bg-emerald-600 disabled:opacity-50 disabled:bg-slate-400 transition-all rounded-none shadow-xl"
                 >
                   <Save size={14} /> Commit Attendance Record
                 </button>
@@ -6348,72 +5742,45 @@ export default function PrincipalDashboard({
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
       <div id="principal-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-1 pb-safe select-none print:hidden">
         <div className="flex justify-around items-center h-16">
-          {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
-            <div className="flex-1 flex justify-center -translate-y-4">
-              <button
-                id="mobile-nav-dashboard"
-                onClick={() => { handleTabChange('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className={`rounded-full flex flex-col items-center justify-center p-2.5 transition-all duration-300 shadow-xl border-4 ${
-                  activeTab === 'dashboard' 
-                    ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 border-slate-900 text-white scale-110 ring-4 ring-emerald-500/20' 
-                    : 'bg-emerald-500 hover:bg-emerald-400 border-slate-900 text-white hover:scale-105'
-                }`}
-                style={{ minHeight: '52px', minWidth: '52px' }}
-              >
-                <BarChart2 size={20} className="stroke-[2.5]" />
-                <span className="text-[8px] mt-0.5 font-black uppercase tracking-widest">
-                  Home
-                </span>
-              </button>
-            </div>
-          )}
+          {[
+            { id: 'dashboard', label: 'Home', icon: BarChart2, color: 'emerald' },
+            { id: 'management_hub', label: 'Admin', icon: Shield, color: 'indigo' },
+            { id: 'monthly_report', label: 'Reports', icon: FileText, color: 'violet' },
+            { id: 'registers', label: 'Records', icon: Database, color: 'teal', extraMatch: 'fees' },
+          ].map((item) => {
+            const isActive = activeTab === item.id || (item.extraMatch && activeTab === item.extraMatch);
+            const Icon = item.icon;
+            
+            return (
+              <div key={item.id} className={`flex-1 flex justify-center transition-all duration-300 ${isActive ? '-translate-y-4' : 'translate-y-0'}`}>
+                <button
+                  onClick={() => { handleTabChange(item.id as any); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className={`flex flex-col items-center justify-center transition-all duration-300 ${
+                    isActive 
+                      ? `rounded-full p-2.5 shadow-2xl border-4 border-slate-900 scale-110 bg-${item.color === 'emerald' ? 'emerald' : item.color === 'indigo' ? 'indigo' : item.color === 'violet' ? 'rose' : 'teal'}-600 text-white` 
+                      : 'text-slate-400 hover:text-white p-2'
+                  }`}
+                  style={isActive ? { minHeight: '52px', minWidth: '52px' } : {}}
+                >
+                  <Icon size={isActive ? 20 : 18} className={isActive ? 'stroke-[2.5]' : ''} />
+                  <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${isActive ? 'font-black' : 'font-bold'}`}>
+                    {item.label}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
           
-          <button
-            id="mobile-nav-management"
-            onClick={() => { handleTabChange('management_hub'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'management_hub' ? 'text-emerald-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Shield size={16} />
-            <span className="text-[8px] mt-0.5 font-semibold uppercase tracking-wider">Admin Hub</span>
-          </button>
-
-          <button
-            id="mobile-nav-reports"
-            onClick={() => { handleTabChange('monthly_report'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none ${
-              activeTab === 'monthly_report' ? 'text-indigo-500 font-black scale-105' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <FileText size={16} />
-            <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Reports</span>
-          </button>
-
-          {/* EYE-CATCHING AND ACCESSIBLE AUDIT HUB NAV */}
-          {(userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') && (
+          <div className="flex-1 flex justify-center">
             <button
-              id="mobile-nav-registers"
-              onClick={() => { handleTabChange('registers'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`flex-1 flex flex-col items-center justify-center py-1 transition-all text-center focus:outline-none rounded-lg mx-0.5 ${
-                activeTab === 'registers' || activeTab === 'fees'
-                  ? 'text-emerald-400 font-black scale-105 bg-emerald-500/10 border border-emerald-500/20' 
-                  : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/5'
-              }`}
+              id="mobile-nav-menu"
+              onClick={() => setSidebarOpen(true)}
+              className="flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-emerald-400 focus:outline-none"
             >
-              <Database size={16} className={activeTab === 'registers' || activeTab === 'fees' ? 'text-emerald-400' : 'text-slate-400'} />
-              <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Records</span>
+              <Menu size={18} />
+              <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
             </button>
-          )}
-
-          <button
-            id="mobile-nav-menu"
-            onClick={() => setSidebarOpen(true)}
-            className="flex-1 flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-emerald-400"
-          >
-            <Menu size={16} />
-            <span className="text-[8px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
-          </button>
+          </div>
         </div>
       </div>
 
@@ -6426,7 +5793,7 @@ export default function PrincipalDashboard({
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-slate-950 text-white flex flex-col items-center justify-center font-black  border-l-4 border-indigo-600">
                   <span className="text-xl">{selectedClassForDetails.className}</span>
-                  <span className="text-[9px] uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{selectedClassForDetails.section}</span>
+                  <span className="text-xs uppercase tracking-widest bg-indigo-600 w-full text-center py-0.5">{selectedClassForDetails.section}</span>
                 </div>
                 <div>
                   <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Interactive Class Insights</h2>
@@ -6470,7 +5837,7 @@ export default function PrincipalDashboard({
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                   {DAYS.map(day => (
                     <div key={day} className="space-y-2">
-                      <div className="bg-slate-900 text-white text-[9px] font-black uppercase py-1.5 px-3 tracking-widest flex items-center justify-between shadow-md">
+                      <div className="bg-slate-900 text-white text-xs font-black uppercase py-1.5 px-3 tracking-widest flex items-center justify-between shadow-md">
                         <span>{day}</span>
                         <button 
                           onClick={() => {
@@ -6497,14 +5864,14 @@ export default function PrincipalDashboard({
                           .sort((a,b) => a.period.localeCompare(b.period))
                           .map(entry => (
                             <div key={entry.id} className="p-2 bg-white border border-slate-200 shadow-xs border-l-2 border-l-indigo-500">
-                              <p className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter leading-none mb-1">{entry.period}</p>
-                              <p className="text-[10px] font-extrabold text-slate-900 uppercase  truncate leading-none mb-0.5">{entry.subject}</p>
-                              <p className="text-[8px] text-slate-400 font-bold uppercase truncate">{getTeacherName(entry.teacherId)}</p>
+                              <p className="text-xs font-black text-indigo-600 uppercase tracking-tighter leading-none mb-1">{entry.period}</p>
+                              <p className="text-xs font-extrabold text-slate-900 uppercase  truncate leading-none mb-0.5">{entry.subject}</p>
+                              <p className="text-xs text-slate-400 font-bold uppercase truncate">{getTeacherName(entry.teacherId)}</p>
                             </div>
                           ))}
                         {timetable.filter(tt => tt.classId === selectedClassForDetails.id && tt.day === day).length === 0 && (
                           <div className="h-full flex items-center justify-center py-8">
-                             <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest text-center ">No Lectures</p>
+                             <p className="text-xs text-slate-400 font-bold uppercase tracking-widest text-center ">No Lectures</p>
                           </div>
                         )}
                       </div>
@@ -6520,13 +5887,13 @@ export default function PrincipalDashboard({
                     <Users size={18} className="text-emerald-600" />
                     <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Enrolled Student Roster</h3>
                   </div>
-                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase border border-emerald-100">
+                  <span className="bg-emerald-50 text-emerald-700 text-xs font-black px-3 py-1 rounded-full uppercase border border-emerald-100">
                     {students.filter(s => s.classId === selectedClassForDetails.id).length} Active Pupils
                   </span>
                 </div>
 
                 <div className="relative group">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Jump to Student Profile:</label>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Jump to Student Profile:</label>
                   <select 
                     id="class-modal-student-jump"
                     className="w-full bg-slate-50 border border-slate-200 p-3 rounded-none focus:ring-1 focus:ring-indigo-600 outline-none font-bold text-xs uppercase tracking-wider"
@@ -6554,12 +5921,12 @@ export default function PrincipalDashboard({
                         <img src={s.photo} alt={s.name} className="w-10 h-10 rounded-xl object-cover border border-slate-200 shadow-sm" />
                       ) : (
                         <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black text-xs border border-slate-800">
-                          {s.name.charAt(0)}
+                          <User size={18} />
                         </div>
                       )}
                       <div>
-                        <p className="text-[10px] font-black text-slate-900 uppercase tracking-tight truncate leading-none mb-0.5">{s.name}</p>
-                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Roll #{s.rollNumber}</p>
+                        <p className="text-xs font-black text-slate-900 uppercase tracking-tight truncate leading-none mb-0.5">{s.name}</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Roll #{s.rollNumber}</p>
                       </div>
                     </div>
                   ))}
@@ -6588,7 +5955,7 @@ export default function PrincipalDashboard({
               <AlertCircle size={24} className="shrink-0" />
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-red-950">Confirm Slot Removal</h3>
-                <p className="text-[10px] text-red-800 font-bold uppercase tracking-widest mt-0.5">Destructive action override</p>
+                <p className="text-xs text-red-800 font-bold uppercase tracking-widest mt-0.5">Destructive action override</p>
               </div>
             </div>
 
@@ -6627,7 +5994,7 @@ export default function PrincipalDashboard({
               <AlertCircle size={24} className="shrink-0" />
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-red-950">Confirm Deletion</h3>
-                <p className="text-[10px] text-red-800 font-bold uppercase tracking-widest mt-0.5">Destructive action override</p>
+                <p className="text-xs text-red-800 font-bold uppercase tracking-widest mt-0.5">Destructive action override</p>
               </div>
             </div>
 
@@ -6672,21 +6039,21 @@ export default function PrincipalDashboard({
                 <h3 className="text-lg font-black text-slate-900 uppercase">Fee Payment</h3>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{feePaymentModal.month} 2026</p>
                 <div className="flex flex-col gap-1 items-center mt-2 border-t border-slate-100 pt-3">
-                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Previous Arrears: Rs. {feePaymentModal.previousArrears}</span>
-                   <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Current Fee: Rs. {feePaymentModal.pending}</span>
+                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Previous Arrears: {feePaymentModal.previousArrears}</span>
+                   <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Current Fee: {feePaymentModal.pending}</span>
                 </div>
               </div>
 
               <div className="bg-slate-900 p-4 rounded-xl flex justify-between items-center text-white border border-slate-800 shadow-xl">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Total Pending Dues</span>
-                <span className="text-xl font-black text-rose-500">Rs. {feePaymentModal.pending + feePaymentModal.previousArrears}</span>
+                <span className="text-xs font-black uppercase tracking-widest text-slate-300">Total Pending Dues</span>
+                <span className="text-xl font-black text-rose-500">{feePaymentModal.pending + feePaymentModal.previousArrears}</span>
               </div>
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount to Pay (Rs.)</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Amount to Pay ()</label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm">Rs.</span>
+                    <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm"></span>
                     <input 
                       type="number"
                       value={feePaymentModal.amount}
@@ -6704,7 +6071,7 @@ export default function PrincipalDashboard({
                       const studentObj = students.find(s => String(s.id) === String(feePaymentModal.studentId));
                       if (studentObj) handleSendFeeNotification(studentObj, 'payment', amt, `${feePaymentModal.month} ${feePaymentModal.year}`);
                       setFeePaymentModal({ ...feePaymentModal, isOpen: false });
-                      toast.success(`Payment transaction of Rs. ${amt} recorded for ${feePaymentModal.month}`);
+                      toast.success(`Payment transaction of ${amt} recorded for ${feePaymentModal.month}`);
                     } else {
                       toast.error("Enter a valid non-zero amount");
                     }
@@ -6736,7 +6103,7 @@ export default function PrincipalDashboard({
             <div className="space-y-6">
               {feeEditModal.type === 'other' && (
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Description</label>
                   <input 
                     type="text"
                     value={feeEditModal.desc}
@@ -6747,9 +6114,9 @@ export default function PrincipalDashboard({
               )}
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount (Rs.)</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Amount ()</label>
                 <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm">Rs.</span>
+                  <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm"></span>
                   <input 
                     type="number"
                     value={feeEditModal.amount}
@@ -6802,7 +6169,7 @@ export default function PrincipalDashboard({
                   <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                     <MessageSquare size={24} /> Bulk WhatsApp Dispatch
                   </h2>
-                  <p className="text-[10px] uppercase font-bold text-emerald-100 mt-1">Total Absents: {bulkWAModal.absents.length} students</p>
+                  <p className="text-xs uppercase font-bold text-emerald-100 mt-1">Total Absents: {bulkWAModal.absents.length} students</p>
                 </div>
                 <button 
                   onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
@@ -6819,7 +6186,7 @@ export default function PrincipalDashboard({
                   <select 
                     value={bulkWAClassFilter}
                     onChange={(e) => setBulkWAClassFilter(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-emerald-500 appearance-none"
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-emerald-500 appearance-none"
                   >
                     <option value="all">Filter by Class (All)</option>
                     {classes.map(c => (
@@ -6847,16 +6214,17 @@ export default function PrincipalDashboard({
                           </div>
                           <div>
                             <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight ">{st.name}</h4>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">
+                            <p className="text-xs font-bold text-slate-400 uppercase">
                               {sClass ? `${sClass.className} - ${sClass.section}` : 'N/A'} | Roll: {st.rollNumber} | {st.parentPhone || 'No Phone'}
                             </p>
                           </div>
                         </div>
                         <button 
                             onClick={() => handleSendIndividualWhatsApp(st, st.attendanceDate)}
-                            className="px-5 py-2.5 bg-emerald-600 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2 rounded-xl transition-all shadow-md active:scale-95"
+                            title="Send WhatsApp Alert"
+                            className="p-2.5 bg-emerald-600 hover:bg-slate-900 text-white flex items-center justify-center rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
                         >
-                          <Send size={14} /> Send WA
+                          <Send size={16} />
                         </button>
                       </div>
                     );
@@ -6867,11 +6235,11 @@ export default function PrincipalDashboard({
               <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <CheckCircle2 size={16} className="text-emerald-600" />
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest uppercase">Click Send for each parent</span>
+                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest uppercase">Click Send for each parent</span>
                 </div>
                 <button 
                   onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
-                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all"
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all"
                 >
                   Dismiss
                 </button>
@@ -6896,7 +6264,7 @@ export default function PrincipalDashboard({
                   <h2 className="text-base sm:text-xl font-black uppercase tracking-tight flex items-center gap-2.5">
                     <CreditCard size={22} className="shrink-0" /> ⚡ Direct Fee Collection & Receipt
                   </h2>
-                  <p className="text-[9px] sm:text-[10px] uppercase font-bold text-emerald-100 mt-0.5">Collect fee & issue real-time payment receipt</p>
+                  <p className="text-xs sm:text-xs uppercase font-bold text-emerald-100 mt-0.5">Collect fee & issue real-time payment receipt</p>
                 </div>
                 <button
                   onClick={() => setShowQuickCollectModal(false)}
@@ -6909,7 +6277,7 @@ export default function PrincipalDashboard({
               <div className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 overflow-y-auto flex-1">
                 {/* Select Student */}
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
                     Select Student *
                   </label>
                   <select
@@ -6925,7 +6293,7 @@ export default function PrincipalDashboard({
                     <option value="">-- Select Student --</option>
                     {students.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.name} ({getClassName(s.classId)}) - Roll #{s.rollNumber || 'N/A'}
+                        {s.name.split(' ').slice(1).join(' ') || s.name} - Roll #{s.rollNumber || 'N/A'}
                       </option>
                     ))}
                   </select>
@@ -6934,7 +6302,7 @@ export default function PrincipalDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {/* Fee Month */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
                       Fee Month *
                     </label>
                     <select
@@ -6950,8 +6318,8 @@ export default function PrincipalDashboard({
 
                   {/* Fee Amount */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
-                      Fee Amount (Rs.) *
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
+                      Fee Amount () *
                     </label>
                     <input
                       type="number"
@@ -6966,7 +6334,7 @@ export default function PrincipalDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {/* Fee Type */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
                       Fee Category
                     </label>
                     <select
@@ -6984,7 +6352,7 @@ export default function PrincipalDashboard({
 
                   {/* Payment Method */}
                   <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
                       Payment Method
                     </label>
                     <select
@@ -7002,7 +6370,7 @@ export default function PrincipalDashboard({
 
                 {/* Remarks */}
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
                     Remarks / Receipt Notes (Optional)
                   </label>
                   <input
@@ -7018,13 +6386,13 @@ export default function PrincipalDashboard({
               <div className="p-4 sm:p-6 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
                 <button
                   onClick={() => setShowQuickCollectModal(false)}
-                  className="px-4 sm:px-6 py-2.5 bg-slate-200 text-slate-700 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-slate-300 transition-all cursor-pointer"
+                  className="px-4 sm:px-6 py-2.5 bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-slate-300 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRecordQuickFee}
-                  className="px-4 sm:px-6 py-2.5 bg-emerald-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                  className="px-4 sm:px-6 py-2.5 bg-emerald-600 text-white font-black text-xs uppercase tracking-widest hover:bg-slate-900 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
                 >
                   <CheckCircle2 size={16} /> Record & Issue Receipt
                 </button>

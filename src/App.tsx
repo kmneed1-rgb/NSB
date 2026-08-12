@@ -116,7 +116,7 @@ export default function App() {
   const [appSettings, setAppSettings] = useState<AppSettings>(() => 
     safeParse('acadamis_app_settings', {
       absentTemplate: "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.",
-      feeTemplate: "Dear parent, your child {name}'s fee for {month} is Rs. {amount} which is due on {date}. NSB 1 Academy.",
+      feeTemplate: "Dear parent, your child {name}'s fee for {month} is {amount} which is due on {date}. NSB 1 Academy.",
       whatsAppAutoFee: true,
       whatsAppAutoAbsence: true,
       whatsAppAutoResult: false,
@@ -209,14 +209,22 @@ export default function App() {
   useEffect(() => {
     async function initFirebaseAndSync() {
       try {
-        console.log("Checking Firestore collections state on mount...");
+        console.log("Checking Firestore connectivity...");
         
         // Timeout to ensure offline fallback if network fails
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Firestore sync timeout")), 8000)
+          setTimeout(() => reject(new Error("Firestore connection timeout")), 15000)
         );
 
-        // Fetch all collections concurrently with a timeout fallback
+        // Attempt to fetch one small document to warm up the connection and verify access
+        await Promise.race([
+          getDocs(collection(db, "app_settings")),
+          timeoutPromise
+        ]);
+
+        console.log("Connection reached. Fetching full datasets...");
+
+        // Fetch remaining collections concurrently
         const [
           teachersSnapshot,
           classesSnapshot,
@@ -227,20 +235,17 @@ export default function App() {
           feesSnapshot,
           coordinatorsSnapshot,
           feeDataSnapshot
-        ] = await Promise.race([
-          Promise.all([
-            getDocs(collection(db, "teachers")),
-            getDocs(collection(db, "classes")),
-            getDocs(collection(db, "students")),
-            getDocs(collection(db, "timetable")),
-            getDocs(collection(db, "attendance")),
-            getDocs(collection(db, "marks")),
-            getDocs(collection(db, "fees")),
-            getDocs(collection(db, "coordinators")),
-            getDocs(collection(db, "fee_data"))
-          ]),
-          timeoutPromise
-        ]) as any;
+        ] = await Promise.all([
+          getDocs(collection(db, "teachers")),
+          getDocs(collection(db, "classes")),
+          getDocs(collection(db, "students")),
+          getDocs(collection(db, "timetable")),
+          getDocs(collection(db, "attendance")),
+          getDocs(collection(db, "marks")),
+          getDocs(collection(db, "fees")),
+          getDocs(collection(db, "coordinators")),
+          getDocs(collection(db, "fee_data"))
+        ]);
         
         // Check if collections exist in Cloud Firestore
         const isDbEmpty = teachersSnapshot.empty &&

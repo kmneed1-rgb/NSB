@@ -29,21 +29,21 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
       <div className="grid grid-cols-2 gap-8 mb-10">
         <div className="space-y-4">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Student Name</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Student Name</span>
             <p className="text-xl font-black text-slate-900 uppercase">{student.name}</p>
           </div>
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Class & Section</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Class & Section</span>
             <p className="text-sm font-bold text-slate-800">{studentClass ? `${studentClass.className} - ${studentClass.section}` : 'N/A'}</p>
           </div>
         </div>
         <div className="space-y-4 text-right">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Roll Number</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Roll Number</span>
             <p className="text-xl font-mono font-bold text-slate-900">#{student.rollNumber}</p>
           </div>
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Contact Index</span>
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">Contact Index</span>
             <p className="text-sm font-mono text-slate-800">{student.parentPhone}</p>
           </div>
         </div>
@@ -97,10 +97,10 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
                 <tr key={i} className="border-b border-slate-200">
                   <td className="px-4 py-2 border-r border-slate-900">
                     <span className="font-bold block uppercase">{f.month} - {f.feeType}</span>
-                    <span className="text-[9px] text-slate-400">{f.description || 'Routine billing'}</span>
+                    <span className="text-[11px] text-slate-400">{f.description || 'Routine billing'}</span>
                   </td>
                   <td className="px-4 py-2 border-r border-slate-900 text-center">
-                    <span className={`px-2 py-0.5 font-bold uppercase text-[9px] ${f.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                    <span className={`px-2 py-0.5 font-bold uppercase text-[11px] ${f.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                       {f.status}
                     </span>
                   </td>
@@ -126,17 +126,17 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
       <div className="flex justify-between items-end mt-20 pt-8 border-t-2 border-dashed border-slate-200">
         <div className="space-y-6">
           <div className="w-48 border-b border-slate-900"></div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">School Registrar Seal & Signature</p>
+          <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">School Registrar Seal & Signature</p>
         </div>
         <div className="text-right space-y-1">
           <p className="text-[10px] font-black uppercase text-slate-900 tracking-tighter">Verified Official Document</p>
-          <p className="text-[9px] font-bold text-slate-400  font-mono">MD-ID: {Math.random().toString(36).substr(2, 10).toUpperCase()}</p>
+          <p className="text-[11px] font-bold text-slate-400  font-mono">MD-ID: {Math.random().toString(36).substr(2, 10).toUpperCase()}</p>
         </div>
       </div>
 
       {/* Print Note */}
       <div className="mt-10 text-center">
-        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-[0.5em] ">System Generated Record • No Signature Required for Reference</p>
+        <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.5em] ">System Generated Record • No Signature Required for Reference</p>
       </div>
     </div>
   );
