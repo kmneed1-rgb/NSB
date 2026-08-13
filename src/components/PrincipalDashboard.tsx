@@ -1648,15 +1648,6 @@ export default function PrincipalDashboard({
                 </button>
               </div>
             </div>
-
-            {/* Initial configuration status indicators */}
-            <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-              <Shield size={18} className="text-blue-600 shrink-0 mt-0.5" />
-              <div>
-                <span className="text-xs font-bold text-blue-900 uppercase tracking-wide">Data Policy Note :</span>
-                <p className="text-xs text-blue-800 mt-1 truncate whitespace-nowrap">All additions, edits, and deletions are saved immediately onto the local sandbox of your browser. Logouts preserve state; you can refresh safely.</p>
-              </div>
-            </div>
           </div>
         )}
 
