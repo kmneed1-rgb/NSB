@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   BookOpen, Users, Award, Shield, ArrowRight, CheckCircle2, 
   MapPin, Phone, Mail, Clock, Calendar, Sparkles, Send, Info,
-  GraduationCap, Laptop, Book, Globe, ShieldCheck, Trophy
+  GraduationCap, Laptop, Book, Globe, ShieldCheck, Trophy,
+  Menu, X, Star, Quote, TrendingUp
 } from 'lucide-react';
 import { Teacher, Student, Class } from '../types';
 
@@ -15,6 +16,9 @@ interface LandingPageProps {
 }
 
 export default function LandingPage({ teachers, students, classes, onEnterPortal }: LandingPageProps) {
+  // Mobile nav state
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   // Inquiry form states
   const [studentName, setStudentName] = useState('');
   const [parentEmail, setParentEmail] = useState('');
@@ -40,24 +44,31 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
     }, 5000);
   };
 
+  const navItems = ['Home', 'Academics', 'Mentors', 'Admissions'];
+
+  const handleNavClick = (id: string) => {
+    setMobileOpen(false);
+    document.getElementById(id.toLowerCase())?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <div className="bg-white text-slate-900 font-sans antialiased min-h-screen flex flex-col selection:bg-emerald-100 selection:text-emerald-900">
+    <div className="bg-white text-slate-900 font-sans antialiased min-h-screen flex flex-col selection:bg-emerald-100 selection:text-emerald-900 overflow-x-hidden">
       
-      {/* ========== PREMIUM NAVIGATION ========== */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-6 md:px-12 py-4 flex items-center justify-between">
+      {/* ========== MODERN NAVIGATION ========== */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 sm:px-6 md:px-12 py-3 sm:py-4 flex items-center justify-between">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-4"
+          className="flex items-center gap-3"
         >
           <img 
             src="/logo.png" 
             alt="NSB1 School" 
-            className="h-10 w-auto object-contain hover:scale-105 transition-transform"
+            className="h-9 sm:h-10 w-auto object-contain hover:scale-105 transition-transform"
             referrerPolicy="no-referrer"
           />
           <div className="flex flex-col">
-            <span className="font-black text-slate-950 text-xl tracking-tighter uppercase leading-none">
+            <span className="font-black text-slate-950 text-lg sm:text-xl tracking-tighter uppercase leading-none">
               NSB1
             </span>
             <span className="text-[10px] tracking-[0.4em] font-black text-emerald-600 uppercase">
@@ -66,13 +77,14 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           </div>
         </motion.div>
 
-        {/* Desktop Navbar - Sophisticated Typography */}
+        {/* Desktop Navbar */}
         <nav className="hidden lg:flex items-center gap-10 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">
-          {['Home', 'Academics', 'Mentors', 'Admissions'].map((item) => (
+          {navItems.map((item) => (
             <a 
               key={item}
               href={`#${item.toLowerCase()}`} 
-              className="hover:text-emerald-600 transition-all relative group"
+              onClick={(e) => { e.preventDefault(); handleNavClick(item.toLowerCase()); }}
+              className="hover:text-emerald-600 transition-all relative group cursor-pointer"
             >
               {item}
               <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-emerald-600 transition-all group-hover:w-full"></span>
@@ -80,54 +92,95 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           ))}
         </nav>
 
-        <motion.button
-          whileHover={{ scale: 1.02, translateY: -1 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onEnterPortal}
-          className="py-3 px-8 bg-slate-950 text-white font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer shadow-xl shadow-slate-200 hover:bg-emerald-600 hover:shadow-emerald-200"
-        >
-          Portal Login
-        </motion.button>
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileHover={{ scale: 1.02, translateY: -1 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onEnterPortal}
+            className="hidden sm:block py-3 px-6 md:px-8 bg-slate-950 text-white font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer shadow-xl shadow-slate-200 hover:bg-emerald-600 hover:shadow-emerald-200"
+          >
+            Portal Login
+          </motion.button>
+
+          {/* Mobile Hamburger */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="lg:hidden p-2 text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </header>
 
+      {/* Mobile Menu */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="lg:hidden fixed top-[60px] left-0 right-0 z-40 bg-white border-b border-slate-100 shadow-2xl shadow-slate-200/50 px-6 py-6 space-y-4 max-h-[calc(100vh-60px)] overflow-y-auto"
+          >
+            {navItems.map((item) => (
+              <a
+                key={item}
+                href={`#${item.toLowerCase()}`}
+                onClick={(e) => { e.preventDefault(); handleNavClick(item.toLowerCase()); }}
+                className="block py-3 px-4 rounded-xl text-[11px] font-black text-slate-700 uppercase tracking-[0.25em] hover:bg-emerald-50 hover:text-emerald-700 transition-colors cursor-pointer"
+              >
+                {item}
+              </a>
+            ))}
+            <button
+              onClick={() => { setMobileOpen(false); onEnterPortal(); }}
+              className="w-full py-4 mt-2 bg-slate-950 text-white font-black text-[11px] uppercase tracking-widest hover:bg-emerald-600 transition-colors cursor-pointer"
+            >
+              Portal Login
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main>
-        {/* ========== IMMERSIVE HERO SECTION ========== */}
-        <section id="home" className="relative pt-24 pb-32 px-6 md:px-12 overflow-hidden">
+        {/* ========== MODERN HERO SECTION ========== */}
+        <section id="home" className="relative pt-10 sm:pt-14 md:pt-16 pb-14 md:pb-20 px-4 sm:px-6 md:px-12 overflow-hidden">
           {/* Refined Background Elements */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl -z-10 overflow-hidden pointer-events-none">
-            <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-emerald-50/50 rounded-full blur-[120px]"></div>
+            <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-emerald-50/60 rounded-full blur-[120px]"></div>
             <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-slate-50 rounded-full blur-[100px]"></div>
+            <div className="absolute top-1/3 left-1/4 w-40 h-40 bg-emerald-100/40 rounded-full blur-3xl"></div>
           </div>
 
           <div className="max-w-7xl mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               <motion.div 
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                className="space-y-10"
+                className="space-y-8 md:space-y-10 text-center"
               >
                 <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">Excellence Redefined</span>
                 </div>
 
-                <h1 className="text-6xl sm:text-7xl md:text-8xl font-black tracking-tighter leading-[0.9] text-slate-950 uppercase">
+                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-black tracking-tighter leading-[0.95] text-slate-950 uppercase">
                   Shaping<br/>
                   <span className="text-emerald-600">The Future</span><br/>
                   of Leaders.
                 </h1>
                 
-                <p className="text-slate-500 text-lg md:text-xl max-w-xl leading-relaxed font-medium">
+                <p className="text-slate-500 text-base sm:text-lg md:text-xl max-w-xl leading-relaxed font-medium mx-auto">
                   NSB1 School integrates rigorous academic standards with advanced digital systems, fostering an environment where curiosity meets modern capability.
                 </p>
 
-                <div className="flex flex-col sm:flex-row gap-5 pt-6">
+                <div className="flex flex-col sm:flex-row gap-4 md:gap-5 pt-4 sm:pt-6 max-w-md sm:max-w-none mx-auto">
                   <motion.button
                     whileHover={{ scale: 1.05, translateY: -2 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={onEnterPortal}
-                    className="px-12 py-5 bg-emerald-600 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all shadow-2xl shadow-emerald-200 flex items-center justify-center gap-2"
+                    className="px-8 sm:px-12 py-4 md:py-5 bg-emerald-600 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all shadow-2xl shadow-emerald-200 flex items-center justify-center gap-2"
                   >
                     Enter Portal
                     <ArrowRight size={14} />
@@ -136,7 +189,8 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                     whileHover={{ scale: 1.05, translateY: -2 }}
                     whileTap={{ scale: 0.98 }}
                     href="#academics"
-                    className="px-12 py-5 border-2 border-slate-950 text-slate-950 hover:bg-slate-950 hover:text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center"
+                    onClick={(e) => { e.preventDefault(); handleNavClick('academics'); }}
+                    className="px-8 sm:px-12 py-4 md:py-5 border-2 border-slate-950 text-slate-950 hover:bg-slate-950 hover:text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center"
                   >
                     View Programs
                   </motion.a>
@@ -147,11 +201,11 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 1, delay: 0.2 }}
-                className="relative hidden lg:block"
+                className="relative"
               >
-                <div className="aspect-square bg-slate-50 rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
+                <div className="aspect-square max-w-md lg:max-w-none mx-auto bg-slate-50 rounded-[2rem] md:rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
                   <div className="absolute inset-0 bg-gradient-to-tr from-emerald-100/20 to-transparent"></div>
-                  <div className="absolute inset-0 flex items-center justify-center p-20">
+                  <div className="absolute inset-0 flex items-center justify-center p-12 md:p-20">
                     <img 
                       src="/logo.png" 
                       alt="NSB1 Logo Large" 
@@ -164,19 +218,19 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                   <motion.div 
                     animate={{ y: [0, -10, 0] }}
                     transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-10 right-10 bg-white p-6 shadow-xl rounded-2xl border border-slate-100"
+                    className="absolute top-4 right-4 sm:top-10 sm:right-10 bg-white p-4 sm:p-6 shadow-xl rounded-2xl border border-slate-100"
                   >
-                    <div className="text-emerald-600 font-black text-2xl">98%</div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Board Pass Rate</div>
+                    <div className="text-emerald-600 font-black text-lg sm:text-2xl">98%</div>
+                    <div className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Board Pass Rate</div>
                   </motion.div>
 
                   <motion.div 
                     animate={{ y: [0, 10, 0] }}
                     transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                    className="absolute bottom-20 left-[-20px] bg-slate-950 p-6 shadow-xl rounded-2xl border border-slate-800"
+                    className="absolute bottom-10 left-2 sm:bottom-20 sm:left-[-20px] bg-slate-950 p-4 sm:p-6 shadow-xl rounded-2xl border border-slate-800"
                   >
-                    <div className="text-white font-black text-2xl">12+</div>
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialized Labs</div>
+                    <div className="text-white font-black text-lg sm:text-2xl">12+</div>
+                    <div className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialized Labs</div>
                   </motion.div>
                 </div>
               </motion.div>
@@ -184,38 +238,65 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           </div>
         </section>
 
+        {/* ========== TRUST STRIP ========== */}
+        <section className="bg-slate-950 py-8 md:py-10 px-4 sm:px-6 md:px-12">
+          <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
+            {[
+              { icon: Shield, label: 'Safe Campus', sub: '24/7 Security' },
+              { icon: Award, label: 'Certified Faculty', sub: 'Advanced Credentials' },
+              { icon: TrendingUp, label: 'Digital Ledger', sub: 'Real-time Tracking' },
+              { icon: GraduationCap, label: 'Global Curriculum', sub: 'Modern Standards' }
+            ].map((item, idx) => (
+              <motion.div
+                key={item.label}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: idx * 0.08 }}
+                className="flex items-center gap-3 justify-center"
+              >
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-600/20 rounded-xl flex items-center justify-center shrink-0">
+                  <item.icon size={18} className="text-emerald-400" />
+                </div>
+                <div className="text-left">
+                  <div className="text-white font-black text-xs sm:text-sm uppercase tracking-wider">{item.label}</div>
+                  <div className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">{item.sub}</div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
         {/* ========== ACADEMIC BENTO GRID ========== */}
-        <section id="academics" className="py-32 px-6 md:px-12 bg-slate-50">
+        <section id="academics" className="py-12 md:py-16 px-4 sm:px-6 md:px-12 bg-slate-50">
           <div className="max-w-7xl mx-auto">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-20 gap-8">
-              <div className="max-w-2xl">
+            <div className="text-center mb-10 md:mb-12 mx-auto max-w-3xl">
                 <h2 className="text-emerald-600 text-[10px] font-black uppercase tracking-[0.5em] mb-4">Academic Streams</h2>
-                <h3 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+                <h3 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
                   Curated Programs for<br/>Every Stage of Growth.
                 </h3>
+                <p className="text-slate-500 font-medium mx-auto mt-6 text-sm leading-relaxed max-w-md">
+                  From foundational primary education to advanced matriculation prep, we provide the environment for students to excel.
+                </p>
               </div>
-              <p className="text-slate-500 font-medium max-w-sm mb-2 text-sm leading-relaxed">
-                From foundational primary education to advanced matriculation prep, we provide the environment for students to excel.
-              </p>
-            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
               {/* Primary - Large Bento Item */}
               <motion.div 
                 whileHover={{ y: -5 }}
-                className="md:col-span-8 bg-white p-10 border border-slate-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden group min-h-[400px] flex flex-col justify-between"
+                className="md:col-span-8 bg-white p-8 sm:p-10 border border-slate-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden group min-h-[320px] sm:min-h-[400px] flex flex-col justify-between"
               >
                 <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-emerald-50 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
                 <div className="relative z-10">
-                  <div className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center mb-10 shadow-lg shadow-emerald-100">
-                    <BookOpen size={28} />
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center mb-6 sm:mb-10 shadow-lg shadow-emerald-100">
+                    <BookOpen size={24} />
                   </div>
-                  <h4 className="text-3xl font-black text-slate-950 uppercase tracking-tighter mb-4">Primary Foundation</h4>
-                  <p className="text-slate-500 text-lg leading-relaxed max-w-md">
+                  <h4 className="text-2xl sm:text-3xl font-black text-slate-950 uppercase tracking-tighter mb-4">Primary Foundation</h4>
+                  <p className="text-slate-500 text-base sm:text-lg leading-relaxed max-w-md">
                     Cultivating literacy, numeracy, and critical thinking skills in a vibrant, supportive environment for Grades 1 through 8.
                   </p>
                 </div>
-                <div className="relative z-10 flex items-center gap-6">
+                <div className="relative z-10 flex flex-wrap items-center gap-6">
                   <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-4 py-2 rounded-full">Grades 1-8</span>
                   <div className="flex -space-x-3">
                     {[1,2,3,4].map(i => (
@@ -230,21 +311,21 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
               {/* Secondary - Tall Bento Item */}
               <motion.div 
                 whileHover={{ y: -5 }}
-                className="md:col-span-4 bg-slate-950 p-10 shadow-2xl relative overflow-hidden group min-h-[400px] flex flex-col justify-between"
+                className="md:col-span-4 bg-slate-950 p-8 sm:p-10 shadow-2xl relative overflow-hidden group min-h-[320px] sm:min-h-[400px] flex flex-col justify-between"
               >
                 <div className="absolute inset-0 bg-emerald-600/10 group-hover:bg-emerald-600/20 transition-colors"></div>
                 <div className="relative z-10">
-                  <div className="w-14 h-14 bg-white text-slate-950 rounded-2xl flex items-center justify-center mb-10">
-                    <ShieldCheck size={28} />
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white text-slate-950 rounded-2xl flex items-center justify-center mb-6 sm:mb-10">
+                    <ShieldCheck size={24} />
                   </div>
-                  <h4 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Secondary Excellence</h4>
-                  <p className="text-slate-400 text-sm leading-relaxed">
+                  <h4 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter mb-4">Secondary Excellence</h4>
+                  <p className="text-slate-400 text-xs sm:text-sm leading-relaxed">
                     Intensive matriculation preparation with a focus on science, mathematics, and high-performance laboratory work.
                   </p>
                 </div>
                 <div className="relative z-10">
                   <div className="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-4">Science / Arts Streams</div>
-                  <button className="flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-[0.2em] hover:text-emerald-400 transition-colors">
+                  <button className="flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-[0.2em] hover:text-emerald-400 transition-colors cursor-pointer">
                     Explore Matrix <ArrowRight size={14} />
                   </button>
                 </div>
@@ -253,21 +334,21 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
               {/* Academy - Third Bento Item */}
               <motion.div 
                 whileHover={{ y: -5 }}
-                className="md:col-span-12 bg-emerald-600 p-10 shadow-xl relative overflow-hidden group min-h-[300px] flex items-center"
+                className="md:col-span-12 bg-emerald-600 p-8 sm:p-10 shadow-xl relative overflow-hidden group min-h-[240px] sm:min-h-[300px] flex items-center"
               >
-                <div className="absolute right-0 bottom-0 p-10 opacity-10 rotate-12 group-hover:rotate-0 transition-transform duration-700">
-                  <Trophy size={300} strokeWidth={1} />
+                <div className="absolute right-0 bottom-0 p-6 sm:p-10 opacity-10 rotate-12 group-hover:rotate-0 transition-transform duration-700 hidden sm:block">
+                  <Trophy size={220} strokeWidth={1} />
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center relative z-10 w-full">
-                  <div className="space-y-6">
-                    <h4 className="text-3xl font-black text-white uppercase tracking-tighter">NSB1 Academy Prep</h4>
-                    <p className="text-emerald-50 text-lg leading-relaxed max-w-md">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center relative z-10 w-full">
+                  <div className="space-y-4 sm:space-y-6">
+                    <h4 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">NSB1 Academy Prep</h4>
+                    <p className="text-emerald-50 text-base sm:text-lg leading-relaxed max-w-md">
                       Specialized evening coaching designed for conceptual mastery and top-tier board exam results.
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-4">
+                  <div className="flex flex-wrap gap-3">
                     {['Physics', 'Chemistry', 'Biology', 'Mathematics', 'Computer'].map(sub => (
-                      <div key={sub} className="px-6 py-3 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">
+                      <div key={sub} className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">
                         {sub}
                       </div>
                     ))}
@@ -279,20 +360,47 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         </section>
 
         {/* ========== THE MENTORSHIP WALL ========== */}
-        <section id="mentors" className="py-32 px-6 md:px-12 bg-white">
+        <section id="mentors" className="py-12 md:py-16 px-4 sm:px-6 md:px-12 bg-white">
           <div className="max-w-7xl mx-auto">
-            <div className="text-center mb-24">
+            <div className="text-center mb-10 md:mb-14">
               <h2 className="text-emerald-600 text-[10px] font-black uppercase tracking-[0.5em] mb-4">Our Commitment</h2>
-              <h3 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+              <h3 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
                 Pedagogical Excellence.
               </h3>
+              <p className="text-slate-500 font-medium mt-6 text-sm max-w-2xl mx-auto leading-relaxed">
+                Three pillars that power every classroom at NSB1 — from verified expertise to technology-driven learning experiences.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 md:gap-8">
               {[
-                { title: 'Certified Academics', desc: 'Faculty members hold advanced credentials and undergo rigorous pedagogical training cycles.', icon: Award, accent: 'emerald' },
-                { title: 'Mentorship Focus', desc: 'Each student is assigned a personal academic mentor to track holistic development.', icon: Users, accent: 'slate' },
-                { title: 'Tech-First Learning', desc: 'Integrating smart classroom technology for an interactive, data-driven experience.', icon: Laptop, accent: 'indigo' }
+                { 
+                  title: 'Certified Academics', 
+                  desc: 'Faculty members hold advanced credentials and undergo rigorous pedagogical training cycles for mastery in every subject.', 
+                  icon: Award, 
+                  accent: 'emerald',
+                  soft: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+                  chip: 'bg-emerald-600',
+                  features: ['100% Qualified Staff', 'Continuous PD Cycles', 'Subject Specialists']
+                },
+                { 
+                  title: 'Mentorship Focus', 
+                  desc: 'Each student is assigned a personal academic mentor to track holistic development — academically and personally.', 
+                  icon: Users, 
+                  accent: 'indigo',
+                  soft: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+                  chip: 'bg-indigo-600',
+                  features: ['1:1 Mentorship', 'Progress Reviews', 'Parent Counselor Links']
+                },
+                { 
+                  title: 'Tech-First Learning', 
+                  desc: 'Integrating smart classroom technology for an interactive, data-driven experience that prepares students for a digital future.', 
+                  icon: Laptop, 
+                  accent: 'rose',
+                  soft: 'bg-rose-50 border-rose-200 text-rose-700',
+                  chip: 'bg-rose-600',
+                  features: ['Smart Classrooms', 'Digital Attendance', 'Live Result Portal']
+                }
               ].map((item, idx) => (
                 <motion.div 
                   key={item.title}
@@ -300,18 +408,27 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: idx * 0.1 }}
-                  className="group"
+                  whileHover={{ y: -8 }}
+                  className="group relative bg-slate-50 border border-slate-100 rounded-[1.75rem] p-8 overflow-hidden hover:shadow-2xl hover:shadow-slate-200/60 transition-all duration-500 text-center flex flex-col"
                 >
-                  <div className="mb-8 relative">
-                    <div className="w-16 h-16 bg-slate-50 rounded-[1.5rem] flex items-center justify-center text-slate-900 group-hover:bg-emerald-600 group-hover:text-white group-hover:scale-110 transition-all duration-500 shadow-sm">
+                  <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-white opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="mb-7 relative mx-auto">
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg ${item.chip} group-hover:scale-110 group-hover:-rotate-6 transition-all duration-500`}>
                       <item.icon size={28} />
                     </div>
                   </div>
-                  <h4 className="text-xl font-black text-slate-950 uppercase tracking-tighter mb-4">{item.title}</h4>
-                  <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium">
+                  <h4 className="text-lg font-black text-slate-950 uppercase tracking-tighter mb-4">{item.title}</h4>
+                  <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium flex-1">
                     {item.desc}
                   </p>
-                  <div className="h-0.5 w-12 bg-slate-100 group-hover:w-full group-hover:bg-emerald-600 transition-all duration-500"></div>
+                  <div className="flex flex-wrap gap-2 justify-center mb-6">
+                    {item.features.map(f => (
+                      <span key={f} className={`px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest ${item.soft}`}>
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="h-1 w-12 bg-slate-200 rounded-full mx-auto group-hover:w-full group-hover:bg-emerald-600 transition-all duration-500"></div>
                 </motion.div>
               ))}
             </div>
@@ -319,18 +436,18 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         </section>
 
         {/* ========== DIRECTORY METRICS ========== */}
-        <section className="bg-slate-50 py-24 px-6 md:px-12 border-y border-slate-100">
+        <section className="bg-slate-50 py-10 md:py-16 px-4 sm:px-6 md:px-12 border-y border-slate-100">
           <div className="max-w-7xl mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div className="grid grid-cols-3 gap-4 md:gap-12">
               {[
                 { label: 'Faculty Members', val: teachers.length, icon: GraduationCap },
                 { label: 'Students Enrolled', val: students.length, icon: Users },
                 { label: 'Active Classrooms', val: classes.length, icon: Globe }
               ].map((stat) => (
-                <div key={stat.label} className="flex flex-col items-center text-center space-y-4">
-                  <div className="text-slate-200"><stat.icon size={48} strokeWidth={1} /></div>
-                  <div className="text-5xl font-black text-slate-950 tracking-tighter">{stat.val}</div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{stat.label}</div>
+                <div key={stat.label} className="flex flex-col items-center text-center space-y-2 sm:space-y-4">
+                  <div className="text-slate-200 hidden sm:block"><stat.icon size={48} strokeWidth={1} /></div>
+                  <div className="text-2xl sm:text-5xl font-black text-slate-950 tracking-tighter">{stat.val}</div>
+                  <div className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -338,17 +455,17 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         </section>
 
         {/* ========== PREMIUM ADMISSION PORTAL (FORM) ========== */}
-        <section id="admissions" className="py-32 px-6 md:px-12 bg-white relative overflow-hidden">
-          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-20 items-center">
+        <section id="admissions" className="py-12 md:py-16 px-4 sm:px-6 md:px-12 bg-white relative overflow-hidden">
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 items-center">
             
-            <div className="lg:col-span-5 space-y-8">
+            <div className="lg:col-span-5 space-y-8 text-center">
               <div className="inline-block px-4 py-1.5 bg-emerald-50 text-emerald-600 text-[11px] font-black uppercase tracking-widest rounded-full">
                 Session 2026-27 Open
               </div>
-              <h2 className="text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-950 uppercase tracking-tighter leading-tight">
                 Secure Your Path<br/>to Academic Success.
               </h2>
-              <p className="text-slate-500 text-lg leading-relaxed font-medium">
+              <p className="text-slate-500 text-base sm:text-lg leading-relaxed font-medium">
                 Submit an inquiry today to receive our comprehensive digital prospectus and fee structure blueprints.
               </p>
 
@@ -358,8 +475,8 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                   { icon: Mail, label: 'Inquiry Support', val: 'queries@nsb1-school.edu' },
                   { icon: MapPin, label: 'Campus Address', val: 'NSB1 Building, Academy Blvd, PK' }
                 ].map(info => (
-                  <div key={info.label} className="flex items-center gap-5">
-                    <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-900 shadow-sm">
+                  <div key={info.label} className="flex items-center justify-center gap-5">
+                    <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-900 shadow-sm shrink-0">
                       <info.icon size={18} />
                     </div>
                     <div>
@@ -376,12 +493,12 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                 initial={{ opacity: 0, x: 30 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }}
-                className="bg-white border border-slate-100 shadow-2xl p-10 md:p-12 relative"
+                className="bg-white border border-slate-100 shadow-2xl p-6 sm:p-10 md:p-12 relative"
               >
                 <div className="absolute top-0 left-0 w-2 h-full bg-emerald-600"></div>
                 
-                <div className="mb-10">
-                  <h3 className="text-2xl font-black text-slate-950 uppercase tracking-tighter mb-2">Digital Inquiry Portal</h3>
+                <div className="mb-8 sm:mb-10">
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-950 uppercase tracking-tighter mb-2">Digital Inquiry Portal</h3>
                   <p className="text-slate-400 text-xs uppercase tracking-widest font-bold">Registration & Information Request</p>
                 </div>
 
@@ -389,13 +506,13 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="bg-emerald-50 border border-emerald-100 p-12 text-center space-y-6"
+                    className="bg-emerald-50 border border-emerald-100 p-8 sm:p-12 text-center space-y-6"
                   >
-                    <div className="w-20 h-20 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-xl shadow-emerald-100">
-                      <CheckCircle2 size={40} />
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-xl shadow-emerald-100">
+                      <CheckCircle2 size={32} />
                     </div>
                     <div className="space-y-2">
-                      <h4 className="text-xl font-black text-emerald-950 uppercase tracking-tighter">Inquiry Received</h4>
+                      <h4 className="text-lg sm:text-xl font-black text-emerald-950 uppercase tracking-tighter">Inquiry Received</h4>
                       <p className="text-sm text-emerald-800 font-medium">
                         Thank you for your interest. Our admissions counselor will contact you shortly to guide you through the enrollment matrix.
                       </p>
@@ -458,7 +575,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                       whileHover={{ scale: 1.01, translateY: -2 }}
                       whileTap={{ scale: 0.99 }}
                       type="submit"
-                      className="w-full py-5 bg-slate-950 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center gap-3 hover:bg-emerald-600 shadow-2xl"
+                      className="w-full py-4 sm:py-5 bg-slate-950 text-white font-black text-[11px] uppercase tracking-[0.4em] transition-all flex items-center justify-center gap-3 hover:bg-emerald-600 shadow-2xl"
                     >
                       Process Inquiry
                       <Send size={14} />
@@ -471,13 +588,13 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
         </section>
       </main>
 
-      {/* ========== REFINED FOOTER ========== */}
-      <footer className="bg-slate-950 text-white py-20 px-6 md:px-12 border-t border-slate-900">
+      {/* ========== MODERN FOOTER ========== */}
+      <footer className="bg-slate-950 text-white py-16 md:py-20 px-4 sm:px-6 md:px-12 border-t border-slate-900">
         <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 md:gap-16 mb-16 md:mb-20">
             <div className="space-y-6">
               <div className="flex items-center gap-3">
-                <img src="/logo.png" alt="NSB1 Logo" className="h-10 w-auto brightness-0 invert" referrerPolicy="no-referrer" />
+                <img src="/logo.png" alt="NSB1 Logo" className="h-12 w-auto object-contain rounded-lg bg-white p-1.5 shadow-lg" referrerPolicy="no-referrer" />
                 <span className="font-black text-xl tracking-tighter uppercase">NSB1</span>
               </div>
               <p className="text-slate-500 text-xs leading-relaxed font-bold uppercase tracking-wider">
@@ -488,19 +605,19 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
             <div className="space-y-6">
               <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Navigation</h5>
               <ul className="space-y-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                <li><a href="#home" className="hover:text-white transition-colors">Home Campus</a></li>
-                <li><a href="#academics" className="hover:text-white transition-colors">Curriculum</a></li>
-                <li><a href="#mentors" className="hover:text-white transition-colors">Faculty</a></li>
-                <li><a href="#admissions" className="hover:text-white transition-colors">Enrolment</a></li>
+                <li><button onClick={() => handleNavClick('home')} className="hover:text-white transition-colors cursor-pointer">Home Campus</button></li>
+                <li><button onClick={() => handleNavClick('academics')} className="hover:text-white transition-colors cursor-pointer">Curriculum</button></li>
+                <li><button onClick={() => handleNavClick('mentors')} className="hover:text-white transition-colors cursor-pointer">Faculty</button></li>
+                <li><button onClick={() => handleNavClick('admissions')} className="hover:text-white transition-colors cursor-pointer">Enrolment</button></li>
               </ul>
             </div>
 
             <div className="space-y-6">
               <h5 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">Portals</h5>
               <ul className="space-y-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Principal Dashboard</button></li>
-                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Faculty Portal</button></li>
-                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase">Student Campus</button></li>
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase cursor-pointer">Principal Dashboard</button></li>
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase cursor-pointer">Faculty Portal</button></li>
+                <li><button onClick={onEnterPortal} className="hover:text-white transition-colors text-left uppercase cursor-pointer">Student Campus</button></li>
               </ul>
             </div>
 
@@ -517,7 +634,7 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
           </div>
 
           <div className="pt-10 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center gap-6">
-            <p className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-600">
+            <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.4em] text-slate-600 text-center">
               © 2012-2026 Principal Campus Management Center.
             </p>
             <div className="flex gap-8 text-[11px] font-black uppercase tracking-[0.4em] text-slate-600">
@@ -531,4 +648,3 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
     </div>
   );
 }
-

@@ -704,6 +704,57 @@ export default function PrincipalDashboard({
     });
   };
 
+  // Upload all current local state data to Cloud (Firebase)
+  const handleUploadToCloud = async () => {
+    const confirm = window.confirm("Are you sure you want to upload all local data to Firebase? This will overwrite current Cloud data.");
+    if (!confirm) return;
+
+    toast.info("Uploading data to Cloud...");
+    try {
+      const uploadConfig: { col: string; data: any[] | any; type: 'list' | 'object'; docId?: string }[] = [
+        { col: 'teachers', data: teachers, type: 'list' },
+        { col: 'classes', data: classes, type: 'list' },
+        { col: 'students', data: students, type: 'list' },
+        { col: 'timetable', data: timetable, type: 'list' },
+        { col: 'attendance', data: attendance, type: 'list' },
+        { col: 'marks', data: marks, type: 'list' },
+        { col: 'fees', data: fees, type: 'list' },
+        { col: 'coordinators', data: coordinators, type: 'list' },
+        { col: 'fee_data', data: feeStudents, type: 'list' },
+        { col: 'app_settings', data: appSettings, type: 'object', docId: 'global' }
+      ];
+
+      for (const item of uploadConfig) {
+        if (item.type === 'list' && Array.isArray(item.data)) {
+          const listItems = item.data;
+          for (const listItem of listItems) {
+            if (listItem && listItem.id) {
+              await setDoc(doc(db, item.col, String(listItem.id)), listItem);
+            }
+          }
+        } else if (item.type === 'object' && item.docId) {
+          await setDoc(doc(db, item.col, item.docId), item.data);
+        }
+      }
+
+      // Also persist to localStorage cache so download/restore works consistently
+      safeStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
+      safeStorage.setItem('acadamis_classes', JSON.stringify(classes));
+      safeStorage.setItem('acadamis_students', JSON.stringify(students));
+      safeStorage.setItem('acadamis_timetable', JSON.stringify(timetable));
+      safeStorage.setItem('acadamis_attendance', JSON.stringify(attendance));
+      safeStorage.setItem('acadamis_marks', JSON.stringify(marks));
+      safeStorage.setItem('acadamis_fees', JSON.stringify(fees));
+      safeStorage.setItem('acadamis_coordinators', JSON.stringify(coordinators));
+      safeStorage.setItem('school_fee_data', JSON.stringify(feeStudents));
+      safeStorage.setItem('acadamis_app_settings', JSON.stringify(appSettings));
+
+      toast.success("Successfully uploaded all local data to cloud!");
+    } catch (error: any) {
+      toast.error("Error uploading data: " + error.message);
+    }
+  };
+
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -3872,50 +3923,11 @@ export default function PrincipalDashboard({
 
                 <button
                   type="button"
-                  onClick={async () => {
-                    const confirm = window.confirm("Are you sure you want to upload all local data to Firebase? This will overwrite current Cloud data.");
-                    if(!confirm) return;
-
-                    toast.info("Uploading data to Cloud...");
-                    try {
-                      const syncConfig = [
-                        { col: 'teachers', key: 'acadamis_teachers', type: 'list' },
-                        { col: 'classes', key: 'acadamis_classes', type: 'list' },
-                        { col: 'students', key: 'acadamis_students', type: 'list' },
-                        { col: 'timetable', key: 'acadamis_timetable', type: 'list' },
-                        { col: 'attendance', key: 'acadamis_attendance', type: 'list' },
-                        { col: 'marks', key: 'acadamis_marks', type: 'list' },
-                        { col: 'fees', key: 'acadamis_fees', type: 'list' },
-                        { col: 'coordinators', key: 'acadamis_coordinators', type: 'list' },
-                        { col: 'fee_data', key: 'school_fee_data', type: 'list' },
-                        { col: 'app_settings', key: 'acadamis_app_settings', type: 'object', docId: 'global' }
-                      ];
-
-                      for (const item of syncConfig) {
-                        const localData = safeStorage.getItem(item.key);
-                        if (localData) {
-                          if (item.type === 'list') {
-                            const listItems = JSON.parse(localData);
-                            for (const listItem of listItems) {
-                              if (listItem.id) {
-                                await setDoc(doc(db, item.col, String(listItem.id)), listItem);
-                              }
-                            }
-                          } else if (item.type === 'object' && item.docId) {
-                            const objData = JSON.parse(localData);
-                            await setDoc(doc(db, item.col, item.docId), objData);
-                          }
-                        }
-                      }
-                      toast.success("Successfully uploaded all local data to cloud!");
-                    } catch (error: any) {
-                      toast.error("Error uploading data: " + error.message);
-                    }
-                  }}
+                  onClick={handleUploadToCloud}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-emerald-500/10"
                 >
                   <UploadCloud size={14} />
-                  Upload
+                  Upload from Localhost
                 </button>
 
                 <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>

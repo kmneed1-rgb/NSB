@@ -3,7 +3,7 @@ import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData } from './types';
 import { 
   INITIAL_TEACHERS, 
@@ -205,6 +205,76 @@ export default function App() {
   const prevCoordinators = useRef<string>('');
   const prevFeeStudents = useRef<string>('');
   const prevAppSettings = useRef<string>('');
+
+  // --- DEBOUNCED BATCHED FIRESTORE WRITER ---
+  // Collects writes/deletes and flushes them in a single writeBatch after
+  // a short debounce window. This dramatically cuts network round-trips
+  // during rapid typing/editing instead of firing one setDoc per item.
+  const pendingBatch = useRef<{ set: { ref: any; data: any }[]; del: any[] }>({
+    set: [],
+    del: []
+  });
+  const batchTimer = useRef<any>(null);
+
+  const queueBatchWrite = (col: string, id: string, data: any) => {
+    pendingBatch.current.set.push({
+      ref: doc(db, col, id),
+      data: sanitizeForFirestore(data)
+    });
+    flushBatchDebounced();
+  };
+
+  const queueBatchDelete = (col: string, id: string) => {
+    pendingBatch.current.del.push(doc(db, col, id));
+    flushBatchDebounced();
+  };
+
+  const flushBatch = async () => {
+    if (pendingBatch.current.set.length === 0 && pendingBatch.current.del.length === 0) return;
+    const setOps = pendingBatch.current.set;
+    const delOps = pendingBatch.current.del;
+    pendingBatch.current = { set: [], del: [] };
+    try {
+      // Firestore writeBatch limit is 500 operations per commit.
+      while (setOps.length > 0 || delOps.length > 0) {
+        const batch = writeBatch(db);
+        let count = 0;
+        while (setOps.length > 0 && count < 450) {
+          const op = setOps.shift();
+          if (op) { batch.set(op.ref, op.data, { merge: true }); count++; }
+        }
+        while (delOps.length > 0 && count < 500) {
+          const d = delOps.shift();
+          if (d) { batch.delete(d); count++; }
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn("Firestore batch write warning:", e);
+      // Re-queue on transient failure so data isn't silently lost.
+      pendingBatch.current.set.unshift(...setOps);
+      pendingBatch.current.del.unshift(...delOps);
+    }
+  };
+
+  const flushBatchDebounced = () => {
+    if (batchTimer.current) clearTimeout(batchTimer.current);
+    batchTimer.current = setTimeout(() => {
+      flushBatch();
+    }, 400);
+  };
+
+  // Flush any remaining writes before the tab is closed/navigated away.
+  useEffect(() => {
+    const flush = () => flushBatch();
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', flush);
+      if (batchTimer.current) clearTimeout(batchTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     async function initFirebaseAndSync() {
@@ -413,24 +483,16 @@ export default function App() {
     const current = teachers;
     const prevArr: Teacher[] = prevTeachers.current ? JSON.parse(prevTeachers.current) : [];
 
-    current.forEach(async (t) => {
+    current.forEach((t) => {
       const matched = prevArr.find(v => v.id === t.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(t)) {
-        try {
-          await setDoc(doc(db, "teachers", t.id), sanitizeForFirestore(t));
-        } catch (e) {
-          console.error("Firestore Teacher Set Error:", e);
-        }
+        queueBatchWrite("teachers", t.id, t);
       }
     });
 
-    prevArr.forEach(async (t) => {
+    prevArr.forEach((t) => {
       if (!current.some(item => item.id === t.id)) {
-        try {
-          await deleteDoc(doc(db, "teachers", t.id));
-        } catch (e) {
-          console.error("Firestore Teacher Delete Error:", e);
-        }
+        queueBatchDelete("teachers", t.id);
       }
     });
 
@@ -446,24 +508,16 @@ export default function App() {
     const current = coordinators;
     const prevArr: Coordinator[] = prevCoordinators.current ? JSON.parse(prevCoordinators.current) : [];
 
-    current.forEach(async (c) => {
+    current.forEach((c) => {
       const matched = prevArr.find(v => v.id === c.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(c)) {
-        try {
-          await setDoc(doc(db, "coordinators", c.id), sanitizeForFirestore(c));
-        } catch (e) {
-          console.error("Firestore Coordinator Set Error:", e);
-        }
+        queueBatchWrite("coordinators", c.id, c);
       }
     });
 
-    prevArr.forEach(async (c) => {
+    prevArr.forEach((c) => {
       if (!current.some(item => item.id === c.id)) {
-        try {
-          await deleteDoc(doc(db, "coordinators", c.id));
-        } catch (e) {
-          console.error("Firestore Coordinator Delete Error:", e);
-        }
+        queueBatchDelete("coordinators", c.id);
       }
     });
 
@@ -502,24 +556,16 @@ export default function App() {
     const current = classes;
     const prevArr: Class[] = prevClasses.current ? JSON.parse(prevClasses.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "classes", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Class Set Error:", e);
-        }
+        queueBatchWrite("classes", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "classes", item.id));
-        } catch (e) {
-          console.error("Firestore Class Delete Error:", e);
-        }
+        queueBatchDelete("classes", item.id);
       }
     });
 
@@ -535,24 +581,16 @@ export default function App() {
     const current = students;
     const prevArr: Student[] = prevStudents.current ? JSON.parse(prevStudents.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "students", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Student Set Error:", e);
-        }
+        queueBatchWrite("students", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "students", item.id));
-        } catch (e) {
-          console.error("Firestore Student Delete Error:", e);
-        }
+        queueBatchDelete("students", item.id);
       }
     });
 
@@ -568,24 +606,16 @@ export default function App() {
     const current = timetable;
     const prevArr: TimetableEntry[] = prevTimetable.current ? JSON.parse(prevTimetable.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "timetable", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Timetable Set Error:", e);
-        }
+        queueBatchWrite("timetable", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "timetable", item.id));
-        } catch (e) {
-          console.error("Firestore Timetable Delete Error:", e);
-        }
+        queueBatchDelete("timetable", item.id);
       }
     });
 
@@ -601,24 +631,16 @@ export default function App() {
     const current = attendance;
     const prevArr: Attendance[] = prevAttendance.current ? JSON.parse(prevAttendance.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "attendance", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Attendance Set Error:", e);
-        }
+        queueBatchWrite("attendance", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "attendance", item.id));
-        } catch (e) {
-          console.error("Firestore Attendance Delete Error:", e);
-        }
+        queueBatchDelete("attendance", item.id);
       }
     });
 
@@ -634,24 +656,16 @@ export default function App() {
     const current = marks;
     const prevArr: Mark[] = prevMarks.current ? JSON.parse(prevMarks.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "marks", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Marks Set Error:", e);
-        }
+        queueBatchWrite("marks", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "marks", item.id));
-        } catch (e) {
-          console.error("Firestore Marks Delete Error:", e);
-        }
+        queueBatchDelete("marks", item.id);
       }
     });
 
@@ -667,24 +681,16 @@ export default function App() {
     const current = fees;
     const prevArr: FeeRecord[] = prevFees.current ? JSON.parse(prevFees.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "fees", item.id), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Fees Set Error:", e);
-        }
+        queueBatchWrite("fees", item.id, item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "fees", item.id));
-        } catch (e) {
-          console.error("Firestore Fees Delete Error:", e);
-        }
+        queueBatchDelete("fees", item.id);
       }
     });
 
@@ -700,24 +706,16 @@ export default function App() {
     const current = feeStudents;
     const prevArr: StudentFeeData[] = prevFeeStudents.current ? JSON.parse(prevFeeStudents.current) : [];
 
-    current.forEach(async (item) => {
+    current.forEach((item) => {
       const matched = prevArr.find(v => v.id === item.id);
       if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
-        try {
-          await setDoc(doc(db, "fee_data", String(item.id)), sanitizeForFirestore(item));
-        } catch (e) {
-          console.error("Firestore Fee Data Set Error:", e);
-        }
+        queueBatchWrite("fee_data", String(item.id), item);
       }
     });
 
-    prevArr.forEach(async (item) => {
+    prevArr.forEach((item) => {
       if (!current.some(p => p.id === item.id)) {
-        try {
-          await deleteDoc(doc(db, "fee_data", String(item.id)));
-        } catch (e) {
-          console.error("Firestore Fee Data Delete Error:", e);
-        }
+        queueBatchDelete("fee_data", String(item.id));
       }
     });
 
@@ -817,34 +815,27 @@ export default function App() {
     }
   }, [students, classes, isSyncComplete.current]);
 
-  // --- LOCALSTORAGE CACHING EFFECTS ---
-  useEffect(() => {
-    safeStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
-  }, [teachers]);
+  // --- LOCALSTORAGE CACHING (DEBOUNCED) ---
+  // Writes are deferred 400ms so rapid typing/editing doesn't block the UI
+  // with synchronous localStorage writes on every keystroke.
+  const cacheTimer = useRef<any>(null);
 
   useEffect(() => {
-    safeStorage.setItem('acadamis_classes', JSON.stringify(classes));
-  }, [classes]);
+    if (cacheTimer.current) clearTimeout(cacheTimer.current);
+    cacheTimer.current = setTimeout(() => {
+      safeStorage.setItem('acadamis_teachers', JSON.stringify(teachers));
+      safeStorage.setItem('acadamis_classes', JSON.stringify(classes));
+      safeStorage.setItem('acadamis_students', JSON.stringify(students));
+      safeStorage.setItem('acadamis_timetable', JSON.stringify(timetable));
+      safeStorage.setItem('acadamis_attendance', JSON.stringify(attendance));
+      safeStorage.setItem('acadamis_marks', JSON.stringify(marks));
+      safeStorage.setItem('acadamis_fees', JSON.stringify(fees));
+    }, 400);
 
-  useEffect(() => {
-    safeStorage.setItem('acadamis_students', JSON.stringify(students));
-  }, [students]);
-
-  useEffect(() => {
-    safeStorage.setItem('acadamis_timetable', JSON.stringify(timetable));
-  }, [timetable]);
-
-  useEffect(() => {
-    safeStorage.setItem('acadamis_attendance', JSON.stringify(attendance));
-  }, [attendance]);
-
-  useEffect(() => {
-    safeStorage.setItem('acadamis_marks', JSON.stringify(marks));
-  }, [marks]);
-
-  useEffect(() => {
-    safeStorage.setItem('acadamis_fees', JSON.stringify(fees));
-  }, [fees]);
+    return () => {
+      if (cacheTimer.current) clearTimeout(cacheTimer.current);
+    };
+  }, [teachers, classes, students, timetable, attendance, marks, fees]);
 
   useEffect(() => {
     if (userSession) {
