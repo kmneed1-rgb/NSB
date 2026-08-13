@@ -503,6 +503,8 @@ export default function PrincipalDashboard({
 
   const [bulkWAModal, setBulkWAModal] = useState<{ isOpen: boolean; absents: (Student & { attendanceDate: string })[] }>({ isOpen: false, absents: [] });
   const [bulkWAClassFilter, setBulkWAClassFilter] = useState('all');
+  const [absenteesModalOpen, setAbsenteesModalOpen] = useState(false);
+  const [absenteesModalClassFilter, setAbsenteesModalClassFilter] = useState('all');
 
   const handleSendBulkAbsenceWhatsApp = () => {
     const recordsForDate = attendance.filter(a => {
@@ -3100,66 +3102,27 @@ export default function PrincipalDashboard({
                     </div>
                   </div>
 
-                  {/* Absentees Alert Card */}
-                  <div className="md:col-span-2 bg-rose-50/60 border border-rose-100 p-5 rounded-2xl shadow-xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
-                        <p className="text-xs font-black text-rose-600 uppercase tracking-widest">
-                          Absentees ({
-                            attendance.filter(a => {
-                              const matchesDate = attendanceShowAllDates || a.date === attendanceFilterDate;
-                              const student = students.find(s => String(s.id) === String(a.studentId));
-                              const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                              return matchesDate && matchesClass && a.status === 'absent';
-                            }).length
-                          })
-                        </p>
-                      </div>
-                      <span className="text-xs font-bold text-rose-500 uppercase tracking-wider">
-                        1-Click WhatsApp Alert
-                      </span>
+                  {/* Absentees Action Card */}
+                  <div className="md:col-span-2 bg-rose-50/60 border border-rose-100 p-5 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                      <p className="text-xs font-black text-rose-600 uppercase tracking-widest">
+                        Today's Absentees ({
+                          attendance.filter(a => {
+                            const student = students.find(s => String(s.id) === String(a.studentId));
+                            const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                            return a.date === attendanceFilterDate && matchesClass && a.status === 'absent';
+                          }).length
+                        })
+                      </p>
                     </div>
-
-                    <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
-                      {(() => {
-                        const absents = filteredAttendance.filter(a => a.status === 'absent');
-
-                        if (absents.length === 0) {
-                          return (
-                            <p className="text-xs font-bold text-slate-400 uppercase">
-                              No absents recorded for this selection 🎉
-                            </p>
-                          );
-                        }
-
-                        return absents.map(acc => {
-                          const st = studentsMap.get(String(acc.studentId));
-                          const stFee = feeStudentsMap.get(String(acc.studentId));
-                          const stName = st?.name || stFee?.name || `Student #${String(acc.studentId).slice(-4)}`;
-                          return (
-                            <div
-                              key={acc.id}
-                              className="bg-white border border-rose-200 pl-1.5 pr-2.5 py-1 rounded-lg flex items-center gap-2 shadow-xs hover:border-rose-400 transition-all"
-                            >
-                              <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-xs shrink-0">
-                                <User size={10} />
-                              </div>
-                              <span className="text-xs font-black text-slate-800 uppercase">{stName}</span>
-                              {st && (
-                                <button
-                                  onClick={() => handleSendIndividualWhatsApp(st, acc.date)}
-                                  className="text-emerald-600 hover:text-emerald-700 p-0.5"
-                                  title="Send WhatsApp Alert"
-                                >
-                                  <Phone size={12} fill="currentColor" />
-                                </button>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
+                    <button
+                      onClick={() => setAbsenteesModalOpen(true)}
+                      className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-rose-700 hover:scale-105 active:scale-95 transition-all shadow-md shadow-rose-200 cursor-pointer"
+                    >
+                      <MessageSquare size={14} />
+                      View Absentees & WhatsApp
+                    </button>
                   </div>
                 </div>
 
@@ -6161,6 +6124,142 @@ export default function PrincipalDashboard({
           </div>
         </div>
       )}
+
+      {/* Absentees WhatsApp Center Modal */}
+      <AnimatePresence>
+        {absenteesModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col"
+            >
+              <div className="bg-rose-600 p-5 sm:p-6 text-white flex justify-between items-center shrink-0">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight flex items-center gap-2.5">
+                    <MessageSquare size={22} /> Absentees & WhatsApp Center
+                  </h2>
+                  <p className="text-xs uppercase font-bold text-rose-100 mt-1">
+                    Dispatch absence alerts directly to parents from this ledger
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAbsenteesModalOpen(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer shrink-0"
+                  aria-label="Close absentees center"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Filter summary bar */}
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-wider">
+                  <Filter size={14} className="text-rose-500" />
+                  {absenteesModalClassFilter === 'all' ? 'All Classes' : getClassName(absenteesModalClassFilter)} • {attendanceFilterDate}
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+                    <select
+                      value={absenteesModalClassFilter}
+                      onChange={(e) => setAbsenteesModalClassFilter(e.target.value)}
+                      className="pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-rose-400 appearance-none cursor-pointer"
+                    >
+                      <option value="all">All Classes</option>
+                      {classes.map(c => (
+                        <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={13} />
+                  </div>
+                  <span className="text-xs font-black text-rose-600 uppercase tracking-wider bg-rose-50 border border-rose-100 px-3 py-1 rounded-full whitespace-nowrap">
+                    {attendance.filter(a => {
+                      const student = students.find(s => String(s.id) === String(a.studentId));
+                      const matchesClass = absenteesModalClassFilter === 'all' || student?.classId === absenteesModalClassFilter;
+                      return a.date === attendanceFilterDate && matchesClass && a.status === 'absent';
+                    }).length} Absentee(s)
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar space-y-3">
+                {(() => {
+                  const absents = attendance.filter(a => {
+                    const student = students.find(s => String(s.id) === String(a.studentId));
+                    const matchesClass = absenteesModalClassFilter === 'all' || student?.classId === absenteesModalClassFilter;
+                    return a.date === attendanceFilterDate && matchesClass && a.status === 'absent';
+                  });
+
+                  if (absents.length === 0) {
+                    return (
+                      <div className="py-14 text-center space-y-3">
+                        <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center">
+                          <CheckCircle2 size={26} className="text-emerald-600" />
+                        </div>
+                        <p className="text-sm font-black text-slate-700 uppercase tracking-wider">No Absentees 🎉</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Everyone is present for this selection.</p>
+                      </div>
+                    );
+                  }
+
+                  return absents.map(acc => {
+                    const st = studentsMap.get(String(acc.studentId));
+                    const stFee = feeStudentsMap.get(String(acc.studentId));
+                    const stName = st?.name || stFee?.name || `Student #${String(acc.studentId).slice(-4)}`;
+                    const sClass = st?.classId ? getClassName(st.classId) : stFee?.class || 'N/A';
+                    const phone = st?.parentPhone || st?.studentPhone || '';
+                    const hasPhone = (phone || '').replace(/\D/g, '').length > 0;
+
+                    return (
+                      <div key={acc.id} className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 shadow-sm">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-sm shrink-0">
+                            <User size={14} />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{stName}</h4>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                              {sClass} | Roll: {st?.rollNumber || 'N/A'} | {acc.date}
+                            </p>
+                            <p className={`text-[10px] font-black uppercase tracking-wider ${hasPhone ? 'text-emerald-600' : 'text-rose-500'}`}>
+                              {hasPhone ? phone : 'No Phone Number'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => st && handleSendIndividualWhatsApp(st, acc.date)}
+                          disabled={!st || !hasPhone}
+                          title={hasPhone ? `Send WhatsApp to ${stName}'s parent` : 'No phone number available'}
+                          className={`p-2.5 flex items-center justify-center rounded-xl transition-all shadow-md active:scale-95 cursor-pointer shrink-0 ${
+                            hasPhone ? 'bg-emerald-600 hover:bg-slate-900 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-between items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageSquare size={16} className="text-emerald-600 shrink-0" />
+                  <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Tap Send to open WhatsApp per parent</span>
+                </div>
+                <button
+                  onClick={() => setAbsenteesModalOpen(false)}
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all cursor-pointer shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Bulk WA Modal */}
       <AnimatePresence>
