@@ -1392,20 +1392,22 @@ export default function PrincipalDashboard({
     <div id="principal-dashboard-root" className="min-h-screen bg-gray-50 flex flex-col md:flex-row pb-16 md:pb-0 relative">
       
       {/* Mobile Top Header Indicator */}
-      <div id="mobile-top-bar" className={`md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200 shadow-sm z-20 ${selectedStudentReport ? 'print:hidden' : ''}`}>
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="NSB1 Logo" className="w-20 h-20 object-contain" referrerPolicy="no-referrer" />
-          <h1 className="font-black text-gray-900 tracking-tight uppercase tracking-[0.1em] text-xl sm:text-2xl">NSB1 School</h1>
+      <div id="mobile-top-bar" className={`md:hidden sticky top-0 z-30 flex items-center justify-between px-3 py-2 bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm ${selectedStudentReport ? 'print:hidden' : ''}`}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img src="/logo.png" alt="NSB1 Logo" className="h-9 w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
+          <div className="min-w-0 flex flex-col leading-none">
+            <h1 className="font-black text-gray-900 tracking-tight uppercase text-sm truncate">NSB1 School</h1>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em]">Principal Office</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
-            id="sidebar-toggle-mobile" 
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100"
-          >
-            <Menu size={20} />
-          </button>
-        </div>
+        <button 
+          id="sidebar-toggle-mobile" 
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 shrink-0"
+          aria-label="Toggle navigation menu"
+        >
+          <Menu size={22} />
+        </button>
       </div>
 
       {/* Sidebar Overlay behind Drawer */}
@@ -1425,11 +1427,14 @@ export default function PrincipalDashboard({
       >
         <div>
           {/* Brand header - Minimalist */}
-          <div className="p-4 pb-5 flex flex-col items-center border-b border-slate-50 mb-4">
-            <div className="mb-2">
+          <div className="p-4 pb-5 border-b border-slate-50 mb-4">
+            <div className="flex items-center justify-between w-full">
               <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
+              <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+                <X size={18} />
+              </button>
             </div>
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex flex-col items-center gap-1 mt-2">
               <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
               <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">Principal Office</span>
             </div>
@@ -5775,7 +5780,7 @@ export default function PrincipalDashboard({
                   style={isActive ? { minHeight: '52px', minWidth: '52px' } : {}}
                 >
                   <Icon size={isActive ? 20 : 18} className={isActive ? 'stroke-[2.5]' : ''} />
-                  <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${isActive ? 'font-black' : 'font-bold'}`}>
+                  <span className={`text-[10px] uppercase tracking-widest mt-0.5 whitespace-nowrap ${isActive ? 'font-black' : 'font-bold'}`}>
                     {item.label}
                   </span>
                 </button>
