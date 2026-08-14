@@ -9,6 +9,7 @@ import { addNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
+import { useLongPress } from '../lib/longPress';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -167,6 +168,13 @@ export default function PrincipalDashboard({
   const [quickCollectPaymentMethod, setQuickCollectPaymentMethod] = useState('Cash');
   const [quickCollectFeeType, setQuickCollectFeeType] = useState('Tuition Fee');
   const [quickCollectNotes, setQuickCollectNotes] = useState('');
+  const [showExtraFeeInputs, setShowExtraFeeInputs] = useState(false);
+  const [extraFees, setExtraFees] = useState<Record<string, string>>({
+    'Exam Fee': '',
+    'Annual Paper Fund': '',
+    'Admission Fee': '',
+    'Miscellaneous': ''
+  });
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
@@ -248,30 +256,47 @@ export default function PrincipalDashboard({
       toast.error("Please select a student first.");
       return;
     }
-    const amountNum = Number(quickCollectAmount);
-    if (!amountNum || amountNum <= 0) {
-      toast.error("Please enter a valid fee amount.");
-      return;
-    }
 
     const studentObj = students.find(s => String(s.id) === String(quickCollectStudentId));
     const feeStudentObj = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
     const studentName = studentObj?.name || feeStudentObj?.name || 'Student';
+    const month = quickCollectMonth || `${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`;
+    const today = new Date().toISOString().split('T')[0];
 
-    const newFeeRecord: FeeRecord = {
-      id: 'REC_' + Date.now().toString(36).toUpperCase(),
+    type FeeEntry = { feeType: string; amount: number };
+    const entries: FeeEntry[] = [];
+
+    const mainAmount = Number(quickCollectAmount);
+    if (mainAmount && mainAmount > 0) {
+      entries.push({ feeType: quickCollectFeeType, amount: mainAmount });
+    }
+
+    if (showExtraFeeInputs) {
+      Object.entries(extraFees).forEach(([type, amt]) => {
+        const n = Number(amt);
+        if (n && n > 0) entries.push({ feeType: type, amount: n });
+      });
+    }
+
+    if (entries.length === 0) {
+      toast.error("Please enter at least one valid fee amount.");
+      return;
+    }
+
+    const newFeeRecords: FeeRecord[] = entries.map(entry => ({
+      id: 'REC_' + Date.now().toString(36).toUpperCase() + '_' + Math.random().toString(36).substr(2, 4).toUpperCase(),
       studentId: quickCollectStudentId,
-      amount: amountNum,
-      dueDate: new Date().toISOString().split('T')[0],
+      amount: entry.amount,
+      dueDate: today,
       status: 'paid',
-      paidDate: new Date().toISOString().split('T')[0],
-      month: quickCollectMonth || `${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`,
+      paidDate: today,
+      month,
       paymentMethod: quickCollectPaymentMethod,
-      feeType: quickCollectFeeType,
+      feeType: entry.feeType,
       description: quickCollectNotes || undefined,
-    };
+    }));
 
-    setFees(prev => [newFeeRecord, ...prev]);
+    setFees(prev => [...newFeeRecords, ...prev]);
 
     if (feeStudentObj) {
       setFeeStudents(prev => prev.map(fs => {
@@ -280,13 +305,14 @@ export default function PrincipalDashboard({
             ...fs,
             payments: [
               ...(fs.payments || []),
-              {
-                id: newFeeRecord.id,
-                month: quickCollectMonth,
+              ...newFeeRecords.map(r => ({
+                id: r.id,
+                month,
                 year: new Date().getFullYear(),
-                amount: amountNum,
-                date: new Date().toISOString().split('T')[0],
-              }
+                amount: r.amount,
+                date: today,
+                feeType: r.feeType,
+              }))
             ]
           };
         }
@@ -296,7 +322,10 @@ export default function PrincipalDashboard({
 
     setShowQuickCollectModal(false);
     setQuickCollectNotes('');
-    toast.success(`Fee ${amountNum.toLocaleString()} collected for ${studentName} (${quickCollectMonth})! Receipt #${newFeeRecord.id}`);
+    setShowExtraFeeInputs(false);
+    setExtraFees({ 'Exam Fee': '', 'Annual Paper Fund': '', 'Admission Fee': '', 'Miscellaneous': '' });
+    const categories = newFeeRecords.map(r => r.feeType).join(', ');
+    toast.success(`${categories} collected for ${studentName} (${month})! Receipt${newFeeRecords.length > 1 ? ' x' + newFeeRecords.length : ' #' + newFeeRecords[0].id}`);
   };
 
   // PRINCIPAL ATTENDANCE MARKING ENGINE
@@ -533,11 +562,62 @@ export default function PrincipalDashboard({
   const [isCashPayment, setIsCashPayment] = useState(true);
   const [selectedStudentForLedger, setSelectedStudentForLedger] = useState('');
   
-  const [feePaymentModal, setFeePaymentModal] = useState<{isOpen: boolean; studentId: string; month: string; pending: number; previousArrears: number; amount: string; year: number}>({ isOpen: false, studentId: '', month: '', pending: 0, previousArrears: 0, amount: '', year: 2026 });
+  const [feePaymentModal, setFeePaymentModal] = useState<{isOpen: boolean; studentId: string; month: string; pending: number; previousArrears: number; amount: string; year: number; feeType: string}>({ isOpen: false, studentId: '', month: '', pending: 0, previousArrears: 0, amount: '', year: 2026, feeType: 'School Fee' });
   
-  const [feeEditModal, setFeeEditModal] = useState<{isOpen: boolean; type: 'payment' | 'other'; recordId: string; studentId: string; amount: string; desc: string}>({ isOpen: false, type: 'payment', recordId: '', studentId: '', amount: '', desc: '' });
+  const [feeEditModal, setFeeEditModal] = useState<{isOpen: boolean; type: 'payment' | 'other'; recordId: string; studentId: string; amount: string; desc: string; feeType: string}>({ isOpen: false, type: 'payment', recordId: '', studentId: '', amount: '', desc: '', feeType: 'School Fee' });
+
+  const [feeActionModal, setFeeActionModal] = useState<{ isOpen: boolean; fee: FeeRecord | null }>({ isOpen: false, fee: null });
+  const [showFeeEditForm, setShowFeeEditForm] = useState(false);
+  const [feeEditForm, setFeeEditForm] = useState({
+    studentName: '',
+    month: '',
+    feeType: '',
+    amount: '',
+    paidDate: '',
+    paymentMethod: '',
+    description: ''
+  });
+
+  const openFeeActionModal = (fee: FeeRecord) => {
+    const st = studentsMap.get(String(fee.studentId));
+    setFeeEditForm({
+      studentName: st?.name || `Student #${String(fee.studentId).slice(-4)}`,
+      month: fee.month || '',
+      feeType: fee.feeType || '',
+      amount: String(fee.amount || ''),
+      paidDate: fee.paidDate || '',
+      paymentMethod: fee.paymentMethod || '',
+      description: fee.description || ''
+    });
+    setShowFeeEditForm(false);
+    setFeeActionModal({ isOpen: true, fee });
+  };
+
+  const saveFeeRecordEdit = () => {
+    const modalFee = feeActionModal.fee;
+    if (!modalFee) return;
+    const amt = Number(feeEditForm.amount);
+    if (isNaN(amt) || amt < 0) {
+      toast.error("Please enter a valid amount.");
+      return;
+    }
+    setFees(prev => prev.map(item => 
+      item.id === modalFee.id
+        ? { ...item, month: feeEditForm.month, feeType: feeEditForm.feeType, amount: amt, paidDate: feeEditForm.paidDate, paymentMethod: feeEditForm.paymentMethod, description: feeEditForm.description }
+        : item
+    ));
+    setFeeActionModal({ isOpen: false, fee: null });
+    toast.success("Fee record updated successfully!");
+  };
+
+  const deleteFeeRecord = (fee: FeeRecord) => {
+    setFees(prev => prev.filter(item => item.id !== fee.id));
+    setFeeActionModal({ isOpen: false, fee: null });
+    toast.success("Fee record deleted.");
+  };
 
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean, type: string, id: string, message: string}>({ isOpen: false, type: '', id: '', message: '' });
+  const [studentDetailModal, setStudentDetailModal] = useState<{ isOpen: boolean; student: Student | null }>({ isOpen: false, student: null });
 
   // SATH HI Parent Notification Popup / Modal states
   const [feeNotificationPopup, setFeeNotificationPopup] = useState<{
@@ -1840,7 +1920,13 @@ export default function PrincipalDashboard({
                     {filteredStudents.map(s => {
                       const isExpanded = !!expandedStudents[s.id];
                       return (
-                        <div key={s.id} className="bg-white border border-slate-200 overflow-hidden hover:border-emerald-300 transition-all group font-sans">
+                        <HoldActionWrapper
+                          key={s.id}
+                          onEdit={() => openEditModal('student', s.id)}
+                          onDelete={() => handleDeleteStudent(s.id)}
+                          onDetail={() => setStudentDetailModal({ isOpen: true, student: s })}
+                          className="bg-white border border-slate-200 overflow-hidden hover:border-emerald-300 transition-all group font-sans"
+                        >
                           {/* Compact Header (Always Visible) */}
                           <div 
                             onClick={() => toggleStudentExpanded(s.id)}
@@ -1911,7 +1997,7 @@ export default function PrincipalDashboard({
                               </div>
                             </div>
                           )}
-                        </div>
+                        </HoldActionWrapper>
                       );
                     })}
                   </div>
@@ -2930,48 +3016,13 @@ export default function PrincipalDashboard({
                                                   ) : (
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                                       {sFees.map(f => (
-                                                        <div key={f.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 group/receipt hover:border-emerald-200 transition-colors">
-                                                          <div className="flex items-center justify-between">
-                                                            <span className="px-2 py-1 bg-white border border-slate-200 text-[10px] font-black text-slate-400 rounded-lg font-mono">#{String(f.id).slice(-6)}</span>
-                                                            <span className="text-xs font-black text-emerald-700">PKR {Number(f.amount).toLocaleString()}</span>
-                                                          </div>
-                                                          <div className="flex flex-col gap-1.5">
-                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                                                              <span>Month cycle</span>
-                                                              <span className="text-slate-900">{f.month}</span>
-                                                            </div>
-                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                                                              <span>Paid On</span>
-                                                              <span className="text-slate-900">{f.paidDate || 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                                                              <span>Method</span>
-                                                              <span className="text-slate-900">{f.paymentMethod || 'Cash'}</span>
-                                                            </div>
-                                                          </div>
-                                                          <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 mt-1 opacity-0 group-hover/receipt:opacity-100 transition-opacity">
-                                                            <button 
-                                                              onClick={() => {
-                                                                const text = `Fee Receipt: Received ${f.amount} for ${student.name} (${f.month}). Receipt #${f.id}. Thank you! - NSB Academy`;
-                                                                if (student.parentPhone) window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
-                                                              }}
-                                                              className="flex-1 py-1.5 bg-white border border-slate-200 text-emerald-600 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition-colors"
-                                                            >
-                                                              <MessageSquare size={12} /> Share
-                                                            </button>
-                                                            <button 
-                                                              onClick={() => {
-                                                                if (window.confirm(`Delete receipt #${f.id}?`)) {
-                                                                  setFees(prev => prev.filter(item => item.id !== f.id));
-                                                                  toast.success("Receipt removed");
-                                                                }
-                                                              }}
-                                                              className="w-8 h-8 bg-white border border-slate-200 text-rose-400 rounded-lg flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                                                            >
-                                                              <Trash2 size={12} />
-                                                            </button>
-                                                          </div>
-                                                        </div>
+                                                        <FeeReceiptCard
+                                                          key={f.id}
+                                                          fee={f}
+                                                          student={student}
+                                                          onAction={() => openFeeActionModal(f)}
+                                                          onDelete={() => deleteFeeRecord(f)}
+                                                        />
                                                       ))}
                                                     </div>
                                                   )}
@@ -3131,6 +3182,9 @@ export default function PrincipalDashboard({
                   <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                     <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
                       <CheckCircle2 size={16} className="text-emerald-600 shrink-0" /> Attendance Ledger List
+                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-lg font-black tabular-nums">
+                        {attendanceFilterDate}
+                      </span>
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
@@ -3183,11 +3237,6 @@ export default function PrincipalDashboard({
                                       </p>
                                     </div>
                                   </div>
-                                  {attendanceShowAllDates && (
-                                    <span className="text-xs font-bold text-slate-400 font-mono">
-                                      {record.date}
-                                    </span>
-                                  )}
                                 </div>
 
                                 <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
@@ -3250,7 +3299,6 @@ export default function PrincipalDashboard({
                       <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-500">
                         <tr>
                           <th className="px-5 py-4">Student & Roll</th>
-                          {attendanceShowAllDates && <th className="px-5 py-4">Date</th>}
                           <th className="px-5 py-4 text-right">Attendance Status</th>
                         </tr>
                       </thead>
@@ -3259,7 +3307,7 @@ export default function PrincipalDashboard({
                           if (filteredAttendance.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={attendanceShowAllDates ? 3 : 2} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
+                                <td colSpan={2} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
                                   {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
                                 </td>
                               </tr>
@@ -3300,12 +3348,6 @@ export default function PrincipalDashboard({
                                       </div>
                                     </td>
 
-                                    {attendanceShowAllDates && (
-                                      <td className="px-5 py-4 text-sm font-bold text-slate-500 tabular-nums">
-                                        {record.date}
-                                      </td>
-                                    )}
-
                                     <td className="px-5 py-4 text-right flex items-center justify-end gap-2">
                                       {record.status === 'absent' && student && (
                                         <button
@@ -3345,7 +3387,7 @@ export default function PrincipalDashboard({
                               })}
                               {filteredAttendance.length > attendanceDisplayLimit && (
                                 <tr>
-                                  <td colSpan={attendanceShowAllDates ? 4 : 3} className="px-5 py-8 text-center bg-white">
+                                  <td colSpan={2} className="px-5 py-8 text-center bg-white">
                                     <button 
                                       onClick={() => setAttendanceDisplayLimit(prev => prev + 100)}
                                       className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
@@ -3660,7 +3702,8 @@ export default function PrincipalDashboard({
                                 pending: m.pending,
                                 previousArrears: previousArrears,
                                 amount: (m.pending + previousArrears).toString(),
-                                year: 2026
+                                year: 2026,
+                                feeType: 'School Fee'
                               });
                             }}
                             className="bg-white p-2 sm:p-3 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 group cursor-pointer transition-all active:scale-95 flex flex-col justify-between"
@@ -3734,7 +3777,7 @@ export default function PrincipalDashboard({
                                 <span className="text-xs font-black text-slate-900">{f.amount}</span>
                                 <div className="flex items-center gap-1 transition-opacity">
                                   <button 
-                                    onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: f.id, studentId: String(student.id), amount: String(f.amount), desc: f.desc })}
+                                    onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: f.id, studentId: String(student.id), amount: String(f.amount), desc: f.desc, feeType: '' })}
                                     className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                   >
                                     <Edit2 size={12} />
@@ -3767,37 +3810,49 @@ export default function PrincipalDashboard({
                         </h3>
                         <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2">
                           {student.payments && student.payments.length > 0 ? student.payments.slice().reverse().map((p) => (
-                            <div key={p.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center border border-slate-100 group">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs font-black text-slate-900 uppercase ">{p.month} {p.year}</span>
-                                  <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Fee</span>
+                            <HoldActionWrapper
+                              key={p.id}
+                              onEdit={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}`, feeType: p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee' })}
+                              onDelete={() => {
+                                if(window.confirm("Delete this payment record?")) {
+                                  setFeeStudents(prev => deletePayment(prev, student.id, p.id));
+                                  toast.success("Payment deleted");
+                                }
+                              }}
+                              className="p-3 bg-slate-50 rounded-xl border border-slate-100 group"
+                            >
+                              <div className="flex justify-between items-center">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-black text-slate-900 uppercase ">{p.month} {p.year}</span>
+                                    <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">{p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee'}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
                                 </div>
-                                <p className="text-xs text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-black text-emerald-600">{p.amount}</span>
-                                <div className="flex items-center gap-1 transition-opacity">
-                                  <button 
-                                    onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}` })}
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                  >
-                                    <Edit2 size={12} />
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      if(window.confirm("Delete this payment record?")) {
-                                        setFeeStudents(prev => deletePayment(prev, student.id, p.id));
-                                        toast.success("Payment deleted");
-                                      }
-                                    }}
-                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <span className="text-xs font-black text-emerald-600">{p.amount}</span>
+                                  <div className="flex items-center gap-1 transition-opacity">
+                                    <button 
+                                      onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}`, feeType: p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee' })}
+                                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                    >
+                                      <Edit2 size={12} />
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        if(window.confirm("Delete this payment record?")) {
+                                          setFeeStudents(prev => deletePayment(prev, student.id, p.id));
+                                          toast.success("Payment deleted");
+                                        }
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            </HoldActionWrapper>
                           )) : (
                             <div className="py-10 flex flex-col items-center justify-center text-slate-300 gap-2">
                               <CreditCard size={24} />
@@ -5350,9 +5405,12 @@ export default function PrincipalDashboard({
                                 <p className="text-xs text-slate-400 ">No payments recorded.</p>
                               ) : (
                                 fData.payments.slice(0, 5).map((p, i) => (
-                                  <div key={i} className="flex items-center justify-between p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100">
-                                    <span className="text-xs font-bold text-emerald-900 uppercase">{p.month} {p.year}</span>
-                                    <span className="text-xs font-black text-emerald-700">{p.amount}</span>
+                                  <div key={i} className="flex items-center justify-between p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100 gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-bold text-emerald-900 uppercase">{p.month} {p.year}</p>
+                                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mt-0.5">{p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee'}</p>
+                                    </div>
+                                    <span className="text-xs font-black text-emerald-700 shrink-0">{p.amount}</span>
                                   </div>
                                 ))
                               )}
@@ -5993,6 +6051,143 @@ export default function PrincipalDashboard({
         </div>
       )}
 
+      {/* ========== STUDENT DETAIL MODAL ========== */}
+      <AnimatePresence>
+        {studentDetailModal.isOpen && studentDetailModal.student && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col"
+            >
+              <div className="bg-violet-600 p-5 sm:p-6 text-white flex justify-between items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  {(() => {
+                    const st = studentDetailModal.student!;
+                    const photo = getStudentPhoto(st);
+                    return photo ? (
+                      <img src={photo} alt={st.name} className="w-12 h-12 rounded-full object-cover border-2 border-white/40 bg-white/20 shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center shrink-0">
+                        <User size={22} />
+                      </div>
+                    );
+                  })()}
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-black uppercase tracking-tight truncate">Student Detail</h2>
+                    <p className="text-xs uppercase font-bold text-violet-100 truncate">
+                      {studentDetailModal.student.name} • Roll #{studentDetailModal.student.rollNumber || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStudentDetailModal({ isOpen: false, student: null })}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer shrink-0"
+                  aria-label="Close student detail"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 flex-1 overflow-y-auto space-y-4">
+                {(() => {
+                  const st = studentDetailModal.student!;
+                  const classObj = classes.find(c => c.id === st.classId);
+                  const fData = feeStudents.find(fs => String(fs.id) === String(st.id));
+                  const totalPaid = fData ? (fData.payments || []).reduce((sum, p) => sum + p.amount, 0) : 0;
+                  const totalPending = fData ? getTotalPending(fData) + getTotalOtherFunds(fData) : 0;
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Class & Section</span>
+                          <span className="text-sm font-black text-slate-900">{classObj ? `${classObj.className} - ${classObj.section}` : 'N/A'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Category</span>
+                          <span className="text-sm font-black text-slate-900">{st.category || 'Regular'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Guardian</span>
+                          <span className="text-sm font-black text-slate-900">{st.guardianName || 'N/A'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Parent Phone</span>
+                          <span className="text-sm font-black text-slate-900">{st.parentPhone || 'N/A'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Base Fee</span>
+                          <span className="text-sm font-black text-slate-900">PKR {Number(st.baseFee || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Enrollment</span>
+                          <span className="text-sm font-black text-slate-900">{st.enrollmentMonth || 'N/A'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Login ID</span>
+                          <span className="text-sm font-black text-slate-900">{st.username || 'N/A'}</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Password</span>
+                          <span className="text-sm font-black text-slate-900">{st.password || 'nsb123'}</span>
+                        </div>
+                      </div>
+
+                      {st.academySubjects && st.academySubjects.length > 0 && (
+                        <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3">
+                          <span className="text-[10px] font-black uppercase text-indigo-400 block mb-1.5">Academy Subjects Focus</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {st.academySubjects.map((sub, idx) => (
+                              <span key={idx} className="bg-white border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 uppercase">{sub}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fee Account Summary */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                        <span className="text-[10px] font-black uppercase text-slate-400 block mb-3">Fee Account Summary</span>
+                        <div className="grid grid-cols-3 gap-3 text-center">
+                          <div>
+                            <span className="text-lg font-black text-emerald-600 block">{totalPaid.toLocaleString()}</span>
+                            <span className="text-[10px] font-black uppercase text-slate-400">Total Paid</span>
+                          </div>
+                          <div>
+                            <span className="text-lg font-black text-rose-600 block">{totalPending.toLocaleString()}</span>
+                            <span className="text-[10px] font-black uppercase text-slate-400">Pending Dues</span>
+                          </div>
+                          <div>
+                            <span className="text-lg font-black text-slate-900 block">{fData ? (fData.payments || []).length : 0}</span>
+                            <span className="text-[10px] font-black uppercase text-slate-400">Receipts</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
+                <button
+                  onClick={() => openEditModal('student', studentDetailModal.student!.id)}
+                  className="px-4 py-2.5 bg-emerald-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-slate-900 transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                >
+                  <Edit2 size={14} /> Edit Student
+                </button>
+                <button
+                  onClick={() => setStudentDetailModal({ isOpen: false, student: null })}
+                  className="px-4 py-2.5 bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-slate-300 transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {feePaymentModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative animate-scale-up">
@@ -6022,6 +6217,21 @@ export default function PrincipalDashboard({
 
               <div className="space-y-4">
                 <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Fee Category</label>
+                  <select
+                    value={feePaymentModal.feeType}
+                    onChange={(e) => setFeePaymentModal({ ...feePaymentModal, feeType: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 transition-colors outline-none appearance-none cursor-pointer"
+                  >
+                    <option value="School Fee">School Fee</option>
+                    <option value="Tuition Fee">Tuition Fee</option>
+                    <option value="Exam Fee">Exam Fee</option>
+                    <option value="Admission Fee">Admission Fee</option>
+                    <option value="Annual Paper Fund">Annual Paper Fund</option>
+                    <option value="Miscellaneous">Miscellaneous</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Amount to Pay ()</label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400 font-black text-sm"></span>
@@ -6038,7 +6248,7 @@ export default function PrincipalDashboard({
                   onClick={() => {
                     const amt = Number(feePaymentModal.amount);
                     if (amt !== 0) {
-                      setFeeStudents(prev => addPayment(prev, feePaymentModal.studentId, feePaymentModal.month, feePaymentModal.year, amt));
+                      setFeeStudents(prev => addPayment(prev, feePaymentModal.studentId, feePaymentModal.month, feePaymentModal.year, amt, feePaymentModal.feeType));
                       const studentObj = students.find(s => String(s.id) === String(feePaymentModal.studentId));
                       if (studentObj) handleSendFeeNotification(studentObj, 'payment', amt, `${feePaymentModal.month} ${feePaymentModal.year}`);
                       setFeePaymentModal({ ...feePaymentModal, isOpen: false });
@@ -6083,6 +6293,25 @@ export default function PrincipalDashboard({
                   />
                 </div>
               )}
+
+              {feeEditModal.type === 'payment' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Fee Category</label>
+                  <select
+                    value={feeEditModal.feeType}
+                    onChange={(e) => setFeeEditModal({ ...feeEditModal, feeType: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
+                  >
+                    <option value="School Fee">School Fee</option>
+                    <option value="Tuition Fee">Tuition Fee</option>
+                    <option value="Exam Fee">Exam Fee</option>
+                    <option value="Admission Fee">Admission Fee</option>
+                    <option value="Annual Paper Fund">Annual Paper Fund</option>
+                    <option value="Miscellaneous">Miscellaneous</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              )}
               
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Amount ()</label>
@@ -6102,7 +6331,8 @@ export default function PrincipalDashboard({
                   onClick={() => {
                     const amt = Number(feeEditModal.amount);
                     if (feeEditModal.type === 'payment') {
-                      setFeeStudents(prev => editPayment(prev, feeEditModal.studentId, feeEditModal.recordId, amt));
+                      setFeeStudents(prev => editPayment(prev, feeEditModal.studentId, feeEditModal.recordId, amt, feeEditModal.feeType));
+                      setFees(prev => prev.map(item => item.id === feeEditModal.recordId ? { ...item, amount: amt, feeType: feeEditModal.feeType } : item));
                     } else {
                       setFeeStudents(prev => editOtherFund(prev, feeEditModal.studentId, feeEditModal.recordId, feeEditModal.desc, amt));
                     }
@@ -6366,12 +6596,37 @@ export default function PrincipalDashboard({
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 my-auto max-h-[92vh] flex flex-col"
             >
-              <div className="bg-emerald-600 p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
-                <div>
-                  <h2 className="text-base sm:text-xl font-black uppercase tracking-tight flex items-center gap-2.5">
-                    <CreditCard size={22} className="shrink-0" /> ⚡ Direct Fee Collection & Receipt
-                  </h2>
-                  <p className="text-xs sm:text-xs uppercase font-bold text-emerald-100 mt-0.5">Collect fee & issue real-time payment receipt</p>
+              <div className="bg-emerald-600 p-4 sm:p-6 text-white flex justify-between items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  {(() => {
+                    const st = students.find(s => String(s.id) === String(quickCollectStudentId));
+                    const photo = st ? getStudentPhoto(st) : '';
+                    return photo ? (
+                      <img
+                        src={photo}
+                        alt={st?.name || 'Student'}
+                        className="w-12 h-12 rounded-xl object-cover border-2 border-white/40 bg-white/20 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-white/20 border-2 border-white/40 flex items-center justify-center shrink-0">
+                        <User size={22} />
+                      </div>
+                    );
+                  })()}
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-xl font-black uppercase tracking-tight flex items-center gap-2.5">
+                      <CreditCard size={22} className="shrink-0" /> ⚡ Direct Fee Collection & Receipt
+                    </h2>
+                    {(() => {
+                      const st = students.find(s => String(s.id) === String(quickCollectStudentId));
+                      if (!st) return null;
+                      return (
+                        <p className="text-xs sm:text-xs uppercase font-bold text-emerald-100 mt-0.5 truncate">
+                          {st.name} • Roll #{st.rollNumber || 'N/A'}
+                        </p>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <button
                   onClick={() => setShowQuickCollectModal(false)}
@@ -6475,6 +6730,39 @@ export default function PrincipalDashboard({
                   </div>
                 </div>
 
+                {/* Add More Fee Categories Toggle */}
+                <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-700">Add More Fee Categories</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Exam Fee, Paper Fund, Admission Fee, etc.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowExtraFeeInputs(!showExtraFeeInputs)}
+                    title={showExtraFeeInputs ? "Hide extra fee inputs" : "Show extra fee inputs"}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${showExtraFeeInputs ? 'bg-emerald-600 text-white border border-emerald-700 shadow-md' : 'bg-white text-slate-400 border border-slate-300 hover:border-emerald-500 hover:text-emerald-600'}`}
+                  >
+                    <CheckCircle2 size={20} />
+                  </button>
+                </div>
+
+                {showExtraFeeInputs && (
+                  <div className="bg-white border border-emerald-100 rounded-xl p-3 space-y-3 animate-fade-in">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Other Fee Amounts (leave blank to skip)</p>
+                    {Object.keys(extraFees).map(type => (
+                      <div key={type} className="flex items-center gap-3">
+                        <span className="w-44 shrink-0 text-xs font-black uppercase tracking-widest text-slate-600">{type}</span>
+                        <input
+                          type="number"
+                          value={extraFees[type]}
+                          onChange={(e) => setExtraFees({ ...extraFees, [type]: e.target.value })}
+                          placeholder="Amount in PKR"
+                          className="flex-1 min-w-0 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Remarks */}
                 <div>
                   <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
@@ -6509,6 +6797,226 @@ export default function PrincipalDashboard({
         )}
       </AnimatePresence>
 
+      {/* Fee Record Action Modal (Hold / Long-press) */}
+      <AnimatePresence>
+        {feeActionModal.isOpen && feeActionModal.fee && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col"
+            >
+              <div className="bg-indigo-600 p-5 sm:p-6 text-white flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                    <Receipt size={22} />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-black uppercase tracking-tight truncate">Fee Record Actions</h2>
+                    <p className="text-[10px] uppercase font-bold text-indigo-100 truncate">
+                      {feeEditForm.studentName} • #{String(feeActionModal.fee.id).slice(-6)}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setFeeActionModal({ isOpen: false, fee: null })}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer shrink-0"
+                  aria-label="Close fee actions"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 flex-1 overflow-y-auto space-y-4">
+                {!showFeeEditForm ? (
+                  <>
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                        <span>Category</span>
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 uppercase font-black">{feeActionModal.fee.feeType || 'School Fee'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                        <span>Amount</span>
+                        <span className="text-slate-900 font-black">PKR {Number(feeActionModal.fee.amount).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                        <span>Month</span>
+                        <span className="text-slate-900 font-black">{feeActionModal.fee.month || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                        <span>Paid On</span>
+                        <span className="text-slate-900 font-black">{feeActionModal.fee.paidDate || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                        <span>Method</span>
+                        <span className="text-slate-900 font-black">{feeActionModal.fee.paymentMethod || 'Cash'}</span>
+                      </div>
+                      {feeActionModal.fee.description && (
+                        <div className="pt-1 text-[11px] font-bold text-slate-500 uppercase">
+                          <span className="block mb-1">Notes</span>
+                          <span className="text-slate-700 normal-case font-medium">{feeActionModal.fee.description}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={() => setShowFeeEditForm(true)}
+                        className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2 cursor-pointer"
+                      >
+                        <Edit2 size={16} /> Edit Record
+                      </button>
+                      <button
+                        onClick={() => deleteFeeRecord(feeActionModal.fee!)}
+                        className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2 cursor-pointer"
+                      >
+                        <Trash2 size={16} /> Delete Record
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Fee Category *</label>
+                        <select
+                          value={feeEditForm.feeType}
+                          onChange={(e) => setFeeEditForm({ ...feeEditForm, feeType: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
+                        >
+                          <option value="School Fee">School Fee</option>
+                          <option value="Exam Fee">Exam Fee</option>
+                          <option value="Admission Fee">Admission Fee</option>
+                          <option value="Annual Paper Fund">Annual Paper Fund</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Month</label>
+                          <input
+                            type="text"
+                            value={feeEditForm.month}
+                            onChange={(e) => setFeeEditForm({ ...feeEditForm, month: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Paid On</label>
+                          <input
+                            type="date"
+                            value={feeEditForm.paidDate}
+                            onChange={(e) => setFeeEditForm({ ...feeEditForm, paidDate: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Amount (PKR) *</label>
+                        <input
+                          type="number"
+                          value={feeEditForm.amount}
+                          onChange={(e) => setFeeEditForm({ ...feeEditForm, amount: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xl font-black text-slate-900 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Payment Method</label>
+                        <input
+                          type="text"
+                          value={feeEditForm.paymentMethod}
+                          onChange={(e) => setFeeEditForm({ ...feeEditForm, paymentMethod: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Notes</label>
+                        <textarea
+                          rows={2}
+                          value={feeEditForm.description}
+                          onChange={(e) => setFeeEditForm({ ...feeEditForm, description: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3 pt-1">
+                      <button
+                        onClick={saveFeeRecordEdit}
+                        className="w-full py-4 bg-indigo-600 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2 cursor-pointer"
+                      >
+                        <Save size={16} /> Save Changes
+                      </button>
+                      <button
+                        onClick={() => setShowFeeEditForm(false)}
+                        className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest rounded-xl transition-all flex justify-center items-center cursor-pointer"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+}
+
+function FeeReceiptCard({ fee, student, onAction, onDelete }: {
+  fee: FeeRecord;
+  student: Student;
+  onAction: () => void;
+  onDelete: () => void;
+}) {
+  const lp = useLongPress(onAction);
+  return (
+    <div
+      {...lp}
+      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 group/receipt hover:border-emerald-200 transition-colors select-none cursor-pointer touch-manipulation"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="px-2 py-1 bg-white border border-slate-200 text-[10px] font-black text-slate-400 rounded-lg font-mono truncate">#{String(fee.id).slice(-6)}</span>
+        <span className="text-xs font-black text-emerald-700 whitespace-nowrap">PKR {Number(fee.amount).toLocaleString()}</span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+          <span>Student</span>
+          <span className="text-slate-900 truncate ml-2">{student.name}</span>
+        </div>
+        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+          <span>Category</span>
+          <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 uppercase">{fee.feeType || 'School Fee'}</span>
+        </div>
+        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+          <span>Paid On</span>
+          <span className="text-slate-900">{fee.paidDate || 'N/A'}</span>
+        </div>
+        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+          <span>Method</span>
+          <span className="text-slate-900">{fee.paymentMethod || 'Cash'}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 mt-1">
+        <button
+          onClick={(e) => { e.stopPropagation(); onAction(); }}
+          className="flex-1 py-1.5 bg-white border border-slate-200 text-emerald-600 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition-colors cursor-pointer"
+          title="Edit / Delete (hold or tap)"
+        >
+          <Edit2 size={12} /> Edit
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="w-8 h-8 bg-white border border-slate-200 text-rose-400 rounded-lg flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer"
+          title="Delete receipt"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
     </div>
   );
 }

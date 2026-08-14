@@ -5,6 +5,7 @@ export interface Payment {
   year: number;
   amount: number;
   date: string;
+  feeType?: string;
 }
 
 export interface OtherFund {
@@ -32,7 +33,7 @@ export type Month = typeof MONTHS[number];
  */
 
 // 1. addPayment - Partial payment support
-export const addPayment = (students: StudentFeeData[], studentId: string | number, targetMonth: string, year: number, amount: number): StudentFeeData[] => {
+export const addPayment = (students: StudentFeeData[], studentId: string | number, targetMonth: string, year: number, amount: number, feeType: string = 'School Fee'): StudentFeeData[] => {
   const date = new Date().toISOString().split('T')[0];
   const updatedStudents = students.map(s => {
     if (String(s.id) === String(studentId)) {
@@ -44,12 +45,12 @@ export const addPayment = (students: StudentFeeData[], studentId: string | numbe
         if (!m.isFutureMonth && m.pending > 0 && remainingAmount > 0) {
           const toPay = Math.min(m.pending, remainingAmount);
           remainingAmount -= toPay;
-          newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: m.month, year, amount: toPay, date });
+          newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: m.month, year, amount: toPay, date, feeType });
         }
       }
       
       if (remainingAmount > 0) {
-         newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: targetMonth, year, amount: remainingAmount, date });
+         newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: targetMonth, year, amount: remainingAmount, date, feeType });
       }
 
       return {
@@ -79,12 +80,12 @@ export const deletePayment = (students: StudentFeeData[], studentId: string | nu
 };
 
 // 1.2 editPayment
-export const editPayment = (students: StudentFeeData[], studentId: string | number, paymentId: string, newAmount: number): StudentFeeData[] => {
+export const editPayment = (students: StudentFeeData[], studentId: string | number, paymentId: string, newAmount: number, newFeeType?: string): StudentFeeData[] => {
   const updatedStudents = students.map(s => {
     if (String(s.id) === String(studentId)) {
       return {
         ...s,
-        payments: s.payments.map(p => p.id === paymentId ? { ...p, amount: newAmount } : p)
+        payments: s.payments.map(p => p.id === paymentId ? { ...p, amount: newAmount, ...(newFeeType ? { feeType: newFeeType } : {}) } : p)
       };
     }
     return s;

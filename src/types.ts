@@ -120,6 +120,7 @@ export interface StudentFeeData {
     year: number;
     amount: number;
     date: string;
+    feeType?: string;
   }[];
   otherFunds: {
     id: string;

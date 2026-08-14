@@ -86,7 +86,10 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
         <table className="w-full border-collapse border border-slate-900">
           <thead>
             <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-600 border-b border-slate-900">
+              <th className="px-4 py-2 text-left border-r border-slate-900">Fee Category</th>
               <th className="px-4 py-2 text-left border-r border-slate-900">Month / Description</th>
+              <th className="px-4 py-2 text-left border-r border-slate-900">Paid On</th>
+              <th className="px-4 py-2 text-left border-r border-slate-900">Method</th>
               <th className="px-4 py-2 text-center border-r border-slate-900">Status</th>
               <th className="px-4 py-2 text-right">Amount</th>
             </tr>
@@ -95,10 +98,13 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
             {fees.length > 0 ? (
               fees.map((f, i) => (
                 <tr key={i} className="border-b border-slate-200">
+                  <td className="px-4 py-2 border-r border-slate-900 font-bold uppercase">{f.feeType || 'School Fee'}</td>
                   <td className="px-4 py-2 border-r border-slate-900">
-                    <span className="font-bold block uppercase">{f.month} - {f.feeType}</span>
+                    <span className="font-bold block uppercase">{f.month}</span>
                     <span className="text-[11px] text-slate-400">{f.description || 'Routine billing'}</span>
                   </td>
+                  <td className="px-4 py-2 border-r border-slate-900">{f.paidDate || '—'}</td>
+                  <td className="px-4 py-2 border-r border-slate-900">{f.paymentMethod || 'Cash'}</td>
                   <td className="px-4 py-2 border-r border-slate-900 text-center">
                     <span className={`px-2 py-0.5 font-bold uppercase text-[11px] ${f.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                       {f.status}
@@ -109,13 +115,13 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
               ))
             ) : (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-slate-400 ">No financial transitions found in the student ledger.</td>
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-400 ">No financial transitions found in the student ledger.</td>
               </tr>
             )}
           </tbody>
           <tfoot>
             <tr className="bg-slate-900 text-white font-bold">
-              <td colSpan={2} className="px-4 py-2 text-right uppercase tracking-[0.2em] text-[10px]">Grand Total Outstanding (Arrears)</td>
+              <td colSpan={5} className="px-4 py-2 text-right uppercase tracking-[0.2em] text-[10px]">Grand Total Outstanding (Arrears)</td>
               <td className="px-4 py-2 text-right font-mono text-sm">{totalUnpaid}</td>
             </tr>
           </tfoot>
