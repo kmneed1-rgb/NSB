@@ -277,13 +277,15 @@ export default function TeacherDashboard({
       const d = new Date(year, month, day);
       const dayIndex = d.getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
       const mapping: Record<number, DayOfWeek> = {
+        0: 'Sunday',
         1: 'Monday',
         2: 'Tuesday',
         3: 'Wednesday',
         4: 'Thursday',
-        5: 'Friday'
+        5: 'Friday',
+        6: 'Saturday'
       };
-      return mapping[dayIndex] || 'Tuesday'; // Fallback
+      return mapping[dayIndex] || 'Monday'; // Fallback
     }
     return 'Tuesday';
   };
@@ -653,7 +655,7 @@ export default function TeacherDashboard({
   };
 
   // Group Timetable elements neatly
-  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   
   const getPeriodsList = () => {
     const defaultPeriods = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];

@@ -1475,7 +1475,7 @@ export default function PrincipalDashboard({
   );
 
   // Group Timetable elements neatly
-  const DAYS: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const DAYS: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'];
 
   return (
