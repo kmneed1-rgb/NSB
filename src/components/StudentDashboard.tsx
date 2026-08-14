@@ -1428,23 +1428,38 @@ export default function StudentDashboard({
                   <div className="flex justify-between items-start h-full relative z-10">
                     <div className="flex flex-col justify-between h-full">
                       <div>
-                        <div className="flex items-center gap-2 mb-4">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${studentProfile?.idCardTheme === 'classic' ? 'bg-slate-900 text-white' : 'bg-white/20'}`}>
-                            <Award size={18} />
+                        <div className="flex items-center gap-2 mb-3">
+                          <img
+                            src="/logo.png"
+                            alt="NSB1 Logo"
+                            referrerPolicy="no-referrer"
+                            className="w-9 h-9 rounded-lg object-contain bg-white p-0.5 shadow-sm"
+                          />
+                          <div>
+                            <span className="text-xs font-black tracking-widest uppercase block leading-none">NSB1 Academy</span>
+                            <span className="text-[8px] font-bold tracking-widest uppercase opacity-60 block mt-0.5">Saddar Campus</span>
                           </div>
-                          <span className="text-xs font-black tracking-widest uppercase">NSB1</span>
                         </div>
                         <h2 className="text-xl font-black uppercase tracking-tight leading-none truncate max-w-[180px]">
-                          {studentProfile?.name ? (studentProfile.name.split(' ').slice(1).join(' ') || studentProfile.name) : 'Name Placeholder'}
+                          {studentProfile?.name || 'Name Placeholder'}
                         </h2>
                         <p className="text-xs font-bold opacity-70 uppercase tracking-widest mt-1">
                           Roll: {studentProfile?.rollNumber}
+                        </p>
+                        <p className="text-xs font-bold opacity-70 uppercase tracking-widest mt-0.5">
+                          Class: {(() => {
+                            const cls = classes.find(c => c.id === studentProfile?.classId);
+                            return cls ? `${cls.className} - ${cls.section}` : 'N/A';
+                          })()}
                         </p>
                       </div>
 
                       <div className="mt-auto">
                         <p className="text-xs font-black uppercase tracking-[0.2em] opacity-50">Student Identity</p>
                         <p className="text-xs font-mono font-bold mt-0.5">#{studentProfile?.id.substring(2, 10).toUpperCase()}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest opacity-60 mt-0.5">
+                          {studentProfile?.parentPhone || ''}
+                        </p>
                       </div>
                     </div>
 

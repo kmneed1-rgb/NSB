@@ -3314,6 +3314,7 @@ export default function PrincipalDashboard({
                       <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-500">
                         <tr>
                           <th className="px-5 py-4">Student & Roll</th>
+                          <th className="px-5 py-4">Marked By</th>
                           <th className="px-5 py-4 text-right">Attendance Status</th>
                         </tr>
                       </thead>
@@ -3322,7 +3323,7 @@ export default function PrincipalDashboard({
                           if (filteredAttendance.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={2} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
+                                <td colSpan={3} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
                                   {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
                                 </td>
                               </tr>
@@ -3361,6 +3362,13 @@ export default function PrincipalDashboard({
                                           </span>
                                         </div>
                                       </div>
+                                    </td>
+
+                                    <td className="px-5 py-4">
+                                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-full">
+                                        <User size={11} className="text-indigo-500" />
+                                        {record.markedBy || '—'}
+                                      </span>
                                     </td>
 
                                     <td className="px-5 py-4 text-right flex items-center justify-end gap-2">
@@ -3402,7 +3410,7 @@ export default function PrincipalDashboard({
                               })}
                               {filteredAttendance.length > attendanceDisplayLimit && (
                                 <tr>
-                                  <td colSpan={2} className="px-5 py-8 text-center bg-white">
+                                  <td colSpan={3} className="px-5 py-8 text-center bg-white">
                                     <button 
                                       onClick={() => setAttendanceDisplayLimit(prev => prev + 100)}
                                       className="px-8 py-3 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
