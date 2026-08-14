@@ -161,6 +161,7 @@ export default function PrincipalDashboard({
   const [attendanceSearch, setAttendanceSearch] = useState('');
   const [recordsFeeSearch, setRecordsFeeSearch] = useState('');
   const [recordsFeeClassFilter, setRecordsFeeClassFilter] = useState('all');
+  const [recordsFeeStatusFilter, setRecordsFeeStatusFilter] = useState<'all' | 'paid' | 'partial' | 'unpaid'>('all');
   const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
   const [quickCollectStudentId, setQuickCollectStudentId] = useState('');
   const [quickCollectMonth, setQuickCollectMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
@@ -240,11 +241,18 @@ export default function PrincipalDashboard({
         const q = recordsFeeSearch.toLowerCase();
         const classObj = classesMap.get(String(s.classId));
         const classNameStr = classObj ? `${classObj.className} ${classObj.section}`.toLowerCase() : '';
-        return s.name.toLowerCase().includes(q) || (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) || classNameStr.includes(q);
+        if (!s.name.toLowerCase().includes(q) && !(s.rollNumber && s.rollNumber.toLowerCase().includes(q)) && !classNameStr.includes(q)) return false;
+      }
+      if (recordsFeeStatusFilter !== 'all') {
+        const sFees = fees.filter(f => String(f.studentId) === String(s.id));
+        const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+        const monthlyFee = s.baseFee || 5500;
+        const status = totalPaid >= monthlyFee ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+        if (status !== recordsFeeStatusFilter) return false;
       }
       return true;
     });
-  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch]);
+  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch, recordsFeeStatusFilter, fees]);
 
   const visibleAttendance = React.useMemo(() => {
     return filteredAttendance.slice(0, attendanceDisplayLimit);
@@ -2702,7 +2710,25 @@ export default function PrincipalDashboard({
                   </div>
                 </div>
 
-
+                {/* Fee Status Filter */}
+                <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+                  {[
+                    { key: 'all', label: 'All', active: 'bg-slate-900 text-white border-slate-900 shadow-md', idle: 'bg-white text-slate-500 border-slate-200 hover:border-slate-400' },
+                    { key: 'unpaid', label: 'Unpaid', active: 'bg-rose-500 text-white border-rose-500 shadow-md', idle: 'bg-white text-rose-500 border-rose-200 hover:border-rose-400' },
+                    { key: 'partial', label: 'Remaining', active: 'bg-amber-500 text-white border-amber-500 shadow-md', idle: 'bg-white text-amber-500 border-amber-200 hover:border-amber-400' },
+                    { key: 'paid', label: 'Paid', active: 'bg-emerald-600 text-white border-emerald-600 shadow-md', idle: 'bg-white text-emerald-600 border-emerald-200 hover:border-emerald-400' },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setRecordsFeeStatusFilter(opt.key as 'all' | 'paid' | 'partial' | 'unpaid')}
+                      className={`py-2.5 text-[10px] sm:text-xs font-black uppercase tracking-widest rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        recordsFeeStatusFilter === opt.key ? `${opt.active} scale-[1.02]` : opt.idle
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
 
                 {/* Student Fee Roster & In-Place Collect */}
                 <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-3xl">
@@ -2710,17 +2736,6 @@ export default function PrincipalDashboard({
                       <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 whitespace-nowrap">
                         Student Fee Roster
                       </h3>
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
-                          <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Paid
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
-                          <div className="w-2 h-2 rounded-full bg-amber-500"></div> Partial
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 uppercase">
-                          <div className="w-2 h-2 rounded-full bg-rose-500"></div> Unpaid
-                        </div>
-                      </div>
                     </div>
 
                     {/* MOBILE CARD VIEW (< md) */}
@@ -3821,7 +3836,10 @@ export default function PrincipalDashboard({
                               }}
                               className="p-3 bg-slate-50 rounded-xl border border-slate-100 group"
                             >
-                              <div className="flex justify-between items-center">
+                              <div
+                                className="flex justify-between items-center cursor-pointer"
+                                onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}`, feeType: p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee' })}
+                              >
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-black text-slate-900 uppercase ">{p.month} {p.year}</span>
@@ -3831,7 +3849,7 @@ export default function PrincipalDashboard({
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0">
                                   <span className="text-xs font-black text-emerald-600">{p.amount}</span>
-                                  <div className="flex items-center gap-1 transition-opacity">
+                                  <div className="flex items-center gap-1 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
                                     <button 
                                       onClick={() => setFeeEditModal({ isOpen: true, type: 'payment', recordId: p.id, studentId: String(student.id), amount: String(p.amount), desc: `${p.month} ${p.year}`, feeType: p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee' })}
                                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -6295,22 +6313,46 @@ export default function PrincipalDashboard({
               )}
 
               {feeEditModal.type === 'payment' && (
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Fee Category</label>
-                  <select
-                    value={feeEditModal.feeType}
-                    onChange={(e) => setFeeEditModal({ ...feeEditModal, feeType: e.target.value })}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
-                  >
-                    <option value="School Fee">School Fee</option>
-                    <option value="Tuition Fee">Tuition Fee</option>
-                    <option value="Exam Fee">Exam Fee</option>
-                    <option value="Admission Fee">Admission Fee</option>
-                    <option value="Annual Paper Fund">Annual Paper Fund</option>
-                    <option value="Miscellaneous">Miscellaneous</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+                <>
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                      <span>Month</span>
+                      <span className="text-slate-900 font-black">{feeEditModal.desc || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                      <span>Paid On</span>
+                      <span className="text-slate-900 font-black">
+                        {fees.find(f => f.id === feeEditModal.recordId)?.paidDate || feeStudents.flatMap(fs => fs.payments || []).find(p => p.id === feeEditModal.recordId)?.date || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase">
+                      <span>Method</span>
+                      <span className="text-slate-900 font-black">{fees.find(f => f.id === feeEditModal.recordId)?.paymentMethod || 'Cash'}</span>
+                    </div>
+                    {fees.find(f => f.id === feeEditModal.recordId)?.description && (
+                      <div className="text-[11px] font-bold text-slate-500 uppercase">
+                        <span className="block mb-1">Notes</span>
+                        <span className="text-slate-700 normal-case font-medium">{fees.find(f => f.id === feeEditModal.recordId)?.description}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Fee Category</label>
+                    <select
+                      value={feeEditModal.feeType}
+                      onChange={(e) => setFeeEditModal({ ...feeEditModal, feeType: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
+                    >
+                      <option value="School Fee">School Fee</option>
+                      <option value="Tuition Fee">Tuition Fee</option>
+                      <option value="Exam Fee">Exam Fee</option>
+                      <option value="Admission Fee">Admission Fee</option>
+                      <option value="Annual Paper Fund">Annual Paper Fund</option>
+                      <option value="Miscellaneous">Miscellaneous</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </>
               )}
               
               <div className="space-y-2">
@@ -6977,7 +7019,9 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
   return (
     <div
       {...lp}
-      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 group/receipt hover:border-emerald-200 transition-colors select-none cursor-pointer touch-manipulation"
+      onClick={onAction}
+      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col gap-3 group/receipt hover:border-emerald-200 transition-colors select-none cursor-pointer touch-manipulation active:scale-[0.99]"
+      style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="px-2 py-1 bg-white border border-slate-200 text-[10px] font-black text-slate-400 rounded-lg font-mono truncate">#{String(fee.id).slice(-6)}</span>
@@ -7001,7 +7045,7 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
           <span className="text-slate-900">{fee.paymentMethod || 'Cash'}</span>
         </div>
       </div>
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 mt-1">
+      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60 mt-1" onPointerDown={(e) => e.stopPropagation()}>
         <button
           onClick={(e) => { e.stopPropagation(); onAction(); }}
           className="flex-1 py-1.5 bg-white border border-slate-200 text-emerald-600 text-[10px] font-black uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 hover:bg-emerald-50 transition-colors cursor-pointer"

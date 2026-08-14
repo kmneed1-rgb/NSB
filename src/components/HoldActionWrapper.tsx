@@ -31,7 +31,10 @@ export const HoldActionWrapper: React.FC<HoldActionWrapperProps> = ({
     >
       {children}
       {showMenu && (
-        <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center gap-2 flex-wrap rounded-2xl animate-fade-in p-2 shadow-2xl">
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center gap-2 flex-wrap rounded-2xl animate-fade-in p-2 shadow-2xl"
+        >
           {onDetail && (
             <button
               type="button"

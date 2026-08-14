@@ -1,34 +1,31 @@
 import { useRef, useCallback } from 'react';
 
-export function useLongPress(onLongPress: () => void, ms = 500) {
-  const timeoutId = useRef<NodeJS.Timeout | null>(null);
+export function useLongPress(onLongPress: () => void, ms = 450) {
+  const timer = useRef<number | null>(null);
   const startPos = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
 
   const cancel = useCallback(() => {
-    if (timeoutId.current) {
-      clearTimeout(timeoutId.current);
-      timeoutId.current = null;
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
     }
   }, []);
 
-  const start = useCallback((e: React.SyntheticEvent) => {
+  const start = useCallback((e: React.PointerEvent) => {
     cancel();
-    const evt = e.nativeEvent as TouchEvent;
-    if (evt.touches && evt.touches[0]) {
-      startPos.current = { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
-    } else {
-      startPos.current = null;
-    }
-    timeoutId.current = setTimeout(() => {
+    fired.current = false;
+    startPos.current = { x: e.clientX, y: e.clientY };
+    timer.current = window.setTimeout(() => {
+      fired.current = true;
       onLongPress();
     }, ms);
   }, [onLongPress, ms, cancel]);
 
-  const move = useCallback((e: React.SyntheticEvent) => {
-    const evt = e.nativeEvent as TouchEvent;
-    if (evt.touches && evt.touches[0] && startPos.current) {
-      const dx = evt.touches[0].clientX - startPos.current.x;
-      const dy = evt.touches[0].clientY - startPos.current.y;
+  const move = useCallback((e: React.PointerEvent) => {
+    if (!fired.current && startPos.current) {
+      const dx = e.clientX - startPos.current.x;
+      const dy = e.clientY - startPos.current.y;
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
         cancel();
         startPos.current = null;
@@ -42,16 +39,17 @@ export function useLongPress(onLongPress: () => void, ms = 500) {
   }, [cancel]);
 
   return {
-    onMouseDown: start,
-    onMouseUp: clear,
-    onMouseLeave: clear,
-    onTouchStart: start,
-    onTouchMove: move,
-    onTouchEnd: clear,
-    onTouchCancel: clear,
+    onPointerDown: start,
+    onPointerMove: move,
+    onPointerUp: clear,
+    onPointerLeave: clear,
+    onPointerCancel: clear,
     onContextMenu: (e: React.MouseEvent) => {
       e.preventDefault();
-      onLongPress();
+      if (!fired.current) {
+        fired.current = true;
+        onLongPress();
+      }
     }
   };
 }
