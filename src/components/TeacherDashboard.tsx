@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX, User,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -225,6 +225,13 @@ export default function TeacherDashboard({
   const [selectedExamType, setSelectedExamType] = useState<ExamType>('Monthly test');
   const [maxMarksInput, setMaxMarksInput] = useState<number>(100);
   const [timetableDayFilter, setTimetableDayFilter] = useState<string>('all');
+
+  // EXAM REPORT BUILDER STATE (bulk marks entry for any exam)
+  const [marksSubTab, setMarksSubTab] = useState<'exam' | 'report'>('exam');
+  const [examNameDraft, setExamNameDraft] = useState<string>('1st Term');
+
+  const EXAM_NAME_OPTIONS = ['1st Term', '2nd Term', '3rd Term', 'Annual', 'Monthly Test', 'Unit Test', 'Half Yearly', 'Mid Term', 'Final Term', 'Class Test'];
+  const SUBJECT_OPTIONS = ['English', 'Mathematics', 'Science', 'Urdu', 'Islamiat', 'Computer', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Pak Studies', 'General Science'];
   
   // NEW REPORT BUILDER STATE
   const [reportStudentId, setReportStudentId] = useState<string>('');
@@ -2068,6 +2075,252 @@ export default function TeacherDashboard({
         {/* ========== SUBJECT GRADES MANAGMENT ========== */}
         {activeTab === 'marks' && (
           <div id="panel-teacher-marks" className="space-y-6 animate-fade-in bg-indigo-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-indigo-100 shadow-inner">
+            {/* Sub-tab Switcher */}
+            <div className="flex flex-wrap bg-white p-1 rounded-xl border border-indigo-200 shadow-sm w-fit gap-1">
+              <button
+                onClick={() => setMarksSubTab('exam')}
+                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer ${
+                  marksSubTab === 'exam' ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Award size={14} /> Exam Marks Entry
+              </button>
+              <button
+                onClick={() => setMarksSubTab('report')}
+                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer ${
+                  marksSubTab === 'report' ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <ClipboardList size={14} /> Report Card Builder
+              </button>
+            </div>
+
+            {marksSubTab === 'exam' ? (
+              /* ========== EXAM MARKS ENTRY (bulk, any exam) ========== */
+              <div id="teacher-exam-marks-builder" className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">Exam Marks Entry</h1>
+                  <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-wider">
+                    Enter marks for ALL students of the selected class for any exam — 1st / 2nd / 3rd Term, Annual, Monthly Test, or any custom name.
+                  </p>
+                </div>
+
+                {/* Configuration Bar */}
+                <div className="bg-white border border-indigo-200 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Class</label>
+                      <select
+                        value={selectedMarkClassId}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSelectedMarkClassId(v);
+                          if (v && selectedSubject.trim() && selectedExamType.trim()) {
+                            handleEnterMarksTab(v, selectedSubject, selectedExamType);
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="">-- Choose Class --</option>
+                        {myClasses.map(cl => (
+                          <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Subject</label>
+                      <select
+                        value={selectedSubject}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSelectedSubject(v);
+                          if (selectedMarkClassId && v.trim() && selectedExamType.trim()) {
+                            handleEnterMarksTab(selectedMarkClassId, v, selectedExamType);
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="">-- Choose Subject --</option>
+                        {[teacherSubject, ...SUBJECT_OPTIONS.filter(s => s.toLowerCase() !== (teacherSubject || '').toLowerCase())].map(sub => (
+                          <option key={sub} value={sub}>{sub}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Exam Name</label>
+                      <input
+                        list="teacher-exam-names-list"
+                        value={examNameDraft}
+                        onChange={(e) => setExamNameDraft(e.target.value)}
+                        placeholder="e.g. 1st Term / Annual"
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-indigo-800 focus:outline-none focus:border-indigo-500"
+                      />
+                      <datalist id="teacher-exam-names-list">
+                        {EXAM_NAME_OPTIONS.map(opt => <option key={opt} value={opt} />)}
+                      </datalist>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Total / Max Marks</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={maxMarksInput}
+                        onChange={(e) => setMaxMarksInput(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <button
+                        onClick={() => {
+                          if (!selectedMarkClassId) { toast.error('Please select a class first.'); return; }
+                          if (!selectedSubject.trim()) { toast.error('Please select a subject.'); return; }
+                          const exam = examNameDraft.trim() || 'Monthly Test';
+                          setSelectedExamType(exam);
+                          setExamNameDraft(exam);
+                          handleEnterMarksTab(selectedMarkClassId, selectedSubject, exam);
+                          toast.success(`Roster loaded for ${exam} — enter marks below`);
+                        }}
+                        className="w-full px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-black uppercase tracking-wider shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <RefreshCw size={14} /> Load Roster
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bulk Marks Table */}
+                {(() => {
+                  const examClassStudents = students.filter(s => s.classId === selectedMarkClassId);
+                  const hasConfig = selectedMarkClassId && selectedSubject.trim() && selectedExamType.trim();
+
+                  if (!hasConfig) {
+                    return (
+                      <div className="bg-white border text-center border-gray-200 p-12 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
+                        <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                          <Award size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-700">Configure the Exam First</h3>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto mt-2 leading-relaxed">
+                          Choose the class, subject and exam name (e.g. 1st Term, 2nd Term, 3rd Term, Annual, Monthly Test) then press Load Roster to begin entering marks.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
+                      <div className="p-4 sm:p-5 border-b border-gray-100 bg-indigo-50/50 flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-sm font-black text-indigo-900 uppercase tracking-widest flex items-center gap-2">
+                          <Award size={16} className="text-indigo-600" /> {selectedExamType} Marks — {selectedSubject}
+                        </h3>
+                        <span className="text-xs font-black text-slate-500 uppercase tracking-wider bg-white border border-indigo-100 px-3 py-1 rounded-full">
+                          {examClassStudents.length} Student(s) · Total {maxMarksInput}
+                        </span>
+                      </div>
+
+                      {/* MOBILE CARDS */}
+                      <div className="block md:hidden divide-y divide-slate-100">
+                        {examClassStudents.length === 0 ? (
+                          <div className="py-10 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">
+                            No students enrolled in this class.
+                          </div>
+                        ) : (
+                          examClassStudents.map((s, idx) => (
+                            <div key={s.id} className="p-4 bg-white">
+                              <div className="flex items-center justify-between gap-3 mb-2.5">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="text-xs font-black text-indigo-500 w-6 shrink-0">#{idx + 1}</span>
+                                  <div className="min-w-0">
+                                    <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">{s.name}</h4>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-0.5">Roll #{s.rollNumber}</p>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
+                                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Obtained Marks</span>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={maxMarksInput}
+                                    value={scratchMarks[s.id] || ''}
+                                    onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                    placeholder="0"
+                                    className="w-24 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500"
+                                  />
+                                  <span className="text-xs text-slate-400 font-bold">/ {maxMarksInput}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50">
+                              <th className="px-6 py-4 w-14">#</th>
+                              <th className="px-6 py-4">Roll No</th>
+                              <th className="px-6 py-4">Student</th>
+                              <th className="px-6 py-4 text-center w-44">Obtained Marks</th>
+                              <th className="px-6 py-4 text-center w-20">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-150 text-sm">
+                            {examClassStudents.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm font-medium">
+                                  No students enrolled in this class.
+                                </td>
+                              </tr>
+                            ) : (
+                              examClassStudents.map((s, idx) => (
+                                <tr key={s.id} className="hover:bg-indigo-50/20 transition-colors">
+                                  <td className="px-6 py-3 text-xs font-black text-indigo-500">{idx + 1}</td>
+                                  <td className="px-6 py-3 text-xs font-mono font-bold text-slate-500">{s.rollNumber}</td>
+                                  <td className="px-6 py-3 font-bold text-slate-900 uppercase tracking-tight">{s.name}</td>
+                                  <td className="px-6 py-3 text-center">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={maxMarksInput}
+                                      value={scratchMarks[s.id] || ''}
+                                      onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                      placeholder="0"
+                                      className="w-28 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block"
+                                    />
+                                  </td>
+                                  <td className="px-6 py-3 text-center text-xs font-black text-slate-500">{maxMarksInput}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="p-4 sm:p-5 border-t border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="text-xs font-bold text-slate-600 uppercase tracking-widest">
+                          Exam: <span className="text-indigo-700">{selectedExamType}</span> · Subject: <span className="text-indigo-700">{selectedSubject}</span>
+                        </div>
+                        <button
+                          onClick={handleSaveMarks}
+                          className="px-8 py-3 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                        >
+                          <Save size={14} /> Save {selectedExamType} Marks
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Student Report Card Builder</h1>
@@ -2340,6 +2593,8 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                   Please select a class and then choose a student from the dropdown above to begin building their multi-subject report card.
                 </p>
               </div>
+            )}
+            </>
             )}
           </div>
         )}

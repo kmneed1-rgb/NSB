@@ -100,6 +100,7 @@ export interface TimetableEntry {
 export interface AppSettings {
   absentTemplate: string;
   feeTemplate: string;
+  resultTemplate: string;
   whatsAppAutoFee: boolean;
   whatsAppAutoAbsence: boolean;
   whatsAppAutoResult: boolean;

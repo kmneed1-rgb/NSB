@@ -119,7 +119,7 @@ export default function PrincipalDashboard({
   const [selectedStudentReport, setSelectedStudentReport] = useState<Student | null>(null);
   const [reportMonth, setReportMonth] = useState<Month>(MONTHS[new Date().getMonth()]);
   const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>('teachers');
-  const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance'>('fees');
+  const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance' | 'results'>('fees');
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -258,6 +258,41 @@ export default function PrincipalDashboard({
     return filteredAttendance.slice(0, attendanceDisplayLimit);
   }, [filteredAttendance, attendanceDisplayLimit]);
 
+  // When a specific class is selected, show EXACTLY that class's students for
+  // the selected date (one row per student) instead of all-date history, so the
+  // principal always sees the real class size.
+  const attendanceRosterRows = React.useMemo(() => {
+    if (attendanceFilterClass === 'all') return [];
+    const classStudents = students.filter(s => s.classId === attendanceFilterClass);
+    const dateMap = new Map<string, Attendance>();
+    attendance.forEach(a => {
+      if (a.date === attendanceFilterDate) dateMap.set(String(a.studentId), a);
+    });
+    const q = (attendanceSearch || '').toLowerCase();
+    return classStudents
+      .filter(s => !q || (s.name || '').toLowerCase().includes(q) || (s.rollNumber || '').toLowerCase().includes(q))
+      .map(s => ({ student: s, record: dateMap.get(String(s.id)) || null, isRoster: true }));
+  }, [attendanceFilterClass, students, attendance, attendanceFilterDate, attendanceSearch]);
+
+  // Unified rows used by the attendance ledger (mobile cards + desktop table).
+  const attendanceDisplayRows = React.useMemo(() => {
+    if (attendanceFilterClass !== 'all') return attendanceRosterRows;
+    return filteredAttendance.slice(0, attendanceDisplayLimit).map(record => {
+      const student = studentsMap.get(String(record.studentId));
+      return { student, record, isRoster: false };
+    });
+  }, [attendanceFilterClass, attendanceRosterRows, filteredAttendance, attendanceDisplayLimit, studentsMap]);
+
+
+  const formatDateDDMMYY = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}/${mm}/${yy}`;
+  };
 
   const handleRecordQuickFee = () => {
     if (!quickCollectStudentId) {
@@ -413,6 +448,23 @@ export default function PrincipalDashboard({
     
     setShowMarkAttendanceModal(false);
     toast.success(`Attendance marked for ${markAttendanceClassId} on ${attendanceFilterDate}`);
+  };
+
+  const handleRosterAttendanceChange = (student: Student, status: 'present' | 'absent' | 'late' | 'leave') => {
+    setAttendance(prev => {
+      const existing = prev.find(a => String(a.studentId) === String(student.id) && a.date === attendanceFilterDate);
+      if (existing) {
+        return prev.map(a => a.id === existing.id ? { ...a, status, markedBy: userSession.name } : a);
+      }
+      return [...prev, {
+        id: Date.now() + Math.random().toString(36).substr(2, 9),
+        studentId: student.id,
+        status,
+        date: attendanceFilterDate,
+        markedBy: userSession.name,
+      }];
+    });
+    toast.success(`Marked ${student.name} as ${status.toUpperCase()} for ${attendanceFilterDate}`);
   };
 
   const handleSendIndividualWhatsApp = (student: Student, date: string) => {
@@ -575,6 +627,134 @@ export default function PrincipalDashboard({
   const [feeEditModal, setFeeEditModal] = useState<{isOpen: boolean; type: 'payment' | 'other'; recordId: string; studentId: string; amount: string; desc: string; feeType: string}>({ isOpen: false, type: 'payment', recordId: '', studentId: '', amount: '', desc: '', feeType: 'School Fee' });
 
   const [feeActionModal, setFeeActionModal] = useState<{ isOpen: boolean; fee: FeeRecord | null }>({ isOpen: false, fee: null });
+
+  // RESULTS / WHATSAPP REGISTER STATE (any exam/test/term)
+  const EXAM_NAME_OPTIONS = ['1st Term', '2nd Term', '3rd Term', 'Annual', 'Annual Exam', 'Monthly Test', 'Unit Test', 'Half Yearly', 'Mid Term', 'Final Term', 'Class Test', 'Assignment'];
+  const [resultsClassFilter, setResultsClassFilter] = useState<string>('all');
+  const [resultsExamDraft, setResultsExamDraft] = useState<string>('1st Term');
+  const [resultsExam, setResultsExam] = useState<string>('');
+  const [resultWAModal, setResultWAModal] = useState<{ isOpen: boolean; exam: string }>({ isOpen: false, exam: '' });
+  const [resultWAClassFilter, setResultWAClassFilter] = useState<string>('all');
+  const [sendingResultIds, setSendingResultIds] = useState<Set<string>>(new Set());
+
+  const availableExamTypes = React.useMemo(() => Array.from(new Set(marks.map(m => m.examType).filter(Boolean))), [marks]);
+
+  const getExamMarksForStudent = (studentId: string, exam: string) => {
+    return marks.filter(m => String(m.studentId) === String(studentId) && (m.examType || '').trim().toLowerCase() === (exam || '').trim().toLowerCase());
+  };
+
+  const buildResultMessage = (student: Student, exam: string) => {
+    const sClass = classes.find(c => c.id === student.classId);
+    const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
+    const examMarks = getExamMarksForStudent(student.id, exam);
+    const subjectLines = examMarks.map(m => `- ${m.subject}: ${m.marksObtained}/${m.maxMarks}`).join('\n');
+    const totalObtained = examMarks.reduce((s, m) => s + Number(m.marksObtained || 0), 0);
+    const totalMax = examMarks.reduce((s, m) => s + Number(m.maxMarks || 0), 0);
+    const pct = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+    const status = pct >= 40 ? 'PASS' : 'RE-STUDY';
+
+    const template = appSettings.resultTemplate || "Greetings, Respected Parent! Result of {student_name} (Roll: {roll_number}, {class_name}) for {exam_name}:\n{subjects}\nTotal: {total_obtained}/{total_max} ({percentage}%). Status: {status}.\n- NSB 1 Academy.";
+    return template
+      .replace(/{student_name}/g, student.name)
+      .replace(/{roll_number}/g, student.rollNumber || 'N/A')
+      .replace(/{class_name}/g, className)
+      .replace(/{exam_name}/g, exam)
+      .replace(/{subjects}/g, subjectLines)
+      .replace(/{total_obtained}/g, String(totalObtained))
+      .replace(/{total_max}/g, String(totalMax))
+      .replace(/{percentage}/g, String(pct))
+      .replace(/{status}/g, status);
+  };
+
+  const handleSendResultWhatsApp = (student: Student, exam: string) => {
+    const message = buildResultMessage(student, exam);
+    const phone = (student as any).parentPhone || (student as any).studentPhone || '';
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone) {
+      toast.error(`No phone number found for ${student.name}. Report skipped.`);
+      return;
+    }
+
+    let countryCodePhone = cleanPhone;
+    if (countryCodePhone.startsWith('0')) {
+      countryCodePhone = '92' + countryCodePhone.substring(1);
+    } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
+      countryCodePhone = '92' + countryCodePhone;
+    }
+
+    const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(message)}`;
+
+    if (appSettings.autoWhatsAppRedirect) {
+      window.open(waUrl, '_blank');
+      toast.success(`Opening WhatsApp with ${exam} report for ${student.name}`);
+    } else {
+      toast.custom(
+        (t) => (
+          <div className="flex items-center gap-3 bg-white text-slate-900 p-4 rounded-xl shadow-xl border border-slate-200 max-w-sm">
+            <div className="min-w-0">
+              <span className="block text-xs font-black uppercase tracking-wider text-slate-700">{exam} report ready for {student.name}</span>
+              <span className="block text-[10px] font-bold text-slate-400 mt-0.5 truncate">Total marks included ({student.rollNumber})</span>
+            </div>
+            <button
+              onClick={() => {
+                window.open(waUrl, '_blank');
+                toast.dismiss(t);
+              }}
+              className="bg-emerald-600 text-white px-3 py-1.5 rounded-md text-xs font-black uppercase cursor-pointer shrink-0"
+            >
+              Send
+            </button>
+          </div>
+        )
+      );
+    }
+  };
+
+  const handleBulkSendResultWhatsApp = (studentsList: Student[], exam: string) => {
+    if (studentsList.length === 0) {
+      toast.error('No students with marks found to send.');
+      return;
+    }
+    setSendingResultIds(new Set(studentsList.map(s => String(s.id))));
+    studentsList.forEach((student, idx) => {
+      setTimeout(() => {
+        const message = buildResultMessage(student, exam);
+        const phone = ((student as any).parentPhone || (student as any).studentPhone || '').replace(/\D/g, '');
+        if (!phone) {
+          toast.error(`No phone for ${student.name}. Skipped.`);
+          setSendingResultIds(prev => { const n = new Set(prev); n.delete(String(student.id)); return n; });
+          return;
+        }
+        let cc = phone;
+        if (cc.startsWith('0')) cc = '92' + cc.substring(1);
+        else if (!cc.startsWith('92') && cc.length === 10) cc = '92' + cc;
+        window.open(`https://wa.me/${cc}?text=${encodeURIComponent(message)}`, '_blank');
+        setSendingResultIds(prev => { const n = new Set(prev); n.delete(String(student.id)); return n; });
+      }, idx * 800);
+    });
+    toast.info(`Opening WhatsApp for ${studentsList.length} parents one-by-one. Send each chat then continue.`);
+  };
+
+  const resultsRows = React.useMemo(() => {
+    if (!resultsExam) return [];
+    const studentList = resultsClassFilter === 'all' ? students : students.filter(s => s.classId === resultsClassFilter);
+    return studentList.map(s => {
+      const examMarks = getExamMarksForStudent(s.id, resultsExam);
+      const totalObtained = examMarks.reduce((sum, m) => sum + Number(m.marksObtained || 0), 0);
+      const totalMax = examMarks.reduce((sum, m) => sum + Number(m.maxMarks || 0), 0);
+      const pct = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+      return { student: s, examMarks, totalObtained, totalMax, pct, hasMarks: examMarks.length > 0 };
+    });
+  }, [resultsExam, resultsClassFilter, students, marks]);
+
+  const resultWARows = React.useMemo(() => {
+    if (!resultWAModal.exam) return [];
+    const studentList = resultWAClassFilter === 'all' ? students : students.filter(s => s.classId === resultWAClassFilter);
+    return studentList
+      .map(s => ({ student: s, marks: getExamMarksForStudent(s.id, resultWAModal.exam) }))
+      .filter(r => r.marks.length > 0);
+  }, [resultWAModal.exam, resultWAClassFilter, students, marks]);
+
   const [showFeeEditForm, setShowFeeEditForm] = useState(false);
   const [feeEditForm, setFeeEditForm] = useState({
     studentName: '',
@@ -1445,6 +1625,18 @@ export default function PrincipalDashboard({
   const getClassName = (cId: string) => {
     const c = classesMap.get(String(cId));
     return c ? `${c.className} - ${c.section}` : 'N/A';
+  };
+
+  const getAttendanceStatusClass = (status?: string) => {
+    return status === 'present'
+      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+      : status === 'absent'
+      ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
+      : status === 'late'
+      ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+      : status === 'leave'
+      ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+      : 'bg-slate-200 text-slate-600 border-slate-300 shadow-xs';
   };
 
   // Filtering variables
@@ -2684,6 +2876,16 @@ export default function PrincipalDashboard({
               >
                 <CheckCircle2 size={16} /> Attendance
               </button>
+              <button
+                onClick={() => setRegistersSubTab('results')}
+                className={`flex-1 min-w-[120px] py-3.5 px-4 text-xs uppercase font-black tracking-widest transition-all flex items-center justify-center gap-2.5 rounded-xl cursor-pointer ${
+                  registersSubTab === 'results'
+                    ? 'bg-violet-600 text-white shadow-md scale-[1.01]'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Award size={16} /> Results / WhatsApp
+              </button>
             </div>
 
             {registersSubTab === 'fees' ? (
@@ -2807,7 +3009,7 @@ export default function PrincipalDashboard({
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                                 <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Status</span>
                                                 <span className={`text-[10px] font-black uppercase ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? 'Partial' : 'Unpaid'}
+                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? `Partial · Baqi PKR ${Math.max(0, monthlyFee - totalPaid).toLocaleString()}` : 'Unpaid'}
                                                 </span>
                                               </div>
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -2961,7 +3163,7 @@ export default function PrincipalDashboard({
                                               </div>
                                             ) : totalPaid > 0 ? (
                                               <div className="px-2.5 py-1.5 bg-amber-50 text-amber-700 text-[10px] font-black tracking-wider rounded-lg border border-amber-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
-                                                <Clock size={12} /> Partial ({Math.round((totalPaid/monthlyFee)*100)}%)
+                                                <Clock size={12} /> Partial · Remaining PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}
                                               </div>
                                             ) : (
                                               <div className="px-2.5 py-1.5 bg-rose-50 text-rose-700 text-[10px] font-black tracking-wider rounded-lg border border-rose-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
@@ -3010,6 +3212,12 @@ export default function PrincipalDashboard({
                                                         <span className="block text-[10px] font-black text-slate-400 uppercase">Base Fee</span>
                                                         <span className="block text-sm font-black text-slate-900">PKR {monthlyFee.toLocaleString()}</span>
                                                       </div>
+                                                      {Math.max(0, monthlyFee - totalPaid) > 0 && (
+                                                        <div className="text-right mr-4">
+                                                          <span className="block text-[10px] font-black text-amber-600 uppercase">Remaining Balance</span>
+                                                          <span className="block text-sm font-black text-rose-600">PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}</span>
+                                                        </div>
+                                                      )}
                                                       <button
                                                         onClick={() => {
                                                           const text = `Fee Reminder: A payment is pending for ${student.name}. Balance: ${monthlyFee - totalPaid}. Please clear it soon. - NSB Academy`;
@@ -3058,7 +3266,7 @@ export default function PrincipalDashboard({
                     </div>
                   </div>
               </div>
-            ) : (
+            ) : registersSubTab === 'attendance' ? (
               /* ================= ATTENDANCE REGISTER ================= */
               <div id="audit-attendance-section" className="space-y-6 animate-fade-in">
                 {/* Filters & Control Bar */}
@@ -3158,9 +3366,15 @@ export default function PrincipalDashboard({
                         Daily Attendance Average
                       </p>
                       <h3 className="text-3xl font-black text-emerald-600">
-                        {filteredAttendance.length > 0
-                          ? Math.round((filteredAttendance.filter(a => a.status === 'present').length / filteredAttendance.length) * 100)
-                          : 0}%
+                        {attendanceFilterClass === 'all'
+                          ? (filteredAttendance.length > 0
+                            ? Math.round((filteredAttendance.filter(a => a.status === 'present').length / filteredAttendance.length) * 100)
+                            : 0)
+                          : (() => {
+                              const rows = attendanceRosterRows;
+                              const present = rows.filter(r => r.record?.status === 'present').length;
+                              return rows.length > 0 ? Math.round((present / rows.length) * 100) : 0;
+                            })()}%
                       </h3>
                     </div>
                     <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
@@ -3200,6 +3414,11 @@ export default function PrincipalDashboard({
                       <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-lg font-black tabular-nums">
                         {attendanceFilterDate}
                       </span>
+                      {attendanceFilterClass !== 'all' && (
+                        <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-lg font-black tabular-nums">
+                          {getClassName(attendanceFilterClass)} · {attendanceRosterRows.length} Student(s)
+                        </span>
+                      )}
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
@@ -3212,26 +3431,27 @@ export default function PrincipalDashboard({
                   {/* MOBILE ATTENDANCE CARDS (< md) */}
                   <div className="block md:hidden divide-y divide-slate-100">
                     {(() => {
-                      if (filteredAttendance.length === 0) {
+                      if (attendanceDisplayRows.length === 0) {
                         return (
                           <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
-                            {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
+                            {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : attendanceFilterClass !== 'all' ? `No students found in this class for ${attendanceFilterDate}` : `No attendance recorded for date ${attendanceFilterDate}`}
                           </div>
                         );
                       }
 
                       return (
                         <>
-                          {visibleAttendance.map(record => {
-                            const student = studentsMap.get(String(record.studentId));
-                            const feeStudent = feeStudentsMap.get(String(record.studentId));
-                            const sName = student?.name || feeStudent?.name || (record as any).studentName || (`Student #${String(record.studentId || '').slice(-4)}`);
+                          {attendanceDisplayRows.map(row => {
+                            const { student, record, isRoster } = row;
+                            const feeStudent = student ? feeStudentsMap.get(String(student.id)) : undefined;
+                            const sName = student?.name || feeStudent?.name || (record as any)?.studentName || (`Student #${String(record?.studentId || '').slice(-4)}`);
                             const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
                             const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'N/A';
                             const photo = getStudentPhoto(student || { name: sName });
+                            const status = record?.status || 'unmarked';
 
                             return (
-                              <div key={record.id} className="p-4 space-y-3 bg-white">
+                              <div key={record?.id || `roster_${student?.id || sName}`} className="p-4 space-y-3 bg-white">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-3 min-w-0">
                                     {photo ? (
@@ -3248,7 +3468,7 @@ export default function PrincipalDashboard({
                                         {sName}
                                       </h4>
                                       <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-0.5">
-                                        {sRoll}
+                                        {sRoll} {isRoster && <span className="text-indigo-500">· {sClass}</span>}
                                       </p>
                                     </div>
                                   </div>
@@ -3256,9 +3476,9 @@ export default function PrincipalDashboard({
 
                                 <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
                                   <div>
-                                    {record.status === 'absent' && student && (
+                                    {status === 'absent' && student && (
                                       <button
-                                        onClick={() => handleSendIndividualWhatsApp(student, record.date)}
+                                        onClick={() => handleSendIndividualWhatsApp(student, record!.date)}
                                         className="p-1.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-600 hover:text-white rounded-lg flex items-center justify-center transition-colors cursor-pointer"
                                         title="Send WhatsApp Alert to Parent"
                                       >
@@ -3268,22 +3488,20 @@ export default function PrincipalDashboard({
                                   </div>
 
                                   <select
-                                    value={record.status}
+                                    value={status}
                                     onChange={(e) => {
-                                      const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave';
-                                      setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
-                                      toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
+                                      const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave' | 'unmarked';
+                                      if (newStatus === 'unmarked') return;
+                                      if (record && !isRoster) {
+                                        setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                        toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
+                                      } else if (student) {
+                                        handleRosterAttendanceChange(student, newStatus);
+                                      }
                                     }}
-                                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
-                                      record.status === 'present'
-                                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                                        : record.status === 'absent'
-                                        ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                                        : record.status === 'late'
-                                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                                        : 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                                    }`}
+                                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${getAttendanceStatusClass(status)}`}
                                   >
+                                    {!record && <option value="unmarked">Not Marked</option>}
                                     <option value="present">Present</option>
                                     <option value="absent">Absent</option>
                                     <option value="late">Late</option>
@@ -3293,7 +3511,7 @@ export default function PrincipalDashboard({
                               </div>
                             );
                           })}
-                          {filteredAttendance.length > attendanceDisplayLimit && (
+                          {attendanceFilterClass === 'all' && filteredAttendance.length > attendanceDisplayLimit && (
                             <div className="p-6 flex justify-center bg-white border-t border-slate-50">
                               <button 
                                 onClick={() => setAttendanceDisplayLimit(prev => prev + 100)}
@@ -3320,11 +3538,11 @@ export default function PrincipalDashboard({
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {(() => {
-                          if (filteredAttendance.length === 0) {
+                          if (attendanceDisplayRows.length === 0) {
                             return (
                               <tr>
                                 <td colSpan={3} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
-                                  {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : `No attendance recorded for date ${attendanceFilterDate}`}
+                                  {attendanceSearch ? `No attendance records matching "${attendanceSearch}"` : attendanceFilterClass !== 'all' ? `No students found in this class for ${attendanceFilterDate}` : `No attendance recorded for date ${attendanceFilterDate}`}
                                 </td>
                               </tr>
                             );
@@ -3332,16 +3550,17 @@ export default function PrincipalDashboard({
 
                           return (
                             <>
-                              {visibleAttendance.map(record => {
-                                const student = studentsMap.get(String(record.studentId));
-                                const feeStudent = feeStudentsMap.get(String(record.studentId));
-                                const sName = student?.name || feeStudent?.name || (record as any).studentName || (`Student #${String(record.studentId || '').slice(-4)}`);
+                              {attendanceDisplayRows.map(row => {
+                                const { student, record, isRoster } = row;
+                                const feeStudent = student ? feeStudentsMap.get(String(student.id)) : undefined;
+                                const sName = student?.name || feeStudent?.name || (record as any)?.studentName || (`Student #${String(record?.studentId || '').slice(-4)}`);
                                 const sRoll = student?.rollNumber ? `Roll #${student.rollNumber}` : feeStudent?.class ? feeStudent.class : 'Roster Student';
                                 const sClass = student?.classId ? getClassName(student.classId) : feeStudent?.class || 'N/A';
                                 const photo = getStudentPhoto(student || { name: sName });
+                                const status = record?.status || 'unmarked';
 
                                 return (
-                                  <tr key={record.id} className="hover:bg-slate-50/60 transition-colors">
+                                  <tr key={record?.id || `roster_${student?.id || sName}`} className="hover:bg-slate-50/60 transition-colors">
                                     <td className="px-5 py-4">
                                       <div className="flex items-center gap-3">
                                         {photo ? (
@@ -3358,7 +3577,7 @@ export default function PrincipalDashboard({
                                             {sName}
                                           </span>
                                           <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
-                                            {sRoll}
+                                            {sRoll} {isRoster && <span className="text-indigo-500">· {sClass}</span>}
                                           </span>
                                         </div>
                                       </div>
@@ -3367,12 +3586,12 @@ export default function PrincipalDashboard({
                                     <td className="px-5 py-4">
                                       <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-full">
                                         <User size={11} className="text-indigo-500" />
-                                        {record.markedBy || '—'}
+                                        {record?.markedBy || (isRoster ? 'Not Marked Yet' : '—')}
                                       </span>
                                     </td>
 
                                     <td className="px-5 py-4 text-right flex items-center justify-end gap-2">
-                                      {record.status === 'absent' && student && (
+                                      {status === 'absent' && student && record && (
                                         <button
                                           onClick={() => handleSendIndividualWhatsApp(student, record.date)}
                                           className="p-1.5 bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-lg transition-all cursor-pointer"
@@ -3383,22 +3602,20 @@ export default function PrincipalDashboard({
                                       )}
 
                                       <select
-                                        value={record.status}
+                                        value={status}
                                         onChange={(e) => {
-                                          const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave';
-                                          setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
-                                          toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
+                                          const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave' | 'unmarked';
+                                          if (newStatus === 'unmarked') return;
+                                          if (record && !isRoster) {
+                                            setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                            toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
+                                          } else if (student) {
+                                            handleRosterAttendanceChange(student, newStatus);
+                                          }
                                         }}
-                                        className={`px-3 py-1.5 text-sm font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${
-                                          record.status === 'present'
-                                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                                            : record.status === 'absent'
-                                            ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                                            : record.status === 'late'
-                                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
-                                            : 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                                        }`}
+                                        className={`px-3 py-1.5 text-sm font-black uppercase tracking-wider border outline-none cursor-pointer rounded-xl transition-all ${getAttendanceStatusClass(status)}`}
                                       >
+                                        {!record && <option value="unmarked">Not Marked</option>}
                                         <option value="present">Present</option>
                                         <option value="absent">Absent</option>
                                         <option value="late">Late</option>
@@ -3408,7 +3625,7 @@ export default function PrincipalDashboard({
                                   </tr>
                                 );
                               })}
-                              {filteredAttendance.length > attendanceDisplayLimit && (
+                              {attendanceFilterClass === 'all' && filteredAttendance.length > attendanceDisplayLimit && (
                                 <tr>
                                   <td colSpan={3} className="px-5 py-8 text-center bg-white">
                                     <button 
@@ -3426,6 +3643,270 @@ export default function PrincipalDashboard({
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            ) : (
+              /* ================= RESULTS REGISTER & WHATSAPP DISPATCH ================= */
+              <div id="audit-results-section" className="space-y-6 animate-fade-in">
+                {/* Filters & Control Bar */}
+                <div className="bg-white p-4 border border-slate-200 rounded-2xl shadow-sm space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="relative flex-1">
+                      <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                      <select
+                        value={resultsClassFilter}
+                        onChange={(e) => setResultsClassFilter(e.target.value)}
+                        className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-violet-500 rounded-xl appearance-none cursor-pointer"
+                      >
+                        <option value="all">All Classes</option>
+                        {classes.map(c => (
+                          <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative flex-1">
+                      <Award className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400" size={14} />
+                      <input
+                        list="results-exam-names-list"
+                        value={resultsExamDraft}
+                        onChange={(e) => setResultsExamDraft(e.target.value)}
+                        placeholder="Exam / Test name — e.g. 1st Term, 2nd Term, 3rd Term, Annual, Monthly Test..."
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-violet-500 rounded-xl"
+                      />
+                      <datalist id="results-exam-names-list">
+                        {Array.from(new Set([...availableExamTypes, ...EXAM_NAME_OPTIONS])).filter(Boolean).map(opt => <option key={opt} value={opt} />)}
+                      </datalist>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const exam = resultsExamDraft.trim();
+                        if (!exam) { toast.error('Please type an exam / test name first.'); return; }
+                        setResultsExam(exam);
+                        const count = students.filter(s => resultsClassFilter === 'all' || s.classId === resultsClassFilter).filter(s => marks.some(m => String(m.studentId) === String(s.id) && (m.examType || '').trim().toLowerCase() === exam.toLowerCase())).length;
+                        if (count === 0) {
+                          toast.warning(`No marks found for "${exam}" yet. Ask teachers to enter them first.`);
+                        } else {
+                          toast.success(`Reports built for "${exam}" — ${count} student(s) with marks.`);
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-violet-600 text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center hover:bg-violet-700 transition-all shadow-xs rounded-xl cursor-pointer whitespace-nowrap"
+                    >
+                      Build Reports
+                    </button>
+                  </div>
+                </div>
+
+                {/* Summary Metrics */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white p-5 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
+                    <div>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Students with Marks</p>
+                      <h3 className="text-3xl font-black text-violet-600">{resultsRows.filter(r => r.hasMarks).length}</h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center text-violet-600">
+                      <Award size={24} />
+                    </div>
+                  </div>
+                  <div className="bg-white p-5 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
+                    <div>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Students</p>
+                      <h3 className="text-3xl font-black text-slate-900">{resultsRows.length}</h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-600">
+                      <Users size={24} />
+                    </div>
+                  </div>
+                  <div className="bg-white p-5 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
+                    <div>
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Average %</p>
+                      <h3 className="text-3xl font-black text-emerald-600">
+                        {(() => {
+                          const withMarks = resultsRows.filter(r => r.hasMarks && r.totalMax > 0);
+                          return withMarks.length > 0 ? Math.round(withMarks.reduce((s, r) => s + r.pct, 0) / withMarks.length) : 0;
+                        })()}%
+                      </h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                      <TrendingUp size={24} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Results Table */}
+                <div className="bg-white border border-slate-200 shadow-sm overflow-hidden rounded-2xl">
+                  <div className="p-3.5 sm:p-5 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                      <Award size={16} className="text-violet-600 shrink-0" /> {resultsExam ? `Result Reports — ${resultsExam}` : 'Result Reports'}
+                      {resultsExam && (
+                        <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-lg font-black tabular-nums">
+                          {resultsRows.filter(r => r.hasMarks).length} with marks
+                        </span>
+                      )}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {resultsExam && resultsRows.some(r => r.hasMarks) && (
+                        <button
+                          onClick={() => setResultWAModal({ isOpen: true, exam: resultsExam })}
+                          className="px-4 py-2 bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 hover:bg-emerald-700 transition-all shadow-xs rounded-xl cursor-pointer"
+                        >
+                          <MessageSquare size={13} /> Bulk Send to Parents
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {!resultsExam ? (
+                    <div className="py-16 text-center px-6">
+                      <Award size={32} className="text-slate-200 mx-auto mb-2" />
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                        Select an exam/test name and press "Build Reports"
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* MOBILE CARDS */}
+                      <div className="block md:hidden divide-y divide-slate-100">
+                        {resultsRows.length === 0 ? (
+                          <div className="py-12 text-center text-slate-400 font-bold uppercase tracking-wider text-xs px-4">
+                            No students found for this class selection.
+                          </div>
+                        ) : (
+                          resultsRows.map((row, idx) => (
+                            <div key={row.student.id} className="p-4 bg-white">
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="text-xs font-black text-violet-500 w-6 shrink-0">#{idx + 1}</span>
+                                  <div className="min-w-0">
+                                    <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate">{row.student.name}</h4>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                                      Roll #{row.student.rollNumber} · {getClassName(row.student.classId)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className={`block text-sm font-black ${row.hasMarks ? (row.pct >= 40 ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-300'}`}>
+                                    {row.hasMarks ? `${row.pct}%` : '—'}
+                                  </span>
+                                  <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    {row.hasMarks ? (row.pct >= 40 ? 'PASS' : 'RE-STUDY') : 'No Marks'}
+                                  </span>
+                                </div>
+                              </div>
+                              {row.hasMarks && (
+                                <div className="pt-2 mt-2 border-t border-slate-100 space-y-1">
+                                  {row.examMarks.map(m => (
+                                    <div key={m.id} className="flex items-center justify-between text-xs">
+                                      <span className="font-bold text-slate-600 uppercase tracking-tight">{m.subject}</span>
+                                      <span className="font-black text-slate-800 tabular-nums">{m.marksObtained}/{m.maxMarks}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-slate-100">
+                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                                  Total: {row.hasMarks ? `${row.totalObtained}/${row.totalMax}` : '—'}
+                                </span>
+                                <button
+                                  onClick={() => handleSendResultWhatsApp(row.student, resultsExam)}
+                                  disabled={!row.hasMarks}
+                                  className="px-3.5 py-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Send size={13} /> Send Report
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* DESKTOP TABLE */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50/80 border-b border-slate-100 uppercase text-xs font-black tracking-widest text-slate-500">
+                            <tr>
+                              <th className="px-5 py-4">Student & Roll</th>
+                              <th className="px-5 py-4">Subject Marks</th>
+                              <th className="px-5 py-4 text-center">Total</th>
+                              <th className="px-5 py-4 text-center">%</th>
+                              <th className="px-5 py-4 text-center">Status</th>
+                              <th className="px-5 py-4 text-right">Send</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {resultsRows.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="py-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs">
+                                  No students found for this class selection.
+                                </td>
+                              </tr>
+                            ) : (
+                              resultsRows.map((row, idx) => (
+                                <tr key={row.student.id} className="hover:bg-slate-50/60 transition-colors">
+                                  <td className="px-5 py-4">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-xs font-black text-violet-500 w-5 shrink-0">{idx + 1}</span>
+                                      <div>
+                                        <span className="font-black text-slate-900 block truncate uppercase tracking-tight text-sm leading-tight">
+                                          {row.student.name}
+                                        </span>
+                                        <span className="text-xs text-slate-500 font-bold uppercase tracking-wider block mt-0.5">
+                                          Roll #{row.student.rollNumber} · {getClassName(row.student.classId)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    {row.hasMarks ? (
+                                      <div className="flex flex-wrap gap-1.5 max-w-md">
+                                        {row.examMarks.map(m => (
+                                          <span key={m.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-800 border border-indigo-100 rounded-full text-[10px] font-black uppercase">
+                                            {m.subject}: <span className="tabular-nums">{m.marksObtained}/{m.maxMarks}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">No marks entered</span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-4 text-center text-sm font-black text-slate-800 tabular-nums">
+                                    {row.hasMarks ? `${row.totalObtained}/${row.totalMax}` : '—'}
+                                  </td>
+                                  <td className="px-5 py-4 text-center text-sm font-black text-indigo-600 tabular-nums">
+                                    {row.hasMarks ? `${row.pct}%` : '—'}
+                                  </td>
+                                  <td className="px-5 py-4 text-center">
+                                    {row.hasMarks ? (
+                                      <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-full ${
+                                        row.pct >= 40 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
+                                      }`}>
+                                        {row.pct >= 40 ? 'PASS' : 'RE-STUDY'}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-4 text-right">
+                                    <button
+                                      onClick={() => handleSendResultWhatsApp(row.student, resultsExam)}
+                                      disabled={!row.hasMarks}
+                                      title={row.hasMarks ? `Send ${resultsExam} report to parent` : 'No marks to send'}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      <Send size={12} /> Send
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -3850,10 +4331,10 @@ export default function PrincipalDashboard({
                               >
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-black text-slate-900 uppercase ">{p.month} {p.year}</span>
+                                    <span className="text-xs font-black text-slate-900 uppercase ">{formatDateDDMMYY(p.date) || `${p.month} ${p.year}`}</span>
                                     <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-widest">{p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee'}</span>
                                   </div>
-                                  <p className="text-xs text-slate-400 font-bold mt-0.5">Paid on: {p.date}</p>
+                                  <p className="text-xs text-slate-400 font-bold mt-0.5">Paid on: {formatDateDDMMYY(p.date) || p.date} · {String(p.month).replace(/ \d{4}$/, '')} {p.year}</p>
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0">
                                   <span className="text-xs font-black text-emerald-600">{p.amount}</span>
@@ -4468,6 +4949,74 @@ export default function PrincipalDashboard({
                           .replace(/{total_pending}/g, "1500")
                           .replace(/{months}/g, "June, July")
                           .replace(/{date}/g, new Date().toLocaleDateString())}"
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Result / Report Card Template custom box */}
+                  <div className="space-y-3 bg-white p-5 border border-slate-200">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-black uppercase tracking-widest text-slate-400 block">Result / Report Card Template</span>
+                      <div className="flex gap-2">
+                        <select 
+                          className="text-xs bg-white border border-slate-200 font-bold px-2 py-0.5 rounded uppercase focus:ring-1 focus:ring-violet-500 outline-none"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            let newTpl = "";
+                            if (val === "standard") newTpl = "Greetings, Respected Parent! Result of {student_name} (Roll: {roll_number}, {class_name}) for {exam_name}:\n{subjects}\nTotal: {total_obtained}/{total_max} ({percentage}%). Status: {status}.\n- NSB 1 Academy.";
+                            else if (val === "detailed") newTpl = "Assalam-o-Alaikum! {exam_name} RESULT of {student_name} (Roll: {roll_number}, {class_name}):\n{subjects}\nGRAND TOTAL: {total_obtained} out of {total_max} ({percentage}%)\nRemarks: {status}\nBest regards, NSB 1 Academy.";
+                            else if (val === "short") newTpl = "{exam_name} result {student_name}: {percentage}% ({status}). Total {total_obtained}/{total_max}. NSB 1 Academy.";
+                            
+                            if (newTpl) {
+                              updateSetting('resultTemplate', newTpl);
+                            }
+                          }}
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Select Preset...</option>
+                          <option value="standard">Standard</option>
+                          <option value="detailed">Detailed</option>
+                          <option value="short">Short (Quick)</option>
+                        </select>
+                        <span className="text-xs bg-violet-50 text-violet-700 border border-violet-100 font-bold px-2 py-0.5 rounded-full uppercase">Result</span>
+                      </div>
+                    </div>
+                    
+                    <textarea 
+                      rows={4}
+                      value={appSettings.resultTemplate}
+                      onChange={(e) => updateSetting('resultTemplate', e.target.value)}
+                      placeholder="Insert your custom result/report card template copy..."
+                      className="w-full bg-slate-50 text-xs border border-slate-200 p-3  font-medium focus:outline-none focus:border-violet-600 focus:bg-white"
+                    />
+                    
+                    <div className="space-y-1 bg-slate-50 p-3 text-xs text-slate-500 font-mono">
+                      <p className="font-bold uppercase text-xs text-violet-700">Available Tags (Auto Replaced):</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li><code className="text-rose-600 font-bold">{`{student_name}`}</code> - Name of the student</li>
+                        <li><code className="text-rose-600 font-bold">{`{roll_number}`}</code> - Roll registry number</li>
+                        <li><code className="text-rose-600 font-bold">{`{class_name}`}</code> - Classroom handle</li>
+                        <li><code className="text-rose-600 font-bold">{`{exam_name}`}</code> - Exam / test / term name (any)</li>
+                        <li><code className="text-rose-600 font-bold">{`{subjects}`}</code> - Subject-wise marks lines</li>
+                        <li><code className="text-rose-600 font-bold">{`{total_obtained}`}</code> - Total obtained marks</li>
+                        <li><code className="text-rose-600 font-bold">{`{total_max}`}</code> - Total maximum marks</li>
+                        <li><code className="text-rose-600 font-bold">{`{percentage}`}</code> - Overall percentage</li>
+                        <li><code className="text-rose-600 font-bold">{`{status}`}</code> - PASS / RE-STUDY</li>
+                      </ul>
+                    </div>
+
+                    <div className="pt-2 border-t text-[9.5px]">
+                      <span className="font-bold text-slate-500 block uppercase">Draft Sample Live Preview:</span>
+                      <p className="text-slate-700 font-medium  mt-1 bg-slate-100 p-2 border leading-normal whitespace-pre-wrap">
+                        "{(appSettings.resultTemplate || '').replace(/{student_name}/g, "Zain")
+                          .replace(/{roll_number}/g, "12")
+                          .replace(/{class_name}/g, "Class-A")
+                          .replace(/{exam_name}/g, "1st Term")
+                          .replace(/{subjects}/g, "- English: 85/100\n- Math: 78/100")
+                          .replace(/{total_obtained}/g, "163")
+                          .replace(/{total_max}/g, "200")
+                          .replace(/{percentage}/g, "81")
+                          .replace(/{status}/g, "PASS")}"
                       </p>
                     </div>
                   </div>
@@ -5433,7 +5982,10 @@ export default function PrincipalDashboard({
                                 fData.payments.slice(0, 5).map((p, i) => (
                                   <div key={i} className="flex items-center justify-between p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-100 gap-2">
                                     <div className="min-w-0">
-                                      <p className="text-xs font-bold text-emerald-900 uppercase">{p.month} {p.year}</p>
+                                      <p className="text-xs font-bold text-emerald-900 uppercase">
+                                        {formatDateDDMMYY((p as any).date) || `${p.month} ${p.year}`}
+                                        <span className="text-[10px] font-black text-slate-400 normal-case"> · {String(p.month).replace(/ \d{4}$/, '')} {p.year}</span>
+                                      </p>
                                       <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mt-0.5">{p.feeType || (fees.find(f => f.id === p.id)?.feeType) || 'School Fee'}</p>
                                     </div>
                                     <span className="text-xs font-black text-emerald-700 shrink-0">{p.amount}</span>
@@ -6626,6 +7178,114 @@ export default function PrincipalDashboard({
                 </div>
                 <button 
                   onClick={() => setBulkWAModal({ isOpen: false, absents: [] })}
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk Result WhatsApp Modal */}
+      <AnimatePresence>
+        {resultWAModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200"
+            >
+              <div className="bg-violet-600 p-6 text-white flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                    <Award size={24} /> Bulk Result Dispatch
+                  </h2>
+                  <p className="text-xs uppercase font-bold text-violet-100 mt-1">
+                    {resultWAModal.exam} — {resultWARows.length} students with marks
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setResultWAModal({ isOpen: false, exam: '' })}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Class Filter Dropdown in Modal */}
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-4">
+                <div className="flex-1 relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <select 
+                    value={resultWAClassFilter}
+                    onChange={(e) => setResultWAClassFilter(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-violet-500 appearance-none"
+                  >
+                    <option value="all">Filter by Class (All)</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={() => handleBulkSendResultWhatsApp(resultWARows.map(r => r.student), resultWAModal.exam)}
+                  disabled={resultWARows.length === 0}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[11px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Send size={13} /> Send All
+                </button>
+              </div>
+
+              <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
+                {(() => {
+                  if (resultWARows.length === 0) {
+                    return <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No students with marks for this exam</p>;
+                  }
+
+                  return resultWARows.map((row, idx) => {
+                    const sClass = classes.find(c => c.id === row.student.classId);
+                    const msg = buildResultMessage(row.student, resultWAModal.exam);
+                    const sending = sendingResultIds.has(String(row.student.id));
+                    return (
+                      <div key={row.student.id || idx} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="w-10 h-10 bg-violet-100 text-violet-700 rounded-full flex items-center justify-center font-black text-sm shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{row.student.name}</h4>
+                            <p className="text-xs font-bold text-slate-400 uppercase truncate">
+                              {sClass ? `${sClass.className} - ${sClass.section}` : 'N/A'} | Roll: {row.student.rollNumber} | {row.marks.reduce((s, m) => s + Number(m.marksObtained || 0), 0)}/{row.marks.reduce((s, m) => s + Number(m.maxMarks || 0), 0)} | {(row.student as any).parentPhone || 'No Phone'}
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-300 mt-1 truncate max-w-xs">{msg.replace(/\n/g, ' · ')}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleSendResultWhatsApp(row.student, resultWAModal.exam)}
+                          disabled={sending}
+                          title="Send Result Report"
+                          className={`p-2.5 flex items-center justify-center rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
+                            sending ? 'bg-slate-300 text-slate-500' : 'bg-violet-600 hover:bg-violet-700 text-white'
+                          }`}
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Click Send for each parent — full report included</span>
+                </div>
+                <button 
+                  onClick={() => setResultWAModal({ isOpen: false, exam: '' })}
                   className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all"
                 >
                   Dismiss
