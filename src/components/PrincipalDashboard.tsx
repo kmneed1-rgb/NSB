@@ -1809,27 +1809,26 @@ export default function PrincipalDashboard({
       {/* Principal Sidebar */}
       <div 
         id="sidebar-principal" 
-        className={`fixed md:sticky top-0 left-0 h-screen w-60 bg-white border-r border-slate-100 text-slate-900 flex flex-col justify-between z-40 transition-transform duration-300 transform md:transform-none ${
+        className={`fixed md:sticky top-0 left-0 h-screen w-60 bg-white border-r border-slate-100 text-slate-900 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans print:hidden`}
       >
-        <div>
-          {/* Brand header - Minimalist */}
-          <div className="p-4 pb-5 border-b border-slate-50 mb-4">
-            <div className="flex items-center justify-between w-full">
-              <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
-              <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="flex flex-col items-center gap-1 mt-2">
-              <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
-              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">Principal Office</span>
-            </div>
+        {/* Brand header - Minimalist */}
+        <div className="p-4 pb-5 border-b border-slate-50 mb-4">
+          <div className="flex items-center justify-between w-full">
+            <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+              <X size={18} />
+            </button>
           </div>
+          <div className="flex flex-col items-center gap-1 mt-2">
+            <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
+            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">Principal Office</span>
+          </div>
+        </div>
 
-          {/* Minimalist Nav */}
-          <nav className="px-5 space-y-1">
+        {/* Minimalist Nav */}
+        <nav className="flex-1 overflow-y-auto px-5 space-y-1">
             {[
               { id: 'dashboard', label: 'Home', icon: BarChart2 },
               { id: 'registers', label: 'Records', icon: Database },
@@ -1866,7 +1865,6 @@ export default function PrincipalDashboard({
               Install App
             </button>
           </nav>
-        </div>
 
         {/* Footer profile & logout - Minimalist */}
         <div className="p-8 border-t border-slate-50">

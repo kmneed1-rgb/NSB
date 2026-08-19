@@ -862,29 +862,28 @@ export default function TeacherDashboard({
       {/* Teacher Sidebar Drawer */}
       <div 
         id="sidebar-teacher" 
-        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col justify-between z-40 transition-transform duration-300 transform md:transform-none ${
+        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans`}
       >
-        <div>
-          {/* Minimalist Brand header */}
-          <div className="p-4 border-b border-slate-100 flex flex-col items-center gap-2">
-            <div className="flex items-center justify-between w-full">
-              <div className="mb-1">
-                <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain" referrerPolicy="no-referrer" />
-              </div>
-              <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
-                <X size={18} />
-              </button>
+        {/* Minimalist Brand header */}
+        <div className="p-4 border-b border-slate-100 flex flex-col items-center gap-2">
+          <div className="flex items-center justify-between w-full">
+            <div className="mb-1">
+              <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain" referrerPolicy="no-referrer" />
             </div>
-            <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 School</h1>
-              <p className="text-indigo-600 font-black text-[10px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
-            </div>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+              <X size={18} />
+            </button>
           </div>
+          <div className="text-center w-full">
+            <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 School</h1>
+            <p className="text-indigo-600 font-black text-[10px] tracking-[0.3em] uppercase mt-1">Faculty Hub</p>
+          </div>
+        </div>
 
-          {/* Nav groups - Minimalist List */}
-          <nav className="p-4 space-y-1 mt-6">
+        {/* Nav groups - Minimalist List */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1 mt-2">
             {[
               { id: 'dashboard', label: 'Overview', icon: Sparkles },
               { id: 'students', label: 'Roster', icon: Users },
@@ -921,7 +920,6 @@ export default function TeacherDashboard({
               Install App
             </button>
           </nav>
-        </div>
 
         {/* Minimalist Profile section */}
         <div className="p-6 border-t border-slate-100">

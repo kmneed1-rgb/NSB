@@ -4,9 +4,10 @@ import {
   BookOpen, Users, Award, Shield, ArrowRight, CheckCircle2, 
   MapPin, Phone, Mail, Clock, Calendar, Sparkles, Send, Info,
   GraduationCap, Laptop, Book, Globe, ShieldCheck, Trophy,
-  Menu, X, Star, Quote, TrendingUp
+  Menu, X, Star, Quote, TrendingUp, CheckSquare, CreditCard, MessageSquare, Fingerprint
 } from 'lucide-react';
 import { Teacher, Student, Class } from '../types';
+import schoolHero from '../assets/images/school_hero_illustration_1781185991035.png';
 
 interface LandingPageProps {
   teachers: Teacher[];
@@ -205,32 +206,59 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
               >
                 <div className="aspect-square max-w-md lg:max-w-none mx-auto bg-slate-50 rounded-[2rem] md:rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
                   <div className="absolute inset-0 bg-gradient-to-tr from-emerald-100/20 to-transparent"></div>
-                  <div className="absolute inset-0 flex items-center justify-center p-12 md:p-20">
+                  <div className="absolute inset-0 flex items-center justify-center p-10 md:p-14">
                     <img 
-                      src="/logo.png" 
-                      alt="NSB1 Logo Large" 
-                      className="w-full h-auto object-contain opacity-20 grayscale"
+                      src={schoolHero} 
+                      alt="NSB1 School Features" 
+                      className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
                     />
                   </div>
-                  
-                  {/* Floating Metric Cards */}
+
+                  {/* School Features Overlay Chips */}
+                  <div className="absolute left-4 bottom-4 sm:left-6 sm:bottom-6 flex flex-wrap gap-2 max-w-[85%]">
+                    {[
+                      { icon: CheckSquare, label: 'Digital Attendance' },
+                      { icon: Calendar, label: 'Smart Timetable' },
+                      { icon: CreditCard, label: 'Fee Ledger' },
+                      { icon: MessageSquare, label: 'WhatsApp Alerts' },
+                      { icon: Award, label: 'Live Results' },
+                      { icon: Fingerprint, label: 'ID Cards' }
+                    ].map(feat => (
+                      <span key={feat.label} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white/90 backdrop-blur-md border border-emerald-100 text-slate-900 rounded-full shadow-md text-[9px] font-black uppercase tracking-widest">
+                        <feat.icon size={11} className="text-emerald-600" />
+                        {feat.label}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Floating Feature Cards */}
                   <motion.div 
                     animate={{ y: [0, -10, 0] }}
                     transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-4 right-4 sm:top-10 sm:right-10 bg-white p-4 sm:p-6 shadow-xl rounded-2xl border border-slate-100"
+                    className="absolute top-4 right-4 sm:top-10 sm:right-10 bg-white p-4 sm:p-5 shadow-xl rounded-2xl border border-slate-100 flex items-center gap-3"
                   >
-                    <div className="text-emerald-600 font-black text-lg sm:text-2xl">98%</div>
-                    <div className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Board Pass Rate</div>
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center shrink-0">
+                      <CheckCircle2 size={18} />
+                    </div>
+                    <div>
+                      <div className="text-emerald-600 font-black text-sm sm:text-lg">98%</div>
+                      <div className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest">Board Pass Rate</div>
+                    </div>
                   </motion.div>
 
                   <motion.div 
                     animate={{ y: [0, 10, 0] }}
                     transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                    className="absolute bottom-10 left-2 sm:bottom-20 sm:left-[-20px] bg-slate-950 p-4 sm:p-6 shadow-xl rounded-2xl border border-slate-800"
+                    className="absolute bottom-24 left-2 sm:bottom-28 sm:left-[-20px] bg-slate-950 p-4 sm:p-5 shadow-xl rounded-2xl border border-slate-800 flex items-center gap-3"
                   >
-                    <div className="text-white font-black text-lg sm:text-2xl">12+</div>
-                    <div className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialized Labs</div>
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-emerald-600/20 text-emerald-400 rounded-xl flex items-center justify-center shrink-0">
+                      <TrendingUp size={18} />
+                    </div>
+                    <div>
+                      <div className="text-white font-black text-sm sm:text-lg">12+</div>
+                      <div className="text-[8px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest">Specialized Labs</div>
+                    </div>
                   </motion.div>
                 </div>
               </motion.div>

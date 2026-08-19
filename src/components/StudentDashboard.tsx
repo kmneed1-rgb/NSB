@@ -403,32 +403,31 @@ export default function StudentDashboard({
       {/* Student Nav Drawer */}
       <div 
         id="sidebar-student" 
-        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col justify-between z-40 transition-transform duration-300 transform md:transform-none ${
+        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans`}
       >
-        <div>
-          {/* Institutional Branding */}
-          <div className="p-4 border-b border-slate-50 flex flex-col items-center gap-2">
-            <div className="flex items-center justify-between w-full">
-              <img 
-                src="/logo.png" 
-                alt="NSB 1 ACADEMY" 
-                className="h-16 w-auto object-contain animate-bounce-slow"
-                referrerPolicy="no-referrer"
-              />
-              <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="text-center w-full">
-              <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 Academy</h1>
-              <p className="text-slate-400 font-bold text-[10px] tracking-[0.3em] uppercase mt-1">Student Portal</p>
-            </div>
+        {/* Institutional Branding */}
+        <div className="p-4 border-b border-slate-50 flex flex-col items-center gap-2">
+          <div className="flex items-center justify-between w-full">
+            <img 
+              src="/logo.png" 
+              alt="NSB 1 ACADEMY" 
+              className="h-16 w-auto object-contain animate-bounce-slow"
+              referrerPolicy="no-referrer"
+            />
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+              <X size={18} />
+            </button>
           </div>
+          <div className="text-center w-full">
+            <h1 className="text-slate-900 font-black text-sm tracking-widest uppercase leading-none">NSB1 Academy</h1>
+            <p className="text-slate-400 font-bold text-[10px] tracking-[0.3em] uppercase mt-1">Student Portal</p>
+          </div>
+        </div>
 
-          {/* Minimalist Navigation */}
-          <nav className="p-4 space-y-1 mt-6">
+        {/* Minimalist Navigation */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1 mt-2">
             {[
               { id: 'dashboard', label: 'Campus', icon: Sparkles },
               { id: 'attendance', label: 'Presence', icon: CheckSquare },
@@ -464,7 +463,6 @@ export default function StudentDashboard({
               Install App
             </button>
           </nav>
-        </div>
 
         {/* Minimalist Account Section */}
         <div className="p-6 border-t border-slate-50">
