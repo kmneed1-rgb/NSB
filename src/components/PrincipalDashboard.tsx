@@ -5,9 +5,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
-import { addNotification } from '../lib/notificationUtils';
+import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, getStudentPhoto } from '../types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, Assignment, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
 import { useLongPress } from '../lib/longPress';
 import { 
@@ -50,6 +50,8 @@ interface PrincipalDashboardProps {
   setFeeStudents: React.Dispatch<React.SetStateAction<StudentFeeData[]>>;
   appSettings: AppSettings;
   setAppSettings: React.Dispatch<React.SetStateAction<AppSettings>>;
+  assignments: Assignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<Assignment[]>>;
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
@@ -87,6 +89,8 @@ export default function PrincipalDashboard({
   setFeeStudents,
   appSettings,
   setAppSettings,
+  assignments,
+  setAssignments,
   onLogout,
   installPromptEvent,
   onInstallApp
@@ -122,6 +126,35 @@ export default function PrincipalDashboard({
   const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance' | 'results'>('fees');
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Notification feed for Principal / Coordinator
+  const [portalNotifications, setPortalNotifications] = useState<PortalNotification[]>(() => getNotifications());
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+
+  useEffect(() => {
+    const syncNotifs = () => setPortalNotifications(getNotifications());
+    window.addEventListener('acadamis_new_notification', syncNotifs);
+    return () => window.removeEventListener('acadamis_new_notification', syncNotifs);
+  }, []);
+
+  const relevantNotifications = React.useMemo(() => {
+    return portalNotifications.filter(n =>
+      n.role === 'all' || n.role === 'principal' || n.role === 'coordinator'
+    );
+  }, [portalNotifications]);
+
+  const handleMarkAllRead = () => {
+    const updated = portalNotifications.map(n => ({ ...n, isUnread: false }));
+    saveNotifications(updated);
+    setPortalNotifications(updated);
+    toast.success("All notifications marked as read.");
+  };
+
+  const handleClearNotifications = () => {
+    saveNotifications([]);
+    setPortalNotifications([]);
+    toast.success("Notification history cleared.");
+  };
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setAppSettings(prev => ({ ...prev, [key]: value }));
@@ -1682,14 +1715,87 @@ export default function PrincipalDashboard({
             <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em]">Principal Office</span>
           </div>
         </div>
-        <button 
-          id="sidebar-toggle-mobile" 
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 shrink-0"
-          aria-label="Toggle navigation menu"
-        >
-          <Menu size={22} />
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button 
+              onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+              className="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 relative shrink-0"
+              title="Notifications"
+              aria-label="Toggle notifications"
+            >
+              <Bell size={20} />
+              {relevantNotifications.filter(n => n.isUnread).length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white font-extrabold text-[10px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 border border-white">
+                  {relevantNotifications.filter(n => n.isUnread).length}
+                </span>
+              )}
+            </button>
+
+            <AnimatePresence>
+              {showNotifDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifDropdown(false)} />
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-none shadow-xl z-50 py-3 flex flex-col font-sans"
+                  >
+                    <div className="px-4 pb-2 border-b border-slate-100 flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Office Alerts</span>
+                      <div className="flex items-center gap-2">
+                        {relevantNotifications.length > 0 && (
+                          <button onClick={handleMarkAllRead} className="text-xs hover:underline text-emerald-600 font-bold uppercase">Mark Read</button>
+                        )}
+                        {relevantNotifications.length > 0 && (
+                          <span className="text-slate-200">|</span>
+                        )}
+                        <button onClick={handleClearNotifications} className="text-xs hover:underline text-rose-600 font-bold uppercase">Clear</button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                      {relevantNotifications.length === 0 ? (
+                        <div className="py-8 text-center text-slate-400 text-xs">
+                          No office alerts yet
+                        </div>
+                      ) : (
+                        relevantNotifications.map(notif => (
+                          <div 
+                            key={notif.id} 
+                            className={`p-3 text-left transition-colors hover:bg-slate-50/50 ${notif.isUnread ? 'bg-emerald-50/40' : ''}`}
+                          >
+                            <div className="flex items-start gap-2.5">
+                              <span className="text-xs">
+                                {notif.type === 'attendance_complete' ? '✅' : notif.type === 'fee_due' ? '💰' : '📅'}
+                              </span>
+                              <div className="space-y-0.5 min-w-0 flex-1">
+                                <h4 className="font-extrabold text-xs text-slate-900 leading-tight flex items-center gap-1.5">
+                                  <span className="truncate">{notif.title}</span>
+                                  {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>}
+                                </h4>
+                                <p className="text-xs text-slate-600 leading-relaxed break-words whitespace-normal">{notif.message}</p>
+                                <span className="text-[10px] text-slate-400 block font-mono mt-1">{notif.timestamp}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+          <button 
+            id="sidebar-toggle-mobile" 
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 shrink-0"
+            aria-label="Toggle navigation menu"
+          >
+            <Menu size={22} />
+          </button>
+        </div>
       </div>
 
       {/* Sidebar Overlay behind Drawer */}
@@ -2743,6 +2849,102 @@ export default function PrincipalDashboard({
                   <span className="text-lg font-black leading-none">{broadcastLogs.length}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Attendance Completion / Office Alerts Feed */}
+            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                <h2 className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <Bell size={14} className="text-emerald-600" /> Recent Office Alerts
+                </h2>
+                <div className="flex items-center gap-2">
+                  {relevantNotifications.length > 0 && (
+                    <button onClick={handleMarkAllRead} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:underline">Mark Read</button>
+                  )}
+                  {relevantNotifications.length > 0 && <span className="text-slate-200">|</span>}
+                  <button onClick={handleClearNotifications} className="text-[10px] font-black uppercase tracking-widest text-rose-600 hover:underline">Clear</button>
+                </div>
+              </div>
+
+              {relevantNotifications.length === 0 ? (
+                <div className="py-10 text-center">
+                  <Bell size={28} className="mx-auto text-slate-200 mb-3" />
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No office alerts yet</p>
+                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1">
+                    When a teacher completes class attendance, it will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                  {relevantNotifications.map(notif => (
+                    <div 
+                      key={notif.id} 
+                      className={`p-3.5 rounded-xl border transition-colors ${notif.isUnread ? 'bg-emerald-50/50 border-emerald-100' : 'bg-slate-50/50 border-slate-100'}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-600/10 flex items-center justify-center text-emerald-600 shrink-0">
+                          {notif.type === 'attendance_complete' ? '✅' : notif.type === 'fee_due' ? '💰' : '📅'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">{notif.title}</h4>
+                            {notif.isUnread && <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>}
+                          </div>
+                          <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1 break-words">{notif.message}</p>
+                          <span className="text-[10px] font-mono text-slate-300 block mt-1.5">{notif.timestamp}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Teacher Diary Overview */}
+            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                <h2 className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <FileText size={14} className="text-indigo-600" /> Teacher Diary Overview
+                </h2>
+                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">{assignments.length} Posted</span>
+              </div>
+
+              {assignments.length === 0 ? (
+                <div className="py-10 text-center">
+                  <FileText size={28} className="mx-auto text-slate-200 mb-3" />
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No assignments posted yet</p>
+                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1">
+                    Teacher-posted homework will be visible here and on student portals.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                  {assignments
+                    .slice()
+                    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+                    .map(assn => {
+                      const cls = classesMap.get(String(assn.classId));
+                      return (
+                        <div key={assn.id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full text-[9px] font-black uppercase tracking-widest">{assn.subject}</span>
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                  {cls ? `${cls.className}-${cls.section}` : assn.classId}
+                                </span>
+                              </div>
+                              <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight mt-1.5 truncate">{assn.title}</h4>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                By {assn.assignedByName} • Due {assn.dueDate}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-2">

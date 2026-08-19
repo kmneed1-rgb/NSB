@@ -1,12 +1,12 @@
 export interface PortalNotification {
   id: string;
-  type: 'timetable_created' | 'timetable_updated' | 'timetable_deleted' | 'period_bell' | 'fee_due' | 'attendance_alert';
+  type: 'timetable_created' | 'timetable_updated' | 'timetable_deleted' | 'period_bell' | 'fee_due' | 'attendance_alert' | 'attendance_complete';
   title: string;
   message: string;
   timestamp: string;
   teacherId?: string; // Target specific teacher
   classId?: string;   // Target specific class (for students)
-  role?: 'all' | 'teacher' | 'student' | 'principal';
+  role?: 'all' | 'teacher' | 'student' | 'principal' | 'coordinator';
   isUnread?: boolean;
 }
 

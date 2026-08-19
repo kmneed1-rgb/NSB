@@ -110,6 +110,18 @@ export interface AppSettings {
   periodColors: Record<string, string>;
 }
 
+export interface Assignment {
+  id: string;
+  classId: string;      // Target class (visible only to students of this class)
+  subject: string;      // e.g. "Mathematics"
+  title: string;        // Assignment title
+  description: string;  // Instructions / details
+  dueDate: string;      // YYYY-MM-DD deadline
+  assignedById: string; // Teacher.id who created it
+  assignedByName: string; // Teacher display name
+  createdAt: string;    // ISO timestamp
+}
+
 export interface StudentFeeData {
   id: string | number;
   name: string;

@@ -4,7 +4,7 @@ import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData } from './types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData, Assignment } from './types';
 import { 
   INITIAL_TEACHERS, 
   INITIAL_CLASSES, 
@@ -98,6 +98,10 @@ export default function App() {
 
   const [coordinators, setCoordinators] = useState<Coordinator[]>(() => 
     safeParse('acadamis_coordinators', [])
+  );
+
+  const [assignments, setAssignments] = useState<Assignment[]>(() => 
+    safeParse('acadamis_assignments', [])
   );
 
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => {
@@ -206,6 +210,7 @@ export default function App() {
   const prevCoordinators = useRef<string>('');
   const prevFeeStudents = useRef<string>('');
   const prevAppSettings = useRef<string>('');
+  const prevAssignments = useRef<string>('');
 
   // --- DEBOUNCED BATCHED FIRESTORE WRITER ---
   // Collects writes/deletes and flushes them in a single writeBatch after
@@ -305,7 +310,8 @@ export default function App() {
           marksSnapshot,
           feesSnapshot,
           coordinatorsSnapshot,
-          feeDataSnapshot
+          feeDataSnapshot,
+          assignmentsSnapshot
         ] = await Promise.all([
           getDocs(collection(db, "teachers")),
           getDocs(collection(db, "classes")),
@@ -315,7 +321,8 @@ export default function App() {
           getDocs(collection(db, "marks")),
           getDocs(collection(db, "fees")),
           getDocs(collection(db, "coordinators")),
-          getDocs(collection(db, "fee_data"))
+          getDocs(collection(db, "fee_data")),
+          getDocs(collection(db, "assignments"))
         ]);
         
         // Check if collections exist in Cloud Firestore
@@ -358,6 +365,7 @@ export default function App() {
           prevFees.current = JSON.stringify(INITIAL_FEES);
           prevCoordinators.current = JSON.stringify([]);
           prevFeeStudents.current = JSON.stringify([]);
+          prevAssignments.current = JSON.stringify([]);
         } else {
           console.log("Loading datasets from active Cloud Firestore...");
           
@@ -388,6 +396,9 @@ export default function App() {
           const loadedFeeStudents: StudentFeeData[] = [];
           feeDataSnapshot.forEach(docSnap => loadedFeeStudents.push(docSnap.data() as StudentFeeData));
 
+          const loadedAssignments: Assignment[] = [];
+          assignmentsSnapshot.forEach(docSnap => loadedAssignments.push(docSnap.data() as Assignment));
+
           // Load App Settings
           const settingsSnap = await getDoc(doc(db, "app_settings", "global"));
           let loadedSettings: AppSettings | null = null;
@@ -412,6 +423,7 @@ export default function App() {
           setFees(finalFees);
 
           if (loadedCoordinators.length > 0) setCoordinators(loadedCoordinators);
+          if (loadedAssignments.length > 0) setAssignments(loadedAssignments);
           if (loadedFeeStudents.length > 0) {
             setFeeStudents(loadedFeeStudents);
           } else {
@@ -453,6 +465,7 @@ export default function App() {
           prevFees.current = JSON.stringify(finalFees);
           prevCoordinators.current = JSON.stringify(loadedCoordinators);
           prevFeeStudents.current = JSON.stringify(loadedFeeStudents.length > 0 ? loadedFeeStudents : []);
+          prevAssignments.current = JSON.stringify(loadedAssignments.length > 0 ? loadedAssignments : []);
           if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
         }
         isSyncComplete.current = true;
@@ -525,6 +538,32 @@ export default function App() {
     prevCoordinators.current = currentStr;
     safeStorage.setItem('acadamis_coordinators', currentStr);
   }, [coordinators]);
+
+  // Assignments Sync
+  useEffect(() => {
+    if (!isSyncComplete.current) return;
+    const currentStr = JSON.stringify(assignments);
+    if (currentStr === prevAssignments.current) return;
+
+    const current = assignments;
+    const prevArr: Assignment[] = prevAssignments.current ? JSON.parse(prevAssignments.current) : [];
+
+    current.forEach((item) => {
+      const matched = prevArr.find(v => v.id === item.id);
+      if (!matched || JSON.stringify(matched) !== JSON.stringify(item)) {
+        queueBatchWrite("assignments", item.id, item);
+      }
+    });
+
+    prevArr.forEach((item) => {
+      if (!current.some(p => p.id === item.id)) {
+        queueBatchDelete("assignments", item.id);
+      }
+    });
+
+    prevAssignments.current = currentStr;
+    safeStorage.setItem('acadamis_assignments', currentStr);
+  }, [assignments]);
 
   // --- UTILS ---
   /**
@@ -946,6 +985,8 @@ export default function App() {
           setFeeStudents={setFeeStudents}
           appSettings={appSettings}
           setAppSettings={setAppSettings}
+          assignments={assignments}
+          setAssignments={setAssignments}
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
@@ -965,6 +1006,8 @@ export default function App() {
           setMarks={setMarks}
           fees={fees}
           setFees={setFees}
+          assignments={assignments}
+          setAssignments={setAssignments}
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
@@ -982,6 +1025,7 @@ export default function App() {
           marks={marks}
           fees={fees}
           setFees={setFees}
+          assignments={assignments}
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}

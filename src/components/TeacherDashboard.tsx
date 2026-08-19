@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
-import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, getStudentPhoto } from '../types';
+import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -24,12 +24,14 @@ interface TeacherDashboardProps {
   setMarks: React.Dispatch<React.SetStateAction<Mark[]>>;
   fees: FeeRecord[];
   setFees: React.Dispatch<React.SetStateAction<FeeRecord[]>>;
+  assignments: Assignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<Assignment[]>>;
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
 }
 
-type TabType = 'dashboard' | 'students' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'settings';
+type TabType = 'dashboard' | 'students' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'settings' | 'diary';
 
 import { safeStorage } from '../lib/safeStorage';
 
@@ -47,6 +49,8 @@ export default function TeacherDashboard({
   setMarks,
   fees,
   setFees,
+  assignments,
+  setAssignments,
   onLogout,
   installPromptEvent,
   onInstallApp
@@ -77,6 +81,10 @@ export default function TeacherDashboard({
   };
   const [timetableSubTab, setTimetableSubTab] = useState<'my' | 'class'>('my');
   const [timetableClassId, setTimetableClassId] = useState<string>('');
+  const [scheduleDay, setScheduleDay] = useState<string>(() => {
+    const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].includes(dayName) ? dayName : 'Monday';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAddFeeModal, setShowAddFeeModal] = useState(false);
   const [newFeeStudentId, setNewFeeStudentId] = useState('');
@@ -241,6 +249,13 @@ export default function TeacherDashboard({
   
   const [scratchMarks, setScratchMarks] = useState<{ [studentId: string]: string }>({});
 
+  // DIARY / ASSIGNMENTS STATE
+  const [diaryClassId, setDiaryClassId] = useState<string>(classId);
+  const [diarySubject, setDiarySubject] = useState<string>('');
+  const [diaryTitle, setDiaryTitle] = useState<string>('');
+  const [diaryDescription, setDiaryDescription] = useState<string>('');
+  const [diaryDueDate, setDiaryDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
   // Memoized Data & Optimized Lookups for performance
   const studentsMap = React.useMemo(() => {
     const map = new Map<string, Student>();
@@ -298,6 +313,18 @@ export default function TeacherDashboard({
   };
 
   const currentDayName = getWeekdayFromDateStr(attendanceDate);
+
+  // My full-week lectures for the dropdown day view
+  const myWeekLectures = React.useMemo(
+    () => timetable
+      .filter(tt => tt.teacherId === teacherId)
+      .sort((a, b) => {
+        const pa = parseInt((a.period || '').replace(/[^0-9]/g, ''), 10);
+        const pb = parseInt((b.period || '').replace(/[^0-9]/g, ''), 10);
+        return (isNaN(pa) ? 99 : pa) - (isNaN(pb) ? 99 : pb);
+      }),
+    [timetable, teacherId]
+  );
 
   // Filter today's classes for this teacher
   const todayClasses = timetable
@@ -535,8 +562,76 @@ export default function TeacherDashboard({
 
     setAttendance([...cleanLogs, ...newLogs]);
 
+    const classNameStr = viewClass ? `${viewClass.className}-${viewClass.section}` : activeClassId;
+    const presentCount = newLogs.filter(l => l.status === 'present').length;
+    const absentCount = newLogs.filter(l => l.status === 'absent').length;
+
+    addNotification({
+      type: 'attendance_complete',
+      title: `Attendance Completed: ${classNameStr}`,
+      message: `${userSession.name} has completed attendance for Class ${classNameStr} on ${attendanceDate}. Present: ${presentCount} | Absent: ${absentCount} | Total: ${newLogs.length}.`,
+      teacherId: teacherId,
+      classId: activeClassId,
+      role: 'all'
+    });
+
     toast.success('Attendance logs successfully updated and cached!');
+    toast.info(`Principal & Coordinator notified for ${classNameStr}.`);
   };
+
+  // DIARY / ASSIGNMENT ENGINE
+  const handleCreateAssignment = () => {
+    if (!diaryClassId) {
+      toast.error("Please select a class first.");
+      return;
+    }
+    if (!diaryTitle.trim()) {
+      toast.error("Please enter an assignment title.");
+      return;
+    }
+    const cls = classesMap.get(diaryClassId);
+    const classNameStr = cls ? `${cls.className}-${cls.section}` : diaryClassId;
+
+    const newAssignment: Assignment = {
+      id: 'asgn_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+      classId: diaryClassId,
+      subject: diarySubject.trim() || teacherSubject || 'General',
+      title: diaryTitle.trim(),
+      description: diaryDescription.trim(),
+      dueDate: diaryDueDate,
+      assignedById: teacherId,
+      assignedByName: userSession.name,
+      createdAt: new Date().toISOString(),
+    };
+
+    setAssignments(prev => [newAssignment, ...prev]);
+
+    addNotification({
+      type: 'attendance_complete',
+      title: `New Assignment: ${newAssignment.title}`,
+      message: `${userSession.name} posted a new ${newAssignment.subject} assignment for Class ${classNameStr}. Due: ${newAssignment.dueDate}. Check the Student Diary!`,
+      teacherId: teacherId,
+      classId: diaryClassId,
+      role: 'student'
+    });
+
+    setDiaryTitle('');
+    setDiaryDescription('');
+    setDiarySubject('');
+    toast.success(`Assignment posted to ${classNameStr} students!`);
+  };
+
+  const handleDeleteAssignment = (id: string) => {
+    setAssignments(prev => prev.filter(a => a.id !== id));
+    toast.success("Assignment removed from Diary.");
+  };
+
+  const myAssignments = React.useMemo(
+    () => assignments
+      .filter(a => a.assignedById === teacherId)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [assignments, teacherId]
+  );
 
   // MARKS ENGINE
   const handleEnterMarksTab = (clsId: string, subject: string, exam: ExamType) => {
@@ -795,6 +890,7 @@ export default function TeacherDashboard({
               { id: 'students', label: 'Roster', icon: Users },
               { id: 'attendance', label: 'Attendance', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || myClasses[0]?.id || '', attendanceDate) },
               { id: 'marks', label: 'Marks', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
+              { id: 'diary', label: 'Diary', icon: ClipboardList },
               { id: 'timetable', label: 'Time Table', icon: Calendar },
               { id: 'settings', label: 'Settings', icon: Sparkles }
             ].map((item) => (
@@ -1423,6 +1519,96 @@ export default function TeacherDashboard({
                 <p className="text-xs text-slate-300 font-sans">
                   You are editing simulated data. This app uses <strong>Indexed Storage (localStorage)</strong>. You can safely simulate different dates, record marks, and re-login as a student to see the changes update in real time.
                 </p>
+              </div>
+            </div>
+
+          {/* Quick Diary Card on Home */}
+            <div className="bg-white border border-sky-100 shadow-sm rounded-2xl overflow-hidden">
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-700 px-5 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5 text-white">
+                  <ClipboardList size={18} />
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-widest leading-none">Quick Diary</h3>
+                    <p className="text-[10px] font-bold text-emerald-100 mt-1 uppercase tracking-wider">Post an assignment to your class students</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { handleTabChange('diary'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  className="text-[10px] font-black uppercase tracking-widest bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                >
+                  Full Diary
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Class</label>
+                    <select
+                      value={diaryClassId}
+                      onChange={(e) => setDiaryClassId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-2.5 text-xs font-bold outline-none transition-all rounded-lg cursor-pointer"
+                    >
+                      {myClasses.length === 0 && <option value="">No assigned classes</option>}
+                      {myClasses.map(c => (
+                        <option key={c.id} value={c.id}>{c.className}-{c.section}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Subject</label>
+                    <input
+                      type="text"
+                      placeholder={teacherSubject || 'e.g. Mathematics'}
+                      value={diarySubject}
+                      onChange={(e) => setDiarySubject(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-2.5 text-xs font-bold outline-none transition-all rounded-lg"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
+                    <input
+                      type="date"
+                      value={diaryDueDate}
+                      onChange={(e) => setDiaryDueDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-2.5 text-xs font-bold outline-none transition-all rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Assignment Title *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Chapter 5 Exercise Questions"
+                    value={diaryTitle}
+                    onChange={(e) => setDiaryTitle(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-2.5 text-xs font-bold outline-none transition-all rounded-lg"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Instructions / Details</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Write the assignment details, page numbers, or submission instructions..."
+                    value={diaryDescription}
+                    onChange={(e) => setDiaryDescription(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-2.5 text-xs font-bold outline-none transition-all rounded-lg resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 flex items-center gap-1.5">
+                    <ClipboardList size={12} /> {myAssignments.length} Posted
+                  </span>
+                  <button
+                    onClick={handleCreateAssignment}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Send size={13} /> Publish Assignment
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2072,6 +2258,163 @@ export default function TeacherDashboard({
           </div>
         )}
 
+        {/* ========== TEACHER DIARY / ASSIGNMENTS ========== */}
+        {activeTab === 'diary' && (
+          <div id="panel-teacher-diary" className="space-y-6 animate-fade-in bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner pb-20">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 sm:p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50 rounded-b-2xl text-white">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight font-display uppercase leading-none flex items-center gap-3">
+                    <ClipboardList size={24} className="text-emerald-200 shrink-0" />
+                    Teacher Diary & Assignments
+                  </h2>
+                  <p className="text-xs text-emerald-100 font-bold mt-2 uppercase tracking-widest">
+                    Post homework instantly — visible only to the students of the selected class.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 bg-emerald-900/40 backdrop-blur-sm px-4 py-2 rounded-xl border border-emerald-400/20 text-xs font-bold">
+                  <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse" />
+                  <span>{myAssignments.length} Posted</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Assignment Creation Form */}
+            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-4">
+                <PlusCircle size={16} className="text-emerald-600" />
+                <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Post New Assignment</h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Class</label>
+                  <select
+                    value={diaryClassId}
+                    onChange={(e) => setDiaryClassId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-3 text-xs font-bold outline-none transition-all rounded-xl cursor-pointer"
+                  >
+                    {myClasses.length === 0 && <option value="">No assigned classes</option>}
+                    {myClasses.map(c => (
+                      <option key={c.id} value={c.id}>{c.className}-{c.section}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Subject</label>
+                  <input
+                    type="text"
+                    placeholder={teacherSubject || 'e.g. Mathematics'}
+                    value={diarySubject}
+                    onChange={(e) => setDiarySubject(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-3 text-xs font-bold outline-none transition-all rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</label>
+                  <input
+                    type="date"
+                    value={diaryDueDate}
+                    onChange={(e) => setDiaryDueDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-3 text-xs font-bold outline-none transition-all rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Assignment Title *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Chapter 5 Exercise Questions"
+                    value={diaryTitle}
+                    onChange={(e) => setDiaryTitle(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-3 text-xs font-bold outline-none transition-all rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Instructions / Details</label>
+                <textarea
+                  rows={3}
+                  placeholder="Write the assignment details, page numbers, or submission instructions here..."
+                  value={diaryDescription}
+                  onChange={(e) => setDiaryDescription(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white p-3 text-xs font-bold outline-none transition-all rounded-xl resize-none"
+                />
+              </div>
+
+              <button
+                onClick={handleCreateAssignment}
+                className="w-full sm:w-auto px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Send size={14} /> Publish to Class Diary
+              </button>
+            </div>
+
+            {/* Posted Assignments List */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <ClipboardList size={14} /> My Posted Assignments
+                </h3>
+              </div>
+
+              {myAssignments.length === 0 ? (
+                <div className="py-14 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-white/60">
+                  <ClipboardList size={32} className="mx-auto text-emerald-400 mb-3 opacity-30" />
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No assignments posted yet</p>
+                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1">Use the form above to publish homework to your class.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {myAssignments.map(assn => {
+                    const cls = classesMap.get(assn.classId);
+                    const classNameStr = cls ? `${cls.className}-${cls.section}` : assn.classId;
+                    const isOverdue = assn.dueDate && assn.dueDate < new Date().toISOString().split('T')[0];
+                    return (
+                      <div key={assn.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                {assn.subject}
+                              </span>
+                              <span className="px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                {classNameStr}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight leading-snug">{assn.title}</h4>
+                            {assn.description && (
+                              <p className="text-xs text-slate-500 font-medium leading-relaxed break-words whitespace-pre-wrap">{assn.description}</p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteAssignment(assn.id)}
+                            className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all shrink-0 cursor-pointer"
+                            title="Delete assignment"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                          <div className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${isOverdue ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                            {isOverdue ? 'Overdue' : `Due: ${assn.dueDate}`}
+                          </div>
+                          <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">
+                            Posted {assn.createdAt ? new Date(assn.createdAt).toLocaleDateString() : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ========== SUBJECT GRADES MANAGMENT ========== */}
         {activeTab === 'marks' && (
           <div id="panel-teacher-marks" className="space-y-6 animate-fade-in bg-indigo-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-indigo-100 shadow-inner">
@@ -2639,9 +2982,28 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
               </div>
             )}
 
-            {/* Timetable Grid mapping */}
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
+            {timetableSubTab === 'my' && (
+              <div className="flex items-center gap-3 bg-white p-4 rounded-2xl border border-amber-100 shadow-sm animate-fade-in flex-wrap">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Select Day:</span>
+                <select 
+                  value={scheduleDay}
+                  onChange={(e) => setScheduleDay(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-amber-500 transition-all cursor-pointer"
+                >
+                  {DAYS.map(d => (
+                    <option key={d} value={d}>{d}{d === currentDayName ? ' (Today)' : ''}</option>
+                  ))}
+                </select>
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 ml-auto">
+                  {myWeekLectures.filter(tt => tt.day === scheduleDay).length} Lecture(s) on {scheduleDay}
+                </span>
+              </div>
+            )}
+
+            {/* Timetable Grid mapping (Class Schedule view) */}
+            {timetableSubTab === 'class' ? (
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
                 <table className="w-full min-w-[700px] border-collapse text-left">
                   <thead>
                     <tr className="bg-gray-100/60 border-b border-gray-200">
@@ -2662,9 +3024,9 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                           {day}
                         </td>
                         {PERIODS.map(p => {
-                          // Find entries based on sub-tab
+                          // Find entries for the selected class
                           const entry = timetable.find(
-                            tt => (timetableSubTab === 'my' ? tt.teacherId === teacherId : tt.classId === timetableClassId) && 
+                            tt => tt.classId === timetableClassId && 
                                  tt.day === day && 
                                  tt.period === p
                           );
@@ -2712,9 +3074,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                       )}
                                     </div>
                                     <div className="text-xs text-slate-755 mt-0.5 truncate font-medium">
-                                      {timetableSubTab === 'my' 
-                                        ? `🏫 Class: ${getClassLabel(entry.classId)}` 
-                                        : `👤 Teacher: ${getTeacherName(entry.teacherId)}`}
+                                      👤 Teacher: {getTeacherName(entry.teacherId)}
                                     </div>
                                     <div className="text-xs font-mono text-slate-500 mt-1 flex items-center justify-between">
                                       <span>{entry.time}</span>
@@ -2731,6 +3091,79 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                 </table>
               </div>
             </div>
+            ) : (
+              /* Compact Day-wise Dropdown List (My Schedule) */
+              <div className="space-y-3">
+                {(() => {
+                  const dayLectures = myWeekLectures.filter(tt => tt.day === scheduleDay);
+                  if (dayLectures.length === 0) {
+                    return (
+                      <div className="py-14 text-center bg-white border-2 border-dashed border-amber-200 rounded-2xl">
+                        <CalendarDays size={32} className="mx-auto text-amber-300 mb-3 opacity-50" />
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No Lectures on {scheduleDay}</p>
+                        <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1">You have no classes scheduled for this day.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {dayLectures.map(entry => {
+                        let col = '#10b981';
+                        try {
+                          const savedColors = safeStorage.getItem('acadamis_period_colors');
+                          if (savedColors) {
+                            const parsedColors = JSON.parse(savedColors);
+                            col = parsedColors[`${entry.classId}_${entry.period}`] || '#10b981';
+                          }
+                        } catch (e) {}
+
+                        const systemDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        const systName = systemDays[new Date().getDay()];
+                        const isLive = (scheduleDay === systName || scheduleDay === currentDayName) && getPeriodStatus(entry.time) === 'current';
+
+                        return (
+                          <div 
+                            key={entry.id} 
+                            className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all"
+                            style={{ borderLeft: `4px solid ${isLive ? '#ef4444' : col}` }}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-11 h-11 rounded-xl flex items-center justify-center text-[10px] font-black uppercase shrink-0 text-white" style={{ backgroundColor: col }}>
+                                  {entry.period.replace('Period ', 'P')}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate" style={{ color: isLive ? '#ef4444' : '#0f172a' }}>
+                                      {entry.subject}
+                                    </h4>
+                                    {isLive && (
+                                      <span className="shrink-0 bg-red-500 text-white text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded uppercase animate-pulse">
+                                        LIVE
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
+                                    🏫 Class: {getClassLabel(entry.classId)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                                <Clock size={11} /> {entry.time}
+                              </div>
+                              <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">{scheduleDay}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 

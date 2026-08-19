@@ -5,12 +5,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
   Award, Calendar, Clock, LogOut, CheckSquare, Sparkles, BookOpen, 
-  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint
+  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint, ClipboardList
 } from 'lucide-react';
 import { getNotifications, saveNotifications, addNotification, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
-import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord } from '../types';
+import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord, Assignment } from '../types';
 import { loadFromLocalStorage, getStudentFullAccount, StudentFeeData } from '../lib/feeEngine';
 import AttendanceSwipeOverlay from './AttendanceSwipeOverlay';
 
@@ -26,12 +26,13 @@ interface StudentDashboardProps {
   marks: Mark[];
   fees: FeeRecord[];
   setFees: React.Dispatch<React.SetStateAction<FeeRecord[]>>;
+  assignments: Assignment[];
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
 }
 
-type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'id_card';
+type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'id_card' | 'assignments';
 
 import { safeStorage } from '../lib/safeStorage';
 
@@ -47,6 +48,7 @@ export default function StudentDashboard({
   marks,
   fees,
   setFees,
+  assignments,
   onLogout,
   installPromptEvent,
   onInstallApp
@@ -193,6 +195,13 @@ export default function StudentDashboard({
   const attendancePercent = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
 
   const myMarks = marks.filter(m => m.studentId === studentId);
+
+  const myAssignments = React.useMemo(
+    () => assignments
+      .filter(a => a.classId === currentClassId)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [assignments, currentClassId]
+  );
 
   // Performance trends data formatting for Recharts Line Chart
   const examOrder = ['Unit Test', 'Half Yearly', 'Final'];
@@ -424,6 +433,7 @@ export default function StudentDashboard({
               { id: 'dashboard', label: 'Campus', icon: Sparkles },
               { id: 'attendance', label: 'Presence', icon: CheckSquare },
               { id: 'marks', label: 'Grades', icon: Award },
+              { id: 'assignments', label: 'Diary', icon: ClipboardList },
               { id: 'timetable', label: 'Classes', icon: Calendar },
               { id: 'fees', label: 'Payments', icon: CreditCard },
               { id: 'id_card', label: 'ID Card', icon: Award }
@@ -1126,6 +1136,90 @@ export default function StudentDashboard({
                 No score records have been logged into your student register yet.
               </div>
             )}
+          </div>
+        )}
+
+        {/* ========== STUDENT DIARY / ASSIGNMENTS ========== */}
+        {activeTab === 'assignments' && (
+          <div id="panel-student-assignments" className="space-y-6 animate-fade-in bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner pb-20">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 sm:p-8 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-8 shadow-lg border-b border-emerald-700/50 rounded-b-2xl text-white">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight font-display uppercase leading-none flex items-center gap-3">
+                    <ClipboardList size={24} className="text-emerald-200 shrink-0" />
+                    Homework Diary
+                  </h2>
+                  <p className="text-xs text-emerald-100 font-bold mt-2 uppercase tracking-widest">
+                    Assignments posted by your teachers — check deadlines and complete on time.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 bg-emerald-900/40 backdrop-blur-sm px-4 py-2 rounded-xl border border-emerald-400/20 text-xs font-bold">
+                  <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse" />
+                  <span>{myAssignments.length} Pending</span>
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const sorted = myAssignments;
+              if (sorted.length === 0) {
+                return (
+                  <div className="py-16 text-center border-2 border-dashed border-emerald-200 rounded-2xl bg-white/70">
+                    <ClipboardList size={36} className="mx-auto text-emerald-400 mb-4 opacity-30" />
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No assignments yet</p>
+                    <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1">Your teacher has not posted any homework for this class.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {sorted.map(assn => {
+                    const isOverdue = assn.dueDate && assn.dueDate < new Date().toISOString().split('T')[0];
+                    const dueSoon = !isOverdue && assn.dueDate && assn.dueDate <= new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0];
+                    return (
+                      <div key={assn.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                              {assn.subject}
+                            </span>
+                            <span className="px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                              {assn.assignedByName}
+                            </span>
+                            {isOverdue && (
+                              <span className="px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                Overdue
+                              </span>
+                            )}
+                            {dueSoon && (
+                              <span className="px-2.5 py-1 bg-amber-50 text-amber-600 border border-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                Due Soon
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-base font-black text-slate-900 uppercase tracking-tight leading-snug">{assn.title}</h4>
+                          {assn.description && (
+                            <p className="text-xs text-slate-500 font-medium leading-relaxed break-words whitespace-pre-wrap">
+                              {assn.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                          <div className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${isOverdue ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                            <Calendar size={11} className="inline-block mr-1 -mt-0.5" />
+                            {isOverdue ? 'Deadline Passed' : `Due: ${assn.dueDate}`}
+                          </div>
+                          <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">
+                            {assn.createdAt ? new Date(assn.createdAt).toLocaleDateString() : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
