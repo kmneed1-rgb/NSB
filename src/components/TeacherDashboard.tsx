@@ -230,6 +230,7 @@ export default function TeacherDashboard({
   // MARKS STATES
   const [selectedMarkClassId, setSelectedMarkClassId] = useState<string>(activeClassId);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
+  const [manualSubjectInput, setManualSubjectInput] = useState<string>('');
   const [selectedExamType, setSelectedExamType] = useState<ExamType>('Monthly test');
   const [maxMarksInput, setMaxMarksInput] = useState<number>(100);
   const [timetableDayFilter, setTimetableDayFilter] = useState<string>('all');
@@ -245,6 +246,7 @@ export default function TeacherDashboard({
   const [reportStudentId, setReportStudentId] = useState<string>('');
   const [reportSubjectsList, setReportSubjectsList] = useState<{ id: string, subject: string, ref: string, maxMarks: string, obtained: string }[]>([]);
   const [reportSubjectToAdd, setReportSubjectToAdd] = useState<string>('');
+  const [reportManualSubject, setReportManualSubject] = useState<string>('');
   const [reportRefToAdd, setReportRefToAdd] = useState<string>('');
   
   const [scratchMarks, setScratchMarks] = useState<{ [studentId: string]: string }>({});
@@ -872,7 +874,7 @@ export default function TeacherDashboard({
             <div className="mb-1">
               <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain" referrerPolicy="no-referrer" />
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -1862,7 +1864,7 @@ export default function TeacherDashboard({
                               </span>
                             </div>
 
-                            <h4 className="font-black text-slate-900 text-base tracking-tight truncate">{student.name.split(' ').slice(1).join(' ') || student.name}</h4>
+                            <h4 className="font-black text-slate-900 text-base tracking-tight truncate">{student.name}</h4>
                             <p className="text-xs text-slate-400 font-mono truncate">{student.email}</p>
 
                             <div className="mt-2 flex justify-center">
@@ -1948,7 +1950,7 @@ export default function TeacherDashboard({
                                   )}
                                   <div>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-semibold text-slate-900 block text-sm">{student.name.split(' ').slice(1).join(' ') || student.name}</span>
+                                      <span className="font-semibold text-slate-900 block text-sm">{student.name}</span>
                                       {(() => {
                                         const studentFees = fees.filter(f => f.studentId === student.id);
                                         const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
@@ -2471,22 +2473,59 @@ export default function TeacherDashboard({
 
                     <div className="space-y-1">
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Subject</label>
-                      <select
-                        value={selectedSubject}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setSelectedSubject(v);
-                          if (selectedMarkClassId && v.trim() && selectedExamType.trim()) {
-                            handleEnterMarksTab(selectedMarkClassId, v, selectedExamType);
-                          }
-                        }}
-                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="">-- Choose Subject --</option>
-                        {[teacherSubject, ...SUBJECT_OPTIONS.filter(s => s.toLowerCase() !== (teacherSubject || '').toLowerCase())].map(sub => (
-                          <option key={sub} value={sub}>{sub}</option>
-                        ))}
-                      </select>
+                      {selectedSubject !== '__manual__' ? (
+                        <select
+                          value={selectedSubject}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '__manual__') {
+                              setManualSubjectInput('');
+                              setSelectedSubject('__manual__');
+                              return;
+                            }
+                            setSelectedSubject(v);
+                            if (selectedMarkClassId && v.trim() && selectedExamType.trim()) {
+                              handleEnterMarksTab(selectedMarkClassId, v, selectedExamType);
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value="">-- Choose Subject --</option>
+                          {[teacherSubject, ...SUBJECT_OPTIONS.filter(s => s.toLowerCase() !== (teacherSubject || '').toLowerCase())].map(sub => (
+                            <option key={sub} value={sub}>{sub}</option>
+                          ))}
+                          <option value="__manual__">➕ Add Manual Subject</option>
+                        </select>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={manualSubjectInput}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setManualSubjectInput(v);
+                              setSelectedSubject(v.trim() ? v.trim() : '__manual__');
+                            }}
+                            onBlur={() => {
+                              if (!manualSubjectInput.trim()) {
+                                setSelectedSubject('');
+                              } else if (selectedMarkClassId && selectedExamType.trim()) {
+                                handleEnterMarksTab(selectedMarkClassId, manualSubjectInput.trim(), selectedExamType);
+                              }
+                            }}
+                            placeholder="Type subject name (e.g. Quran, Art)"
+                            className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => { setManualSubjectInput(''); setSelectedSubject(''); }}
+                            className="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs font-black uppercase transition-all cursor-pointer"
+                            title="Back to list"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-1">
@@ -2735,25 +2774,45 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                       <div className="sm:col-span-3 space-y-1">
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Active Subject</label>
-                        <select
-                          value={reportSubjectToAdd}
-                          onChange={(e) => setReportSubjectToAdd(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500"
-                        >
-                          <option value="">Select Subject</option>
-                          <option value="English">English</option>
-                          <option value="Mathematics">Mathematics</option>
-                          <option value="Science">Science</option>
-                          <option value="Urdu">Urdu</option>
-                          <option value="Islamiat">Islamiat</option>
-                          <option value="Computer">Computer</option>
-                          <option value="Physics">Physics</option>
-                          <option value="Chemistry">Chemistry</option>
-                          <option value="Biology">Biology</option>
-                          <option value="History">History</option>
-                          <option value="Geography">Geography</option>
-                          <option value="Other">Other...</option>
-                        </select>
+                        {reportSubjectToAdd !== 'Other' ? (
+                          <select
+                            value={reportSubjectToAdd}
+                            onChange={(e) => setReportSubjectToAdd(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="">Select Subject</option>
+                            <option value="English">English</option>
+                            <option value="Mathematics">Mathematics</option>
+                            <option value="Science">Science</option>
+                            <option value="Urdu">Urdu</option>
+                            <option value="Islamiat">Islamiat</option>
+                            <option value="Computer">Computer</option>
+                            <option value="Physics">Physics</option>
+                            <option value="Chemistry">Chemistry</option>
+                            <option value="Biology">Biology</option>
+                            <option value="History">History</option>
+                            <option value="Geography">Geography</option>
+                            <option value="Other">➕ Manual Subject...</option>
+                          </select>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={reportManualSubject}
+                              onChange={(e) => setReportManualSubject(e.target.value)}
+                              placeholder="Type subject name (e.g. Quran, Art)"
+                              className="w-full px-3 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => { setReportManualSubject(''); setReportSubjectToAdd(''); }}
+                              className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs font-black transition-all cursor-pointer"
+                              title="Back to list"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="sm:col-span-4 space-y-1">
@@ -2771,15 +2830,17 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                         <button
                           type="button"
                           onClick={() => {
-                            if (!reportSubjectToAdd.trim()) { toast.error('Please select a subject'); return; }
+                            const finalSubject = reportSubjectToAdd === 'Other' ? reportManualSubject.trim() : reportSubjectToAdd.trim();
+                            if (!finalSubject) { toast.error('Please enter a subject'); return; }
                             setReportSubjectsList([...reportSubjectsList, { 
                               id: Date.now().toString(), 
-                              subject: reportSubjectToAdd, 
+                              subject: finalSubject, 
                               ref: reportRefToAdd || 'General',
                               maxMarks: '100',
                               obtained: '0'
                             }]);
                             setReportSubjectToAdd('');
+                            setReportManualSubject('');
                             setReportRefToAdd('');
                             toast.success('Subject row added below');
                           }}

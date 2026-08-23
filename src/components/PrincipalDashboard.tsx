@@ -1817,7 +1817,7 @@ export default function PrincipalDashboard({
         <div className="p-4 pb-5 border-b border-slate-50 mb-4">
           <div className="flex items-center justify-between w-full">
             <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -3113,23 +3113,49 @@ export default function PrincipalDashboard({
                 </div>
 
                 {/* Fee Status Filter */}
-                <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                  {[
-                    { key: 'all', label: 'All', active: 'bg-slate-900 text-white border-slate-900 shadow-md', idle: 'bg-white text-slate-500 border-slate-200 hover:border-slate-400' },
-                    { key: 'unpaid', label: 'Unpaid', active: 'bg-rose-500 text-white border-rose-500 shadow-md', idle: 'bg-white text-rose-500 border-rose-200 hover:border-rose-400' },
-                    { key: 'partial', label: 'Remaining', active: 'bg-amber-500 text-white border-amber-500 shadow-md', idle: 'bg-white text-amber-500 border-amber-200 hover:border-amber-400' },
-                    { key: 'paid', label: 'Paid', active: 'bg-emerald-600 text-white border-emerald-600 shadow-md', idle: 'bg-white text-emerald-600 border-emerald-200 hover:border-emerald-400' },
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      onClick={() => setRecordsFeeStatusFilter(opt.key as 'all' | 'paid' | 'partial' | 'unpaid')}
-                      className={`py-2.5 text-[10px] sm:text-xs font-black uppercase tracking-widest rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        recordsFeeStatusFilter === opt.key ? `${opt.active} scale-[1.02]` : opt.idle
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                  <div className="grid grid-cols-4 gap-1.5 sm:gap-2 flex-1">
+                    {[
+                      { key: 'all', label: 'All', active: 'bg-slate-900 text-white border-slate-900 shadow-md', idle: 'bg-white text-slate-500 border-slate-200 hover:border-slate-400' },
+                      { key: 'unpaid', label: 'Unpaid', active: 'bg-rose-500 text-white border-rose-500 shadow-md', idle: 'bg-white text-rose-500 border-rose-200 hover:border-rose-400' },
+                      { key: 'partial', label: 'Remaining', active: 'bg-amber-500 text-white border-amber-500 shadow-md', idle: 'bg-white text-amber-500 border-amber-200 hover:border-amber-400' },
+                      { key: 'paid', label: 'Paid', active: 'bg-emerald-600 text-white border-emerald-600 shadow-md', idle: 'bg-white text-emerald-600 border-emerald-200 hover:border-emerald-400' },
+                    ].map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => setRecordsFeeStatusFilter(opt.key as 'all' | 'paid' | 'partial' | 'unpaid')}
+                        className={`py-2.5 text-[10px] sm:text-xs font-black uppercase tracking-widest rounded-xl border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          recordsFeeStatusFilter === opt.key ? `${opt.active} scale-[1.02]` : opt.idle
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Class Filter */}
+                  <select
+                    value={recordsFeeClassFilter}
+                    onChange={(e) => setRecordsFeeClassFilter(e.target.value)}
+                    className="sm:w-48 py-2.5 px-3 text-xs font-black uppercase tracking-widest rounded-xl border border-slate-200 bg-white text-slate-700 cursor-pointer focus:outline-none focus:border-emerald-500 transition-all"
+                  >
+                    <option value="all">All Classes</option>
+                    {[...classes].sort((a, b) => a.className.localeCompare(b.className) || a.section.localeCompare(b.section)).map(c => (
+                      <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Search Filter */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={recordsFeeSearch}
+                    onChange={(e) => setRecordsFeeSearch(e.target.value)}
+                    placeholder="Search by student name, roll no, or class..."
+                    className="w-full pl-9 pr-3 py-2.5 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 transition-all"
+                  />
                 </div>
 
                 {/* Student Fee Roster & In-Place Collect */}

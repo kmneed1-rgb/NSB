@@ -416,7 +416,7 @@ export default function StudentDashboard({
               className="h-16 w-auto object-contain animate-bounce-slow"
               referrerPolicy="no-referrer"
             />
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-slate-900">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
               <X size={18} />
             </button>
           </div>
