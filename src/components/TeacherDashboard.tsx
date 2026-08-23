@@ -1674,7 +1674,7 @@ export default function TeacherDashboard({
                                 <Users size={12} />
                               </div>
                             )}
-                            <span className="font-semibold text-slate-900">{s.name.split(' ').slice(1).join(' ') || s.name}</span>
+                            <span className="font-semibold text-slate-900">{s.name.split(' ').slice(0, 1).join(' ') || s.name}</span>
                           </td>
                           <td className="px-6 py-4 text-xs font-medium text-gray-600">{s.email}</td>
                           <td className="px-6 py-4 text-xs font-mono text-gray-500">{s.parentPhone}</td>

@@ -471,7 +471,7 @@ export default function StudentDashboard({
               <User size={14} />
             </div>
             <div className="truncate">
-              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name.split(' ').slice(1).join(' ') || userSession.name}</p>
+              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name.split(' ').slice(0, 1).join(' ') || userSession.name}</p>
               <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">Roll #{studentProfile?.rollNumber}</p>
             </div>
           </div>
@@ -625,7 +625,7 @@ export default function StudentDashboard({
             <div className="bg-white rounded-none p-6 md:p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
               <div>
                 <span className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">STUDENT ADVISORY</span>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name.split(' ').slice(1).join(' ') || userSession.name}!</h1>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name.split(' ').slice(0, 1).join(' ') || userSession.name}!</h1>
                 <p className="text-sm text-slate-500 mt-1">
                   Enrolled in <strong className="text-indigo-800 font-bold">{assignedClass ? `${assignedClass.className} - ${assignedClass.section}` : 'N/A Class'}</strong>.
                   {classTeacherObj && (

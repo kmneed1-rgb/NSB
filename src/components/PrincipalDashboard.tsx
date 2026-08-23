@@ -2245,7 +2245,7 @@ export default function PrincipalDashboard({
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-sm truncate leading-none mb-1">{s.name.split(' ').slice(1).join(' ') || s.name}</h3>
+                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-sm truncate leading-none mb-1">{s.name.split(' ').slice(0, 1).join(' ') || s.name}</h3>
                                 <div className="flex items-center gap-2">
                                   {s.category === 'Academy' && (
                                     <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Academy</span>
@@ -2994,7 +2994,7 @@ export default function PrincipalDashboard({
                            <User size={18} />
                         </div>
                         <div className="text-left">
-                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name.split(' ').slice(1).join(' ') || student.name}</h3>
+                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name.split(' ').slice(0, 1).join(' ') || student.name}</h3>
                           <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
                             {classObj?.className}-{classObj?.section} • {totalPending}
                           </p>
@@ -4296,7 +4296,7 @@ export default function PrincipalDashboard({
                       </div>
                       <div className="flex-1 text-center sm:text-left space-y-1">
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name.split(' ').slice(1).join(' ') || student.name}</h2>
+                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name.split(' ').slice(0, 1).join(' ') || student.name}</h2>
                           <span className="bg-indigo-100 text-indigo-700 text-xs font-black px-2 py-1 rounded-lg uppercase tracking-widest">Roll: {studentProfile?.rollNumber || 'N/A'}</span>
                         </div>
                         <p className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-2">
@@ -7591,7 +7591,7 @@ export default function PrincipalDashboard({
                     <option value="">-- Select Student --</option>
                     {students.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.name.split(' ').slice(1).join(' ') || s.name} - Roll #{s.rollNumber || 'N/A'}
+                        {s.name.split(' ').slice(0, 1).join(' ') || s.name} - Roll #{s.rollNumber || 'N/A'}
                       </option>
                     ))}
                   </select>
