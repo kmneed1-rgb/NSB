@@ -9,6 +9,8 @@ import {
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
+import { db } from '../firebase';
+import { doc, writeBatch } from 'firebase/firestore';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -715,7 +717,14 @@ export default function TeacherDashboard({
       }
     });
 
+    const removed = marks.filter(m => {
+      const sameScope = (m.subject?.toLowerCase() || '') === (selectedSubject?.toLowerCase()?.trim() || '') &&
+        m.examType === selectedExamType &&
+        classStudents.some(s => s.id === m.studentId);
+      return sameScope;
+    });
     setMarks([...cleanMarks, ...newRecords]);
+    syncMarksToFirestore(removed, newRecords);
     toast.success('Exam marks mapped and committed to storage.');
   };
 
@@ -743,7 +752,13 @@ export default function TeacherDashboard({
       maxMarks: maxMarksNum,
     };
 
+    const removed = marks.filter(m =>
+      String(m.studentId) === String(selectedStudentProfile.id) &&
+      m.examType === profileMarkExam.trim() &&
+      (m.subject?.toLowerCase() || '') === (profileMarkSubject.trim().toLowerCase())
+    );
     setMarks(prev => [...prev, newMark]);
+    syncMarksToFirestore(removed, [newMark]);
     setProfileMarkExam('');
     setProfileMarkObtained('');
     toast.success(`Mark added for ${selectedStudentProfile.name}`);
@@ -761,6 +776,7 @@ export default function TeacherDashboard({
     }
     const examName = reportExamName.trim() || 'General';
     const cleanMarks = marks.filter(m => !(String(m.studentId) === String(student.id) && m.examType === examName));
+    const removedForReport = marks.filter(m => String(m.studentId) === String(student.id) && m.examType === examName);
     const newRecords: Mark[] = reportSubjectsList.map((sj, idx) => {
       const max = parseFloat(sj.maxMarks) || 100;
       const obtained = parseFloat(sj.obtained) || 0;
@@ -774,7 +790,22 @@ export default function TeacherDashboard({
       };
     });
     setMarks([...cleanMarks, ...newRecords]);
+    syncMarksToFirestore(removedForReport, newRecords);
     toast.success(`Report saved for ${student.name} — visible in Principal Report.`);
+  };
+
+  // Auto-sync marks to Firebase Firestore (cloud) so data survives refresh / other devices
+  const syncMarksToFirestore = async (removed: Mark[], recs: Mark[]) => {
+    if (!db) return;
+    try {
+      const batch = writeBatch(db);
+      removed.forEach(m => { if (m && m.id) batch.delete(doc(db, 'marks', m.id)); });
+      recs.forEach(m => { if (m && m.id) batch.set(doc(db, 'marks', m.id), m); });
+      await batch.commit();
+    } catch (err) {
+      console.error('Marks cloud sync failed', err);
+      toast.error('Saved on this device; cloud sync failed');
+    }
   };
 
   // Group Timetable elements neatly
@@ -3223,17 +3254,19 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                        if (!cardStudentId) { toast.error('Select a student'); return; }
                        const student = students.find(s => String(s.id) === String(cardStudentId));
                        if (!student) return;
-                       const clean = marks.filter(m => !(String(m.studentId) === String(student.id) && m.examType === examN));
-                       const recs = cardSubjects.map(sj => ({
-                         id: `m_test_${student.id}_${sj.id}_${Date.now()}`,
-                         studentId: student.id,
-                         subject: sj.subject,
-                         examType: examN,
-                         marksObtained: Math.min(parseFloat(cardObtained[sj.id] || '0') || 0, parseFloat(sj.maxMarks) || 0),
-                         maxMarks: parseFloat(sj.maxMarks) || 0
-                       }));
-                       setMarks([...clean, ...recs]);
-                       toast.success(`Saved ${examN} for ${student.name}`);
+                        const clean = marks.filter(m => !(String(m.studentId) === String(student.id) && m.examType === examN));
+                        const removedCard = marks.filter(m => String(m.studentId) === String(student.id) && m.examType === examN);
+                        const recs = cardSubjects.map(sj => ({
+                          id: `m_test_${student.id}_${sj.id}_${Date.now()}`,
+                          studentId: student.id,
+                          subject: sj.subject,
+                          examType: examN,
+                          marksObtained: Math.min(parseFloat(cardObtained[sj.id] || '0') || 0, parseFloat(sj.maxMarks) || 0),
+                          maxMarks: parseFloat(sj.maxMarks) || 0
+                        }));
+                        setMarks([...clean, ...recs]);
+                        syncMarksToFirestore(removedCard, recs);
+                        toast.success(`Saved ${examN} for ${student.name}`);
                      };
                      let totO = 0; let totM = 0;
                      cardSubjects.forEach(sj => { totO += Number(cardObtained[sj.id] || '0') || 0; totM += Number(sj.maxMarks) || 0; });
