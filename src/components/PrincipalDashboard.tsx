@@ -1,6 +1,6 @@
 import { db } from '../firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign } from 'lucide-react';
@@ -126,6 +126,7 @@ export default function PrincipalDashboard({
   const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance' | 'results'>('fees');
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
   // Notification feed for Principal / Coordinator
   const [portalNotifications, setPortalNotifications] = useState<PortalNotification[]>(() => getNotifications());
@@ -1812,13 +1813,22 @@ export default function PrincipalDashboard({
         className={`fixed md:sticky top-0 left-0 h-screen w-60 bg-white border-r border-slate-100 text-slate-900 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans print:hidden`}
+        onTouchStart={(e) => { touchStartX.current = e.touches[0]?.clientX ?? null; }}
+        onTouchEnd={(e) => {
+          if (touchStartX.current !== null) {
+            const dx = (e.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current;
+            if (dx < -50) setSidebarOpen(false);
+            touchStartX.current = null;
+          }
+        }}
       >
         {/* Brand header - Minimalist */}
         <div className="p-4 pb-5 border-b border-slate-50 mb-4">
           <div className="flex items-center justify-between w-full">
             <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
-            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center gap-1 px-2.5 h-9 rounded-lg bg-rose-500 text-white hover:bg-rose-600 shadow-md transition-colors">
               <X size={18} />
+              <span className="text-xs font-black uppercase tracking-wider">Exit</span>
             </button>
           </div>
           <div className="flex flex-col items-center gap-1 mt-2">

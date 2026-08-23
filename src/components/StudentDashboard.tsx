@@ -78,6 +78,7 @@ export default function StudentDashboard({
     }
   };
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => loadFromLocalStorage());
 
   // Find student's personal profile card
@@ -406,6 +407,14 @@ export default function StudentDashboard({
         className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans`}
+        onTouchStart={(e) => { touchStartX.current = e.touches[0]?.clientX ?? null; }}
+        onTouchEnd={(e) => {
+          if (touchStartX.current !== null) {
+            const dx = (e.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current;
+            if (dx < -50) setSidebarOpen(false);
+            touchStartX.current = null;
+          }
+        }}
       >
         {/* Institutional Branding */}
         <div className="p-4 border-b border-slate-50 flex flex-col items-center gap-2">
@@ -416,8 +425,9 @@ export default function StudentDashboard({
               className="h-16 w-auto object-contain animate-bounce-slow"
               referrerPolicy="no-referrer"
             />
-            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
+            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center gap-1 px-2.5 h-9 rounded-lg bg-rose-500 text-white hover:bg-rose-600 shadow-md transition-colors">
               <X size={18} />
+              <span className="text-xs font-black uppercase tracking-wider">Exit</span>
             </button>
           </div>
           <div className="text-center w-full">
