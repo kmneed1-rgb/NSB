@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX, User,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -3267,8 +3267,68 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                         setMarks([...clean, ...recs]);
                         syncMarksToFirestore(removedCard, recs);
                         toast.success(`Saved ${examN} for ${student.name}`);
-                     };
-                     let totO = 0; let totM = 0;
+                      };
+                      const handlePrintResultCard = () => {
+                        const st = students.find(s => String(s.id) === String(cardStudentId));
+                        if (!st) { toast.error('Select a student'); return; }
+                        const cls = classesMap.get(String(st.classId));
+                        const rows = cardSubjects.map(sj => {
+                          const rmax = Number(sj.maxMarks) || 0;
+                          const rob = Number(cardObtained[sj.id] || '0') || 0;
+                          const rpct = rmax > 0 ? Math.round((rob / rmax) * 100) : 0;
+                          const status = rpct >= 40 ? 'PASS' : 'RE-STUDY';
+                          return `<tr>
+                            <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a">${sj.subject}</td>
+                            <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700;color:#334155">${rob} / ${rmax}</td>
+                            <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700">${rpct}% <span style="font-size:11px;color:${rpct >= 40 ? '#059669' : '#e11d48'}">(${status})</span></td>
+                          </tr>`;
+                        }).join('');
+                        const totO = cardSubjects.reduce((a, sj) => a + (Number(cardObtained[sj.id] || '0') || 0), 0);
+                        const totM = cardSubjects.reduce((a, sj) => a + (Number(sj.maxMarks) || 0), 0);
+                        const pct = totM > 0 ? Math.round((totO / totM) * 100) : 0;
+                        const clsName = cls ? `${cls.className}${cls.section ? (' - ' + cls.section) : ''}` : 'N/A';
+                        const html = `<!doctype html><html><head><meta charset="utf-8"><title>Result Card - ${st.name}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', Arial, sans-serif; color:#0f172a; margin:0; padding:32px; }
+    .card { max-width:760px; margin:0 auto; border:2px solid #4f46e5; border-radius:16px; overflow:hidden; }
+    .head { background:linear-gradient(90deg,#4f46e5,#7c3aed); color:#fff; padding:22px 26px; display:flex; justify-content:space-between; align-items:center; }
+    .head h1 { margin:0; font-size:20px; letter-spacing:.04em; text-transform:uppercase; }
+    .head .sub { font-size:12px; opacity:.9; margin-top:4px; }
+    .head .pct { text-align:right; }
+    .head .pct .big { font-size:34px; font-weight:900; line-height:1; }
+    .head .pct .lbl { font-size:10px; text-transform:uppercase; letter-spacing:.15em; opacity:.85; }
+    .meta { display:flex; gap:24px; padding:16px 26px; border-bottom:1px solid #e2e8f0; font-size:13px; }
+    .meta b { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:#64748b; margin-bottom:2px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    thead th { background:#f8fafc; text-align:left; padding:10px 14px; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#64748b; border-bottom:2px solid #e2e8f0; }
+    thead th.c, tbody td.c, tfoot td.c { text-align:center; }
+    tfoot td { padding:12px 14px; font-weight:900; text-transform:uppercase; font-size:12px; background:#f8fafc; }
+    .foot { padding:14px 26px; font-size:11px; color:#94a3b8; display:flex; justify-content:space-between; }
+  </style></head>
+  <body>
+    <div class="card">
+      <div class="head">
+        <div><h1>${st.name}</h1><div class="sub">${examN} · Roll #${st.rollNumber}</div></div>
+        <div class="pct"><div class="lbl">Overall</div><div class="big">${pct}%</div><div class="sub">${pct >= 40 ? 'PASS' : 'RE-STUDY'}</div></div>
+      </div>
+      <div class="meta"><div><b>Class</b>${clsName}</div><div><b>Roll Number</b>#${st.rollNumber}</div><div><b>Total</b>${totO} / ${totM}</div></div>
+      <table>
+        <thead><tr><th>Subject</th><th class="c">Marks</th><th class="c">Percentage</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="2">Total Percentage</td><td class="c">${pct}%</td></tr></tfoot>
+      </table>
+      <div class="foot"><span>NSB1 School — Result Card</span><span>Date: ${new Date().toLocaleDateString()}</span></div>
+    </div>
+    <script>window.onload=function(){setTimeout(function(){window.print();},300);};</script>
+  </body></html>`;
+                        const w = window.open('', '_blank');
+                        if (!w) { toast.error('Pop-up blocked. Allow pop-ups to print.'); return; }
+                        w.document.open();
+                        w.document.write(html);
+                        w.document.close();
+                      };
+                      let totO = 0; let totM = 0;
                      cardSubjects.forEach(sj => { totO += Number(cardObtained[sj.id] || '0') || 0; totM += Number(sj.maxMarks) || 0; });
                      const pct = totM > 0 ? Math.round((totO / totM) * 100) : 0;
                      if (cardStudentId) {
@@ -3321,7 +3381,8 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                              </div>
                              <div className="border-t border-gray-100 p-4 bg-gray-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
                                <div className="text-xs font-bold text-slate-600 uppercase tracking-widest">Total: <span className="text-indigo-700 text-sm">{totO}/{totM}</span> ({pct}%) · <span className={pct >= 40 ? 'text-emerald-600' : 'text-rose-600'}>{pct >= 40 ? 'PASS' : 'RE-STUDY'}</span></div>
-                               <button onClick={handleSaveStudentTest} className="py-2 px-5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-2"><Save size={14} /> Save Test</button>
+                                <button onClick={handlePrintResultCard} className="py-2 px-5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-2"><Printer size={14} /> Print</button>
+                                <button onClick={handleSaveStudentTest} className="py-2 px-5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-2"><Save size={14} /> Save Test</button>
                              </div>
                            </div>
 
