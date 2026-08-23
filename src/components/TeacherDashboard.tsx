@@ -237,7 +237,7 @@ export default function TeacherDashboard({
   const [timetableDayFilter, setTimetableDayFilter] = useState<string>('all');
 
   // EXAM REPORT BUILDER STATE (bulk marks entry for any exam)
-  const [marksSubTab, setMarksSubTab] = useState<'exam' | 'report'>('exam');
+  const [marksSubTab, setMarksSubTab] = useState<'exam' | 'report' | 'card'>('exam');
   const [examNameDraft, setExamNameDraft] = useState<string>('1st Term');
 
   const EXAM_NAME_OPTIONS = ['1st Term', '2nd Term', '3rd Term', 'Annual', 'Monthly Test', 'Unit Test', 'Half Yearly', 'Mid Term', 'Final Term', 'Class Test'];
@@ -250,6 +250,13 @@ export default function TeacherDashboard({
   const [reportManualSubject, setReportManualSubject] = useState<string>('');
   const [reportRefToAdd, setReportRefToAdd] = useState<string>('');
   const [reportExamName, setReportExamName] = useState<string>('');
+  const [cardStudentId, setCardStudentId] = useState<string>('');
+  const [cardExamName, setCardExamName] = useState<string>('');
+  const [cardSubjects, setCardSubjects] = useState<{ id: string; subject: string; maxMarks: string }[]>([]);
+  const [cardObtained, setCardObtained] = useState<Record<string, string>>({});
+  const [cardSubjectToAdd, setCardSubjectToAdd] = useState<string>('');
+  const [cardManualSubject, setCardManualSubject] = useState<string>('');
+  const [cardMaxToAdd, setCardMaxToAdd] = useState<string>('100');
   
   const [scratchMarks, setScratchMarks] = useState<{ [studentId: string]: string }>({});
 
@@ -1677,7 +1684,6 @@ export default function TeacherDashboard({
                     <tr className="border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-widest bg-gray-50/20">
                       <th className="px-6 py-3 w-20">Roll #</th>
                       <th className="px-6 py-3">Student Name</th>
-                      <th className="px-6 py-3">Academic Email</th>
                       <th className="px-6 py-3">Contact parent Phone</th>
                       <th className="px-6 py-3 text-right">Actions</th>
                     </tr>
@@ -1697,7 +1703,6 @@ export default function TeacherDashboard({
                             )}
                             <span className="font-semibold text-slate-900">{s.name.split(' ').slice(0, 1).join(' ') || s.name}</span>
                           </td>
-                          <td className="px-6 py-4 text-xs font-medium text-gray-600">{s.email}</td>
                           <td className="px-6 py-4 text-xs font-mono text-gray-500">{s.parentPhone}</td>
                           <td className="px-6 py-4 text-right">
                             <button 
@@ -1715,7 +1720,7 @@ export default function TeacherDashboard({
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-sm ">
+                        <td colSpan={4} className="px-6 py-12 text-center text-gray-400 text-sm ">
                           No student profiles enrolled inside this class register.
                         </td>
                       </tr>
@@ -2457,9 +2462,17 @@ export default function TeacherDashboard({
               >
                 <ClipboardList size={14} /> Report Card Builder
               </button>
+              <button
+                onClick={() => setMarksSubTab('card')}
+                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer ${
+                  marksSubTab === 'card' ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <User size={14} /> Student Result Card
+              </button>
             </div>
 
-            {marksSubTab === 'exam' ? (
+            {marksSubTab === 'exam' && (
               /* ========== EXAM MARKS ENTRY (bulk, any exam) ========== */
               <div id="teacher-exam-marks-builder" className="space-y-6">
                 <div>
@@ -2728,7 +2741,8 @@ export default function TeacherDashboard({
                   );
                 })()}
               </div>
-            ) : (
+            )}
+            {marksSubTab === 'report' && (
               <>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -3088,8 +3102,8 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
                    </div>
                  );
-               })() : (
-              <div className="bg-white border text-center border-gray-200 p-12 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
+                })() : (
+               <div className="bg-white border text-center border-gray-200 p-12 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
                 <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
                   <Award size={24} />
                 </div>
@@ -3098,11 +3112,274 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                   Please select a class and then choose a student from the dropdown above to begin building their multi-subject report card.
                 </p>
               </div>
-            )}
-            </>
-            )}
-          </div>
-        )}
+             )}
+             </>
+             )}
+              {marksSubTab === 'card' && (
+               <div id="teacher-student-result-card" className="space-y-6">
+                 <div>
+                   <h1 className="text-2xl font-bold text-gray-900">Exam / Test Marks Entry</h1>
+                   <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-wider">First add the exam/test name and its subjects, then click a student to enter their marks for that complete test.</p>
+                 </div>
+
+                 {/* Step 1: Class + Exam/Test name */}
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   <div className="bg-indigo-50/50 border border-indigo-100/50 rounded-xl p-4 shadow-sm space-y-1">
+                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Select Class</label>
+                     <select
+                       value={selectedMarkClassId}
+                       onChange={(e) => { setSelectedMarkClassId(e.target.value); setCardStudentId(''); setCardObtained({}); }}
+                       className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-slate-950 focus:outline-none focus:border-indigo-500"
+                     >
+                       <option value="">-- Choose Class --</option>
+                       {myClasses.map(cl => (
+                         <option key={cl.id} value={cl.id}>{cl.className} ({cl.section})</option>
+                       ))}
+                     </select>
+                   </div>
+                   <div className="bg-indigo-50/50 border border-indigo-100/50 rounded-xl p-4 shadow-sm space-y-1">
+                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Exam / Test Name</label>
+                     <input
+                       type="text"
+                       value={cardExamName}
+                       onChange={(e) => setCardExamName(e.target.value)}
+                       placeholder="e.g. 1st Term 2025 / Weekly Test 3"
+                       className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-slate-950 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                     />
+                   </div>
+                 </div>
+
+                 {/* Step 2: Define subjects of the test */}
+                 <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 sm:p-5 space-y-4">
+                   <div className="flex items-center gap-2">
+                     <div className="bg-indigo-100 text-indigo-700 p-1.5 rounded-lg"><Award size={16} /></div>
+                     <h3 className="text-sm font-bold text-indigo-900">Test Subjects ({cardSubjects.length})</h3>
+                   </div>
+                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                     <div className="sm:col-span-5 space-y-1">
+                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Subject</label>
+                       {cardSubjectToAdd !== 'Other' ? (
+                         <select value={cardSubjectToAdd} onChange={(e) => setCardSubjectToAdd(e.target.value)} className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500">
+                           <option value="">Select Subject</option>
+                           <option value="English">English</option>
+                           <option value="Mathematics">Mathematics</option>
+                           <option value="Urdu">Urdu</option>
+                           <option value="Pakistan Studies">Pakistan Studies</option>
+                           <option value="Islamiyat">Islamiyat</option>
+                           <option value="Physics">Physics</option>
+                           <option value="Chemistry">Chemistry</option>
+                           <option value="Biology">Biology</option>
+                           <option value="History">History</option>
+                           <option value="Geography">Geography</option>
+                           <option value="Other">➕ Manual Subject...</option>
+                         </select>
+                       ) : (
+                         <div className="flex items-center gap-2">
+                           <input type="text" value={cardManualSubject} onChange={(e) => setCardManualSubject(e.target.value)} placeholder="Type subject name" className="w-full px-3 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500" />
+                           <button type="button" onClick={() => { setCardManualSubject(''); setCardSubjectToAdd(''); }} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-xs font-black">✕</button>
+                         </div>
+                       )}
+                     </div>
+                     <div className="sm:col-span-3 space-y-1">
+                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Total Marks</label>
+                       <input type="number" min="1" value={cardMaxToAdd} onChange={(e) => setCardMaxToAdd(e.target.value)} placeholder="100" className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500" />
+                     </div>
+                     <div className="sm:col-span-4 flex justify-end">
+                       <button type="button" onClick={() => {
+                         const fSubj = cardSubjectToAdd === 'Other' ? cardManualSubject.trim() : cardSubjectToAdd.trim();
+                         if (!fSubj) { toast.error('Please enter a subject'); return; }
+                         if (!cardMaxToAdd || Number(cardMaxToAdd) <= 0) { toast.error('Enter total marks'); return; }
+                         setCardSubjects([...cardSubjects, { id: Date.now().toString(), subject: fSubj, maxMarks: cardMaxToAdd }]);
+                         setCardSubjectToAdd(''); setCardManualSubject(''); setCardMaxToAdd('100');
+                         toast.success('Subject added to test');
+                       }} className="py-1.5 px-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-bold uppercase tracking-wider shadow-sm flex items-center gap-2"><Plus size={14} /> Add Subject</button>
+                     </div>
+                   </div>
+
+                   {cardSubjects.length > 0 && (
+                     <div className="flex flex-wrap gap-2 pt-1">
+                       {cardSubjects.map(sj => (
+                         <span key={sj.id} className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1.5 rounded-full">
+                           {sj.subject} <span className="text-indigo-400">/ {sj.maxMarks}</span>
+                           <button onClick={() => setCardSubjects(cardSubjects.filter(s => s.id !== sj.id))} className="text-indigo-400 hover:text-rose-600"><Trash2 size={12} /></button>
+                         </span>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+
+                 {/* Step 3: Pick student -> enter complete test marks */}
+                 {!cardExamName.trim() || cardSubjects.length === 0 ? (
+                   <div className="bg-white border text-center border-gray-200 p-10 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
+                     <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-3 text-slate-300"><ClipboardList size={22} /></div>
+                     <h3 className="text-sm font-bold text-slate-700">Define the test first</h3>
+                     <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">Add the exam/test name and at least one subject above, then choose a student to enter marks.</p>
+                   </div>
+                 ) : selectedMarkClassId ? (
+                   (() => {
+                     const examN = cardExamName.trim();
+                     const classStudents = students.filter(s => String(s.classId) === String(selectedMarkClassId));
+                     const handleSaveStudentTest = () => {
+                       if (!cardStudentId) { toast.error('Select a student'); return; }
+                       const student = students.find(s => String(s.id) === String(cardStudentId));
+                       if (!student) return;
+                       const clean = marks.filter(m => !(String(m.studentId) === String(student.id) && m.examType === examN));
+                       const recs = cardSubjects.map(sj => ({
+                         id: `m_test_${student.id}_${sj.id}_${Date.now()}`,
+                         studentId: student.id,
+                         subject: sj.subject,
+                         examType: examN,
+                         marksObtained: Math.min(parseFloat(cardObtained[sj.id] || '0') || 0, parseFloat(sj.maxMarks) || 0),
+                         maxMarks: parseFloat(sj.maxMarks) || 0
+                       }));
+                       setMarks([...clean, ...recs]);
+                       toast.success(`Saved ${examN} for ${student.name}`);
+                     };
+                     let totO = 0; let totM = 0;
+                     cardSubjects.forEach(sj => { totO += Number(cardObtained[sj.id] || '0') || 0; totM += Number(sj.maxMarks) || 0; });
+                     const pct = totM > 0 ? Math.round((totO / totM) * 100) : 0;
+                     if (cardStudentId) {
+                       const student = students.find(s => String(s.id) === String(cardStudentId));
+                       if (!student) return null;
+                       return (
+                         <div className="space-y-6">
+                           <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                             <div>
+                               <p className="text-[10px] uppercase tracking-[0.3em] opacity-80">Entering: {examN}</p>
+                               <h3 className="text-lg font-black uppercase tracking-tight">{student.name}</h3>
+                               <p className="text-xs opacity-90 mt-0.5">Roll #{student.rollNumber} · {classesMap.get(String(student.classId))?.className || 'N/A'}{(classesMap.get(String(student.classId))?.section) ? ` - ${classesMap.get(String(student.classId))?.section}` : ''}</p>
+                             </div>
+                             <button onClick={() => { setCardStudentId(''); setCardObtained({}); }} className="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-black uppercase tracking-wider">← Back to Students</button>
+                           </div>
+
+                           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
+                             <div className="hidden md:block overflow-x-auto">
+                               <table className="w-full text-left">
+                                 <thead>
+                                   <tr className="border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-widest bg-gray-50">
+                                     <th className="px-6 py-4">Subject</th>
+                                     <th className="px-6 py-4 text-center">Total Marks</th>
+                                     <th className="px-6 py-4 text-center">Obtained Marks</th>
+                                   </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-gray-150 text-sm">
+                                   {cardSubjects.map(sj => (
+                                     <tr key={sj.id} className="hover:bg-gray-50/20">
+                                       <td className="px-6 py-4 font-bold text-slate-900">{sj.subject}</td>
+                                       <td className="px-6 py-4 text-center font-semibold text-slate-500">{sj.maxMarks}</td>
+                                       <td className="px-6 py-4 text-center">
+                                         <input type="number" min="0" value={cardObtained[sj.id] || ''} onChange={(e) => setCardObtained({ ...cardObtained, [sj.id]: e.target.value.replace(/^0+(?=\d)/, '') })} placeholder="0" className="w-24 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block" />
+                                       </td>
+                                     </tr>
+                                   ))}
+                                 </tbody>
+                               </table>
+                             </div>
+                             <div className="block md:hidden divide-y divide-slate-100">
+                               {cardSubjects.map(sj => (
+                                 <div key={sj.id} className="p-4 flex items-center justify-between gap-3">
+                                   <div>
+                                     <p className="font-bold text-slate-900 text-sm">{sj.subject}</p>
+                                     <p className="text-xs text-slate-400">/ {sj.maxMarks}</p>
+                                   </div>
+                                   <input type="number" min="0" value={cardObtained[sj.id] || ''} onChange={(e) => setCardObtained({ ...cardObtained, [sj.id]: e.target.value.replace(/^0+(?=\d)/, '') })} placeholder="0" className="w-20 px-2 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900" />
+                                 </div>
+                               ))}
+                             </div>
+                             <div className="border-t border-gray-100 p-4 bg-gray-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                               <div className="text-xs font-bold text-slate-600 uppercase tracking-widest">Total: <span className="text-indigo-700 text-sm">{totO}/{totM}</span> ({pct}%) · <span className={pct >= 40 ? 'text-emerald-600' : 'text-rose-600'}>{pct >= 40 ? 'PASS' : 'RE-STUDY'}</span></div>
+                               <button onClick={handleSaveStudentTest} className="py-2 px-5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-2"><Save size={14} /> Save Test</button>
+                             </div>
+                           </div>
+
+                           {cardSubjects.length > 0 && (
+                             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                               <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                                 <div>
+                                   <h3 className="text-base font-black uppercase tracking-wide">Result Card</h3>
+                                   <p className="text-xs opacity-90">{examN}</p>
+                                 </div>
+                                 <div className="text-right">
+                                   <p className="text-[10px] opacity-80 uppercase tracking-widest">Overall</p>
+                                   <p className="text-3xl font-black leading-none">{pct}%</p>
+                                 </div>
+                               </div>
+                               <table className="w-full text-left">
+                                 <thead>
+                                   <tr className="border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-50">
+                                     <th className="px-5 py-3">Subject</th>
+                                     <th className="px-5 py-3 text-center">Marks</th>
+                                     <th className="px-5 py-3 text-center">Percentage</th>
+                                   </tr>
+                                 </thead>
+                                 <tbody className="divide-y divide-slate-100">
+                                   {cardSubjects.map(sj => {
+                                     const rmax = Number(sj.maxMarks) || 0; const rob = Number(cardObtained[sj.id] || '0') || 0; const rpct = rmax > 0 ? Math.round((rob / rmax) * 100) : 0;
+                                     return (
+                                       <tr key={sj.id}>
+                                         <td className="px-5 py-3 font-bold text-slate-900">{sj.subject}</td>
+                                         <td className="px-5 py-3 text-center font-bold text-slate-700">{rob}/{rmax}</td>
+                                         <td className="px-5 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-black ${rpct >= 40 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{rpct}%</span></td>
+                                       </tr>
+                                     );
+                                   })}
+                                 </tbody>
+                                 <tfoot>
+                                   <tr className="bg-slate-50 border-t border-slate-200">
+                                     <td colSpan={2} className="px-5 py-3 font-black text-slate-900 uppercase text-xs">Total</td>
+                                     <td className="px-5 py-3 text-center font-black text-indigo-700">{pct}%</td>
+                                   </tr>
+                                 </tfoot>
+                               </table>
+                             </div>
+                           )}
+                         </div>
+                       );
+                     }
+                     return (
+                       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                         <div className="p-4 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
+                           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Students in {classesMap.get(String(selectedMarkClassId))?.className || 'N/A'} — click to enter {examN}</h3>
+                           <span className="text-xs bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">{classStudents.length} Pupils</span>
+                         </div>
+                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4">
+                           {classStudents.map(st => {
+                             const init: Record<string, string> = {};
+                             cardSubjects.forEach(sj => {
+                               const ex = marks.find(m => String(m.studentId) === String(st.id) && m.examType === examN && m.subject === sj.subject);
+                               init[sj.id] = ex ? String(ex.marksObtained) : '';
+                             });
+                             const done = cardSubjects.every(sj => marks.some(m => String(m.studentId) === String(st.id) && m.examType === examN && m.subject === sj.subject));
+                             return (
+                               <button key={st.id} onClick={() => { setCardObtained(init); setCardStudentId(st.id); }} className="text-left bg-indigo-50/50 hover:bg-indigo-100 border border-indigo-100 rounded-xl p-4 transition-all flex items-center gap-3 cursor-pointer">
+                                 {st.photo ? (
+                                   <img src={st.photo} alt={st.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
+                                 ) : (
+                                   <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200"><Users size={14} /></div>
+                                 )}
+                                 <div className="min-w-0 flex-1">
+                                   <p className="font-bold text-slate-900 text-sm truncate">{st.name.split(' ').slice(0, 1).join(' ') || st.name}</p>
+                                   <p className="text-xs text-slate-400">Roll #{st.rollNumber}</p>
+                                 </div>
+                                 {done && <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">SAVED</span>}
+                               </button>
+                             );
+                           })}
+                         </div>
+                       </div>
+                     );
+                   })()
+                 ) : (
+                   <div className="bg-white border text-center border-gray-200 p-10 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
+                     <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-3 text-slate-300"><User size={22} /></div>
+                     <h3 className="text-sm font-bold text-slate-700">No Class Selected</h3>
+                     <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">Select a class above to see its students.</p>
+                   </div>
+                 )}
+               </div>
+              )}
+           </div>
+         )}
 
 {/* ========== TEACHER TIMETABLE SCHEDULE ========== */}
         {activeTab === 'timetable' && (
