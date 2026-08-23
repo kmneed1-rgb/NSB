@@ -239,7 +239,7 @@ export default function TeacherDashboard({
   const [timetableDayFilter, setTimetableDayFilter] = useState<string>('all');
 
   // EXAM REPORT BUILDER STATE (bulk marks entry for any exam)
-  const [marksSubTab, setMarksSubTab] = useState<'exam' | 'report' | 'card'>('exam');
+  const [marksSubTab, setMarksSubTab] = useState<'exam' | 'report'>('exam');
   const [examNameDraft, setExamNameDraft] = useState<string>('1st Term');
 
   const EXAM_NAME_OPTIONS = ['1st Term', '2nd Term', '3rd Term', 'Annual', 'Monthly Test', 'Unit Test', 'Half Yearly', 'Mid Term', 'Final Term', 'Class Test'];
@@ -2493,19 +2493,11 @@ export default function TeacherDashboard({
               >
                 <ClipboardList size={14} /> Report Card Builder
               </button>
-              <button
-                onClick={() => setMarksSubTab('card')}
-                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer ${
-                  marksSubTab === 'card' ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <User size={14} /> Student Result Card
-              </button>
             </div>
 
             {/* Quick CTA: New Result Card (setup exam/test + enter marks) */}
             <button
-              onClick={() => setMarksSubTab('card')}
+              onClick={() => setMarksSubTab('report')}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black uppercase tracking-wider text-sm shadow-md hover:opacity-90 transition-all"
             >
               <Plus size={16} /> New Result Card — Setup Exam/Test & Enter Marks
@@ -2781,7 +2773,7 @@ export default function TeacherDashboard({
                 })()}
               </div>
             )}
-            {marksSubTab === 'report' && (
+             {false && ( /* legacy report-card builder disabled; replaced by unified flow below */
               <>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -3154,7 +3146,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
              )}
              </>
              )}
-              {marksSubTab === 'card' && (
+               {marksSubTab === 'report' && (
                <div id="teacher-student-result-card" className="space-y-6">
                  <div>
                    <h1 className="text-2xl font-bold text-gray-900">Exam / Test Marks Entry</h1>
