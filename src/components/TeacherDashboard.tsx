@@ -2495,9 +2495,9 @@ export default function TeacherDashboard({
               </button>
             </div>
 
-            {/* Quick CTA: New Result Card (setup exam/test + enter marks) */}
+            {/* Quick CTA: New Result Card (setup exam/test + enter marks) — opens a fresh test */}
             <button
-              onClick={() => setMarksSubTab('report')}
+              onClick={() => { setCardExamName(''); setCardSubjects([]); setCardObtained({}); setCardStudentId(''); setMarksSubTab('report'); }}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black uppercase tracking-wider text-sm shadow-md hover:opacity-90 transition-all"
             >
               <Plus size={16} /> New Result Card — Setup Exam/Test & Enter Marks
@@ -3178,9 +3178,53 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-slate-950 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
                      />
                    </div>
-                 </div>
+                  </div>
 
-                 {/* Step 2: Define subjects of the test */}
+                  {/* Saved Tests — view / reopen previously saved exams/tests */}
+                  {selectedMarkClassId && (
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="bg-emerald-100 text-emerald-700 p-1.5 rounded-lg"><ClipboardList size={16} /></div>
+                          <h3 className="text-sm font-bold text-slate-700">Saved Tests / Exams</h3>
+                        </div>
+                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Click to open &amp; view marks</span>
+                      </div>
+                      {(() => {
+                        const css = students.filter(s => String(s.classId) === String(selectedMarkClassId));
+                        const classMarkIds = new Set(css.map(s => String(s.id)));
+                        const testNames = Array.from(new Set(
+                          marks.filter(m => classMarkIds.has(String(m.studentId))).map(m => m.examType)
+                        )).filter(Boolean);
+                        if (testNames.length === 0) {
+                          return <p className="text-xs text-slate-400">No saved tests yet for this class. Create one above.</p>;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-2">
+                            {testNames.map(tn => {
+                              const tMarks = marks.filter(m => m.examType === tn && classMarkIds.has(String(m.studentId)));
+                              const subjCount = new Set(tMarks.map(m => m.subject)).size;
+                              const marked = css.filter(s => tMarks.some(m => String(m.studentId) === String(s.id))).length;
+                              return (
+                                <button key={tn} type="button" onClick={() => {
+                                  const subjMap: Record<string, number> = {};
+                                  tMarks.forEach(m => { if (!(m.subject in subjMap)) subjMap[m.subject] = m.maxMarks; });
+                                  const rec = Object.keys(subjMap).map((s, i) => ({ id: 'sv_' + i, subject: s, maxMarks: String(subjMap[s]) }));
+                                  setCardExamName(tn); setCardSubjects(rec); setCardStudentId(''); setCardObtained({});
+                                  toast.success('Opened saved test: ' + tn);
+                                }} className="text-left bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2 rounded-xl flex flex-col gap-0.5">
+                                  <span>{tn}</span>
+                                  <span className="text-[10px] font-semibold text-emerald-500">{subjCount} subjects · {marked}/{css.length} students</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Step 2: Define subjects of the test */}
                  <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 sm:p-5 space-y-4">
                    <div className="flex items-center gap-2">
                      <div className="bg-indigo-100 text-indigo-700 p-1.5 rounded-lg"><Award size={16} /></div>
