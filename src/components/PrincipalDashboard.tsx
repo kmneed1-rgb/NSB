@@ -1925,6 +1925,7 @@ export default function PrincipalDashboard({
               const totalCollectedJune = juneFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
               const totalExpectedJune = students.length * 5500;
               const totalPendingJune = totalExpectedJune - totalCollectedJune;
+              const overallRemaining = fees.filter(f => f.status === 'pending').reduce((sum, f) => sum + Number(f.amount || 0), 0);
 
               // Fee count stats
               const paidStudentsCount = students.filter(s => juneFees.some(f => f.studentId === s.id)).length;
@@ -1959,33 +1960,21 @@ export default function PrincipalDashboard({
                     ))}
                   </div>
 
-                  {/* Fee Summary Cards */}
+                  {/* Fee Summary Cards — Remaining Fee + Monthly (Total Paid, Remaining) in one row */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
                     {userSession.role === 'principal' || userSession.role === 'coordinator' ? (
                       <>
-                        <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">
-                            {userSession.role === 'principal' ? 'Total JUN Collection' : 'Students Paid Fee'}
-                          </span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `${totalCollectedJune.toLocaleString()}` : paidStudentsCount}
-                          </span>
-                        </div>
-                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">
-                            {userSession.role === 'principal' ? 'JUN Target' : 'Total Students'}
-                          </span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `${totalExpectedJune.toLocaleString()}` : students.length}
-                          </span>
-                        </div>
                         <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">
-                            {userSession.role === 'principal' ? 'JUN Pending' : 'Students Pending Fee'}
-                          </span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">
-                            {userSession.role === 'principal' ? `${totalPendingJune.toLocaleString()}` : pendingStudentsCount}
-                          </span>
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{overallRemaining.toLocaleString()}</span>
+                        </div>
+                        <div className="p-6 bg-violet-50/50 border border-violet-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Monthly Fee · Total Paid</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedJune.toLocaleString()}</span>
+                        </div>
+                        <div className="p-6 bg-amber-50/50 border border-amber-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">Monthly Fee · Remaining</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingJune.toLocaleString()}</span>
                         </div>
                       </>
                     ) : (
@@ -3936,8 +3925,32 @@ export default function PrincipalDashboard({
                   </div>
                 </div>
 
-                {/* Summary Metrics */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Saved Tests / Exams — track what teachers have entered */}
+                  {availableExamTypes.length > 0 && (
+                    <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 sm:p-5">
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="bg-violet-100 text-violet-700 p-1.5 rounded-lg"><Award size={16} /></div>
+                          <h3 className="text-sm font-bold text-slate-700">Saved Tests / Exams (entered by teachers)</h3>
+                        </div>
+                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Click to track</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {availableExamTypes.map(tn => {
+                          const cnt = students.filter(s => marks.some(m => String(m.studentId) === String(s.id) && (m.examType || '').trim().toLowerCase() === tn.trim().toLowerCase())).length;
+                          return (
+                            <button key={tn} type="button" onClick={() => { setResultsExamDraft(tn); setResultsExam(tn); toast.success('Tracking: ' + tn); }} className="text-left bg-violet-50 border border-violet-100 hover:bg-violet-100 text-violet-800 text-xs font-bold px-3 py-2 rounded-xl flex flex-col gap-0.5">
+                              <span>{tn}</span>
+                              <span className="text-[10px] font-semibold text-violet-500">{cnt} students</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary Metrics */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white p-5 border border-slate-200 shadow-sm flex items-center justify-between rounded-2xl">
                     <div>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Students with Marks</p>
