@@ -2556,9 +2556,13 @@ export default function TeacherDashboard({
                           className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
                         >
                           <option value="">-- Choose Subject --</option>
-                          {[teacherSubject, ...SUBJECT_OPTIONS.filter(s => s.toLowerCase() !== (teacherSubject || '').toLowerCase())].map(sub => (
-                            <option key={sub} value={sub}>{sub}</option>
-                          ))}
+                          {(() => {
+                            const cs = selectedMarkClassId ? (classes.find(c => String(c.id) === String(selectedMarkClassId))?.subjects || []) : [];
+                            const opts = cs.length > 0 ? cs : [teacherSubject, ...SUBJECT_OPTIONS.filter(s => s.toLowerCase() !== (teacherSubject || '').toLowerCase())];
+                            return opts.map(sub => (
+                              <option key={sub} value={sub}>{sub}</option>
+                            ));
+                          })()}
                           <option value="__manual__">➕ Add Manual Subject</option>
                         </select>
                       ) : (
@@ -3235,18 +3239,16 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Subject</label>
                        {cardSubjectToAdd !== 'Other' ? (
                          <select value={cardSubjectToAdd} onChange={(e) => setCardSubjectToAdd(e.target.value)} className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-slate-950 focus:outline-none focus:border-indigo-500">
-                           <option value="">Select Subject</option>
-                           <option value="English">English</option>
-                           <option value="Mathematics">Mathematics</option>
-                           <option value="Urdu">Urdu</option>
-                           <option value="Pakistan Studies">Pakistan Studies</option>
-                           <option value="Islamiyat">Islamiyat</option>
-                           <option value="Physics">Physics</option>
-                           <option value="Chemistry">Chemistry</option>
-                           <option value="Biology">Biology</option>
-                           <option value="History">History</option>
-                           <option value="Geography">Geography</option>
-                           <option value="Other">➕ Manual Subject...</option>
+                            <option value="">Select Subject</option>
+                            {(() => {
+                              const cs = selectedMarkClassId ? (classes.find(c => String(c.id) === String(selectedMarkClassId))?.subjects || []) : [];
+                              const fallback = ['English','Mathematics','Urdu','Pakistan Studies','Islamiyat','Physics','Chemistry','Biology','History','Geography'];
+                              const base = cs.length > 0 ? cs : fallback;
+                              return base.filter(s => !cardSubjects.some(x => x.subject === s)).map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ));
+                            })()}
+                            <option value="Other">➕ Manual Subject...</option>
                          </select>
                        ) : (
                          <div className="flex items-center gap-2">

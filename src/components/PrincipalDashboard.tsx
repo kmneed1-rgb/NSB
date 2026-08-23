@@ -1921,6 +1921,7 @@ export default function PrincipalDashboard({
 
               // Current Month Collection (follows the actual current month, not a fixed month)
               const currentMonth = MONTHS[new Date().getMonth()];
+              const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
               const currentMonthFees = fees.filter(f => f.month && f.month.trim().toUpperCase().startsWith(currentMonth));
               const totalCollectedMonth = currentMonthFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
               const totalExpectedMonth = students.length * 5500;
@@ -1946,8 +1947,8 @@ export default function PrincipalDashboard({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: 'Fees Collected (This Month)', val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Fees Unpaid (This Month)', val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: `Fees Collected (${currentMonthName})`, val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: `Fees Unpaid (${currentMonthName})`, val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
                         { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
@@ -1969,11 +1970,11 @@ export default function PrincipalDashboard({
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{overallRemaining.toLocaleString()}</span>
                         </div>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Monthly Fee · Total Paid</span>
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
                         </div>
                         <div className="p-6 bg-amber-50/50 border border-amber-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">Monthly Fee · Remaining</span>
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">{currentMonthName} Fee · Remaining</span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
                         </div>
                       </>
