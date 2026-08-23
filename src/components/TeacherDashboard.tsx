@@ -249,6 +249,7 @@ export default function TeacherDashboard({
   const [reportSubjectToAdd, setReportSubjectToAdd] = useState<string>('');
   const [reportManualSubject, setReportManualSubject] = useState<string>('');
   const [reportRefToAdd, setReportRefToAdd] = useState<string>('');
+  const [reportExamName, setReportExamName] = useState<string>('');
   
   const [scratchMarks, setScratchMarks] = useState<{ [studentId: string]: string }>({});
 
@@ -751,8 +752,8 @@ export default function TeacherDashboard({
       toast.error("No subjects added to this report. Add at least one subject above.");
       return;
     }
-    const examRefs = reportSubjectsList.map(sj => sj.ref?.trim() || 'General');
-    const cleanMarks = marks.filter(m => !(String(m.studentId) === String(student.id) && examRefs.includes(m.examType)));
+    const examName = reportExamName.trim() || 'General';
+    const cleanMarks = marks.filter(m => !(String(m.studentId) === String(student.id) && m.examType === examName));
     const newRecords: Mark[] = reportSubjectsList.map((sj, idx) => {
       const max = parseFloat(sj.maxMarks) || 100;
       const obtained = parseFloat(sj.obtained) || 0;
@@ -760,7 +761,7 @@ export default function TeacherDashboard({
         id: `m_rpt_${Date.now()}_${idx}`,
         studentId: student.id,
         subject: sj.subject.trim(),
-        examType: sj.ref?.trim() || 'General',
+        examType: examName,
         marksObtained: Math.min(obtained, max),
         maxMarks: max,
       };
@@ -2793,6 +2794,25 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
 
               return (
                 <div className="space-y-6">
+                  {/* Student + Exam Name Header */}
+                  <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.3em] opacity-80">Report Card For</p>
+                      <h3 className="text-lg font-black uppercase tracking-tight leading-tight">{student.name}</h3>
+                      <p className="text-xs opacity-90 mt-0.5">Roll #{student.rollNumber} · {classesMap.get(String(student.classId))?.className || 'N/A'}{classesMap.get(String(student.classId))?.section ? ` - ${classesMap.get(String(student.classId))?.section}` : ''}</p>
+                    </div>
+                    <div className="w-full sm:w-64">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">Exam / Assessment Name</label>
+                      <input
+                        type="text"
+                        value={reportExamName}
+                        onChange={(e) => setReportExamName(e.target.value)}
+                        placeholder="e.g. 1st Term 2025"
+                        className="w-full px-3 py-2 bg-white border border-white/30 rounded-lg text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-white"
+                      />
+                    </div>
+                  </div>
+
                   {/* Add Subject Config Bar */}
                   <div className="bg-indigo-50/50 border border-indigo-100/50 rounded-xl p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-3">
@@ -3010,10 +3030,65 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                         </button>
                       </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })() : (
+                     </div>
+
+                  {/* RESULT CARD PREVIEW */}
+                  {reportSubjectsList.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                      <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-black uppercase tracking-wide">Result Card</h3>
+                          <p className="text-xs opacity-90">{reportExamName.trim() || 'General Assessment'}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] opacity-80 uppercase tracking-widest">Overall</p>
+                          <p className="text-3xl font-black leading-none">{overallPct}%</p>
+                        </div>
+                      </div>
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-50">
+                            <th className="px-5 py-3">Subject</th>
+                            <th className="px-5 py-3">Reference</th>
+                            <th className="px-5 py-3 text-center">Marks</th>
+                            <th className="px-5 py-3 text-center">Percentage</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {reportSubjectsList.map(sj => {
+                            const rmax = Number(sj.maxMarks) || 0;
+                            const rob = Number(sj.obtained) || 0;
+                            const rpct = rmax > 0 ? Math.round((rob / rmax) * 100) : 0;
+                            return (
+                              <tr key={sj.id}>
+                                <td className="px-5 py-3 font-bold text-slate-900">{sj.subject}</td>
+                                <td className="px-5 py-3 text-xs text-slate-500">{sj.ref}</td>
+                                <td className="px-5 py-3 text-center font-bold text-slate-700">{rob}/{rmax}</td>
+                                <td className="px-5 py-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-black ${rpct >= 40 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{rpct}%</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-50 border-t border-slate-200">
+                            <td colSpan={2} className="px-5 py-3 font-black text-slate-900 uppercase text-xs">Total</td>
+                            <td className="px-5 py-3 text-center font-black text-slate-900">{totalObtained}/{totalMax}</td>
+                            <td className="px-5 py-3 text-center font-black text-indigo-700">{overallPct}%</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      <div className="px-5 py-3 flex items-center justify-between bg-white border-t border-slate-100">
+                        <span className={`text-sm font-black uppercase tracking-wider px-3 py-1 rounded-full ${overallPct >= 40 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>{overallPct >= 40 ? 'PASS' : 'RE-STUDY'}</span>
+                        <span className="text-xs text-slate-400">Generated from entered marks</span>
+                      </div>
+                    </div>
+                  )}
+
+                   </div>
+                 );
+               })() : (
               <div className="bg-white border text-center border-gray-200 p-12 rounded-2xl shadow-sm text-slate-500 flex flex-col items-center justify-center">
                 <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
                   <Award size={24} />
