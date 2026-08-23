@@ -1919,16 +1919,16 @@ export default function PrincipalDashboard({
               const totalCollected = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
               const totalPending = (students.length * 5500) - fees.filter(f => f.month === MONTHS[new Date().getMonth()]).reduce((sum, f) => sum + Number(f.amount || 0), 0); 
 
-              // Current Month Collection (June as example)
-              const CURRENT_MONTH = 'JUN'; // Forcing JUN as per user request
-              const juneFees = fees.filter(f => f.month === 'JUN');
-              const totalCollectedJune = juneFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalExpectedJune = students.length * 5500;
-              const totalPendingJune = totalExpectedJune - totalCollectedJune;
+              // Current Month Collection (follows the actual current month, not a fixed month)
+              const currentMonth = MONTHS[new Date().getMonth()];
+              const currentMonthFees = fees.filter(f => f.month && f.month.trim().toUpperCase().startsWith(currentMonth));
+              const totalCollectedMonth = currentMonthFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+              const totalExpectedMonth = students.length * 5500;
+              const totalPendingMonth = Math.max(0, totalExpectedMonth - totalCollectedMonth);
               const overallRemaining = fees.filter(f => f.status === 'pending').reduce((sum, f) => sum + Number(f.amount || 0), 0);
 
               // Fee count stats
-              const paidStudentsCount = students.filter(s => juneFees.some(f => f.studentId === s.id)).length;
+              const paidStudentsCount = students.filter(s => currentMonthFees.some(f => f.studentId === s.id)).length;
               const pendingStudentsCount = students.length - paidStudentsCount;
 
               // Attendance Avg
@@ -1946,8 +1946,8 @@ export default function PrincipalDashboard({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: 'Fees Collected', val: `${totalCollected.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Fees Unpaid', val: `${totalPendingJune.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: 'Fees Collected (This Month)', val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: 'Fees Unpaid (This Month)', val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
                         { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
@@ -1970,11 +1970,11 @@ export default function PrincipalDashboard({
                         </div>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">Monthly Fee · Total Paid</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedJune.toLocaleString()}</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
                         </div>
                         <div className="p-6 bg-amber-50/50 border border-amber-100">
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">Monthly Fee · Remaining</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingJune.toLocaleString()}</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
                         </div>
                       </>
                     ) : (
