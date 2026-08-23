@@ -2626,9 +2626,9 @@ export default function TeacherDashboard({
                                   <input
                                     type="number"
                                     min="0"
-                                    max={maxMarksInput}
+                                    max={maxMarksInput > 0 ? maxMarksInput : undefined}
                                     value={scratchMarks[s.id] || ''}
-                                    onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                    onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
                                     placeholder="0"
                                     className="w-24 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500"
                                   />
@@ -2669,9 +2669,9 @@ export default function TeacherDashboard({
                                     <input
                                       type="number"
                                       min="0"
-                                      max={maxMarksInput}
+                                      max={maxMarksInput > 0 ? maxMarksInput : undefined}
                                       value={scratchMarks[s.id] || ''}
-                                      onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                      onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
                                       placeholder="0"
                                       className="w-28 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block"
                                     />
@@ -2943,12 +2943,12 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                   <input
                                     type="number"
                                     min="0"
-                                    value={item.obtained}
-                                    onChange={(e) => {
-                                      const newList = [...reportSubjectsList];
-                                      newList[index].obtained = e.target.value;
-                                      setReportSubjectsList(newList);
-                                    }}
+                                     value={item.obtained}
+                                     onChange={(e) => {
+                                       const newList = [...reportSubjectsList];
+                                       newList[index].obtained = e.target.value.replace(/^0+(?=\d)/, '');
+                                       setReportSubjectsList(newList);
+                                     }}
                                     placeholder="0"
                                     className="w-20 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block"
                                   />
@@ -3626,8 +3626,8 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                          <div className="flex items-center gap-3">
                            <input 
                              type="number"
-                             value={profileMarkObtained}
-                             onChange={(e) => setProfileMarkObtained(e.target.value)}
+                              value={profileMarkObtained}
+                              onChange={(e) => setProfileMarkObtained(e.target.value.replace(/^0+(?=\d)/, ''))}
                              placeholder="Score"
                              className="w-full px-4 py-3 bg-white border border-indigo-200 text-lg font-black text-indigo-900 focus:border-indigo-600 focus:outline-none"
                            />
