@@ -2503,6 +2503,14 @@ export default function TeacherDashboard({
               </button>
             </div>
 
+            {/* Quick CTA: New Result Card (setup exam/test + enter marks) */}
+            <button
+              onClick={() => setMarksSubTab('card')}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black uppercase tracking-wider text-sm shadow-md hover:opacity-90 transition-all"
+            >
+              <Plus size={16} /> New Result Card — Setup Exam/Test & Enter Marks
+            </button>
+
             {marksSubTab === 'exam' && (
               /* ========== EXAM MARKS ENTRY (bulk, any exam) ========== */
               <div id="teacher-exam-marks-builder" className="space-y-6">
