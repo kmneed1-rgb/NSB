@@ -663,6 +663,11 @@ export default function TeacherDashboard({
     setScratchMarks(scratch);
   };
 
+  const getStudentAttendanceStatus = (studentId: string, date: string): string | null => {
+    const rec = attendance.find(a => String(a.studentId) === String(studentId) && a.date === date);
+    return rec ? rec.status : null;
+  };
+
   const handleSaveMarks = () => {
     const classStudents = students.filter(s => s.classId === selectedMarkClassId);
     if (!selectedSubject.trim()) {
@@ -671,11 +676,16 @@ export default function TeacherDashboard({
     }
 
     // Filter out existing marked records for this specific class scope, subject & exam type
-    const cleanMarks = marks.filter(m => 
-      !( (m.subject?.toLowerCase() || '') === (selectedSubject?.toLowerCase()?.trim() || '') && 
-        m.examType === selectedExamType && 
-        classStudents.some(s => s.id === m.studentId))
-    );
+    // (but keep records for absent/leave students since they aren't being edited here)
+    const cleanMarks = marks.filter(m => {
+      const sameScope = (m.subject?.toLowerCase() || '') === (selectedSubject?.toLowerCase()?.trim() || '') &&
+        m.examType === selectedExamType &&
+        classStudents.some(s => s.id === m.studentId);
+      if (!sameScope) return true;
+      const st = classStudents.find(s => s.id === m.studentId);
+      if (st && ['absent', 'leave'].includes(getStudentAttendanceStatus(st.id, attendanceDate) || '')) return true;
+      return false;
+    });
 
     // Build new records
     const newRecords: Mark[] = [];
@@ -2623,15 +2633,19 @@ export default function TeacherDashboard({
                               <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
                                 <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Obtained Marks</span>
                                 <div className="flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max={maxMarksInput > 0 ? maxMarksInput : undefined}
-                                    value={scratchMarks[s.id] || ''}
-                                    onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
-                                    placeholder="0"
-                                    className="w-24 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500"
-                                  />
+                                  {['absent', 'leave'].includes(getStudentAttendanceStatus(s.id, attendanceDate) || '') ? (
+                                    <span className="px-3 py-2 bg-rose-50 border border-rose-200 rounded-lg text-sm text-center font-extrabold text-rose-600 w-24">Absent</span>
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={maxMarksInput > 0 ? maxMarksInput : undefined}
+                                      value={scratchMarks[s.id] || ''}
+                                      onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
+                                      placeholder="0"
+                                      className="w-24 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  )}
                                   <span className="text-xs text-slate-400 font-bold">/ {maxMarksInput}</span>
                                 </div>
                               </div>
@@ -2666,15 +2680,19 @@ export default function TeacherDashboard({
                                   <td className="px-6 py-3 text-xs font-mono font-bold text-slate-500">{s.rollNumber}</td>
                                   <td className="px-6 py-3 font-bold text-slate-900 uppercase tracking-tight">{s.name}</td>
                                   <td className="px-6 py-3 text-center">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max={maxMarksInput > 0 ? maxMarksInput : undefined}
-                                      value={scratchMarks[s.id] || ''}
-                                      onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
-                                      placeholder="0"
-                                      className="w-28 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block"
-                                    />
+                                    {['absent', 'leave'].includes(getStudentAttendanceStatus(s.id, attendanceDate) || '') ? (
+                                      <span className="px-3 py-2 bg-rose-50 border border-rose-200 rounded-lg text-sm text-center font-extrabold text-rose-600 inline-block">Absent</span>
+                                    ) : (
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={maxMarksInput > 0 ? maxMarksInput : undefined}
+                                        value={scratchMarks[s.id] || ''}
+                                        onChange={(e) => setScratchMarks(prev => ({ ...prev, [s.id]: e.target.value.replace(/^0+(?=\d)/, '') }))}
+                                        placeholder="0"
+                                        className="w-28 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-center font-extrabold text-indigo-900 focus:outline-none focus:border-indigo-500 inline-block"
+                                      />
+                                    )}
                                   </td>
                                   <td className="px-6 py-3 text-center text-xs font-black text-slate-500">{maxMarksInput}</td>
                                 </tr>
