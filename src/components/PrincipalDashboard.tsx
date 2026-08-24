@@ -1947,8 +1947,8 @@ export default function PrincipalDashboard({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: `Fees Collected (${currentMonthName})`, val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: `Fees Unpaid (${currentMonthName})`, val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
+                        { label: `Dues Collected (${currentMonthName})`, val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                        { label: `Dues Unpaid (${currentMonthName})`, val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
                         { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
