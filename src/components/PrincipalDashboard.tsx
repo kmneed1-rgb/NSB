@@ -2495,15 +2495,103 @@ export default function PrincipalDashboard({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Interactive Class Timetable</h1>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Auto-generate, drag & drop, edit periods</p>
               </div>
-              <button
-                id="add-timetable-entry-trigger"
-                onClick={() => openAddModal('timetable')}
-                className="flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all self-start sm:self-center"
-              >
-                <Plus size={16} />
-                Schedule Period
-              </button>
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <button
+                  onClick={() => {
+                    if (!selectedTimetableClass) {
+                      toast.error("Select a class first!");
+                      return;
+                    }
+                    const cls = classes.find(c => c.id === selectedTimetableClass);
+                    if (!cls) return;
+
+                    const classSubjects = cls.subjects || [];
+                    if (classSubjects.length === 0) {
+                      toast.error("No subjects assigned to this class. Add subjects first via Management Hub.");
+                      return;
+                    }
+
+                    const matchedTeachers: { subject: string; teacherId: string }[] = [];
+                    classSubjects.forEach(sub => {
+                      const teacher = teachers.find(t => t.subject.toLowerCase().includes(sub.toLowerCase()));
+                      if (teacher) {
+                        matchedTeachers.push({ subject: sub, teacherId: teacher.id });
+                      }
+                    });
+
+                    if (matchedTeachers.length === 0) {
+                      toast.error("No teachers found matching class subjects. Assign teachers first.");
+                      return;
+                    }
+
+                    const existingForClass = timetable.filter(tt => tt.classId === selectedTimetableClass);
+                    if (existingForClass.length > 0) {
+                      if (!window.confirm(`This class already has ${existingForClass.length} scheduled entries. Auto-generate will ADD new entries to empty slots only. Continue?`)) return;
+                    }
+
+                    const defaultTimeSlots = [
+                      '08:30 AM - 09:30 AM',
+                      '09:30 AM - 10:30 AM',
+                      '10:30 AM - 11:30 AM',
+                      '11:30 AM - 12:30 PM',
+                      '01:00 PM - 02:00 PM',
+                      '02:00 PM - 03:00 PM',
+                    ];
+
+                    const classPeriods = allPeriods;
+                    const daysToFill = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+                    const newEntries: TimetableEntry[] = [];
+                    let teacherRotation: Record<string, number> = {};
+                    matchedTeachers.forEach(mt => { teacherRotation[mt.teacherId] = 0; });
+
+                    daysToFill.forEach(day => {
+                      classPeriods.forEach((period, pIdx) => {
+                        const alreadyExists = timetable.some(
+                          tt => tt.classId === selectedTimetableClass && tt.day === day && tt.period === period
+                        );
+                        if (alreadyExists) return;
+
+                        const timeSlot = defaultTimeSlots[pIdx] || `${String(8 + pIdx).padStart(2, '0')}:00 AM - ${String(9 + pIdx).padStart(2, '0')}:00 AM`;
+                        const subjectIdx = (pIdx + daysToFill.indexOf(day)) % matchedTeachers.length;
+                        const chosen = matchedTeachers[subjectIdx];
+
+                        newEntries.push({
+                          id: `tt_auto_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+                          classId: selectedTimetableClass,
+                          day: day as DayOfWeek,
+                          period,
+                          time: timeSlot,
+                          subject: chosen.subject,
+                          teacherId: chosen.teacherId,
+                        });
+                      });
+                    });
+
+                    if (newEntries.length === 0) {
+                      toast.info("All slots already filled! Nothing to auto-generate.");
+                      return;
+                    }
+
+                    setTimetable(prev => [...prev, ...newEntries]);
+                    toast.success(`Auto-generated ${newEntries.length} timetable entries for ${cls.className}!`);
+                  }}
+                  className="flex items-center justify-center gap-2 py-2 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                >
+                  <Zap size={16} />
+                  Auto-Generate
+                </button>
+                <button
+                  id="add-timetable-entry-trigger"
+                  onClick={() => openAddModal('timetable')}
+                  className="flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                >
+                  <Plus size={16} />
+                  Schedule Period
+                </button>
+              </div>
             </div>
 
             {/* Dropdown selectors */}
