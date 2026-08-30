@@ -2541,7 +2541,7 @@ export default function PrincipalDashboard({
                     ];
 
                     const classPeriods = allPeriods;
-                    const daysToFill = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+                    const daysToFill = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
                     const newEntries: TimetableEntry[] = [];
                     let teacherRotation: Record<string, number> = {};
