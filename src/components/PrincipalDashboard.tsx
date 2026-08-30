@@ -4192,6 +4192,80 @@ export default function PrincipalDashboard({
               );
             })()}
 
+            {/* 1.5 Global Dues Section - Non-Fee Funds (Paper Fund, Other Fund, etc.) */}
+            {(() => {
+              const allDues: { studentName: string; studentId: string | number; className: string; desc: string; amount: number; date: string }[] = [];
+              feeStudents.forEach(s => {
+                (s.otherFunds || []).forEach(f => {
+                  allDues.push({ studentName: s.name, studentId: s.id, className: s.class, desc: f.desc, amount: f.amount, date: f.date });
+                });
+              });
+              allDues.sort((a, b) => b.date.localeCompare(a.date));
+              const totalDuesAmount = allDues.reduce((sum, d) => sum + d.amount, 0);
+
+              if (allDues.length === 0) return null;
+
+              const fundBreakdown: Record<string, number> = {};
+              allDues.forEach(d => { fundBreakdown[d.desc] = (fundBreakdown[d.desc] || 0) + d.amount; });
+
+              return (
+                <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                      <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                        <AlertCircle size={18} className="text-amber-500" />
+                        Dues (Non-Fee Funds)
+                      </h2>
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Paper Fund, Summer Pack & Other Funds across all students</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {Object.entries(fundBreakdown).map(([desc, amt]) => (
+                        <span key={desc} className="px-3 py-1.5 bg-amber-50 border border-amber-100 rounded-xl text-xs font-black text-amber-700 uppercase tracking-widest">
+                          {desc}: {Number(amt).toLocaleString()}
+                        </span>
+                      ))}
+                      <span className="px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-xl text-xs font-black text-rose-700 uppercase tracking-widest">
+                        Total: {totalDuesAmount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-100 uppercase text-[10px] font-black tracking-widest text-slate-400">
+                        <tr>
+                          <th className="px-4 py-3">Student</th>
+                          <th className="px-4 py-3">Class</th>
+                          <th className="px-4 py-3">Fund Type</th>
+                          <th className="px-4 py-3">Date</th>
+                          <th className="px-4 py-3 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs font-bold">
+                        {allDues.map((d, idx) => (
+                          <tr key={idx} className="hover:bg-amber-50/30 transition-colors">
+                            <td className="px-4 py-3 text-slate-900 font-black">{d.studentName}</td>
+                            <td className="px-4 py-3 text-slate-500">{d.className}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                d.desc === 'Paper Fund' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                                d.desc === 'Summer Pack' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                                'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                              }`}>
+                                {d.desc}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 font-mono">{d.date}</td>
+                            <td className="px-4 py-3 text-right font-black text-rose-600">{Number(d.amount).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 2. Main Interface Header & Student Matcher */}
             <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
