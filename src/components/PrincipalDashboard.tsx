@@ -1917,10 +1917,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           </nav>
 
         {/* Footer profile & logout - Minimalist */}
-        <div className="p-8 border-t border-slate-50">
+        <div className="p-4 border-t border-slate-50 shrink-0 bg-white">
           <button
             onClick={onLogout}
-            className="w-full py-3.5 bg-rose-600 text-white font-black text-xs uppercase tracking-[0.3em] hover:bg-rose-700 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-rose-200"
+            className="w-full py-3 bg-rose-600 text-white font-black text-xs uppercase tracking-[0.3em] hover:bg-rose-700 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-rose-200"
           >
             <LogOut size={16} />
             EXIT SYSTEM
@@ -6905,6 +6905,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
             >
               <Menu size={18} />
               <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
+            </button>
+          </div>
+          <div className="flex-1 flex justify-center">
+            <button
+              onClick={onLogout}
+              className="flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-rose-400 focus:outline-none"
+            >
+              <LogOut size={18} />
+              <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Exit</span>
             </button>
           </div>
         </div>
