@@ -204,13 +204,13 @@ export default function LandingPage({ teachers, students, classes, onEnterPortal
                 transition={{ duration: 1, delay: 0.2 }}
                 className="relative"
               >
-                <div className="aspect-square max-w-md lg:max-w-none mx-auto bg-slate-50 rounded-[2rem] md:rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
+                <div className="aspect-square w-full bg-slate-50 rounded-[2rem] md:rounded-[4rem] border border-slate-100 overflow-hidden relative shadow-2xl">
                   <div className="absolute inset-0 bg-gradient-to-tr from-emerald-100/20 to-transparent"></div>
-                  <div className="absolute inset-0 flex items-center justify-center p-10 md:p-14">
+                  <div className="absolute inset-0 flex items-center justify-center">
                     <img 
                       src={schoolHero} 
                       alt="NSB1 School Features" 
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
                     />
                   </div>
