@@ -204,12 +204,11 @@ export default function PrincipalDashboard({
   const [quickCollectFeeType, setQuickCollectFeeType] = useState('Tuition Fee');
   const [quickCollectNotes, setQuickCollectNotes] = useState('');
   const [showExtraFeeInputs, setShowExtraFeeInputs] = useState(false);
-  const [extraFees, setExtraFees] = useState<Record<string, string>>({
-    'Exam Fee': '',
-    'Annual Paper Fund': '',
-    'Admission Fee': '',
+const [extraFees, setExtraFees] = useState<Record<string, string>>({
+    'Paper Fund': '',
+    'Summer Pack': '',
     'Miscellaneous': ''
-  });
+});
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
@@ -278,15 +277,19 @@ export default function PrincipalDashboard({
         if (!s.name.toLowerCase().includes(q) && !(s.rollNumber && s.rollNumber.toLowerCase().includes(q)) && !classNameStr.includes(q)) return false;
       }
       if (recordsFeeStatusFilter !== 'all') {
-        const sFees = fees.filter(f => String(f.studentId) === String(s.id));
-        const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-        const monthlyFee = s.baseFee || 5500;
-        const status = totalPaid >= monthlyFee ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
-        if (status !== recordsFeeStatusFilter) return false;
+        const fStudent = feeStudents.find(fs => String(fs.id) === String(s.id));
+        if (fStudent) {
+          const pending = getTotalPending(fStudent) + getTotalOtherFunds(fStudent);
+          const collected = fStudent.payments.reduce((sum, p) => sum + p.amount, 0);
+          const status = pending <= 0 ? 'paid' : collected > 0 ? 'partial' : 'unpaid';
+          if (status !== recordsFeeStatusFilter) return false;
+        } else {
+          if (recordsFeeStatusFilter !== 'unpaid') return false;
+        }
       }
       return true;
     });
-  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch, recordsFeeStatusFilter, fees]);
+  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch, recordsFeeStatusFilter, feeStudents]);
 
   const visibleAttendance = React.useMemo(() => {
     return filteredAttendance.slice(0, attendanceDisplayLimit);
@@ -400,7 +403,7 @@ export default function PrincipalDashboard({
     setShowQuickCollectModal(false);
     setQuickCollectNotes('');
     setShowExtraFeeInputs(false);
-    setExtraFees({ 'Exam Fee': '', 'Annual Paper Fund': '', 'Admission Fee': '', 'Miscellaneous': '' });
+    setExtraFees({ 'Paper Fund': '', 'Summer Pack': '', 'Miscellaneous': '' });
     const categories = newFeeRecords.map(r => r.feeType).join(', ');
     toast.success(`${categories} collected for ${studentName} (${month})! Receipt${newFeeRecords.length > 1 ? ' x' + newFeeRecords.length : ' #' + newFeeRecords[0].id}`);
   };
@@ -7856,7 +7859,7 @@ export default function PrincipalDashboard({
                 <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-700">Add More Fee Categories</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Exam Fee, Paper Fund, Admission Fee, etc.</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Paper Fund, Summer Pack, Miscellaneous, etc.</p>
                   </div>
                   <button
                     onClick={() => setShowExtraFeeInputs(!showExtraFeeInputs)}
@@ -7869,7 +7872,7 @@ export default function PrincipalDashboard({
 
                 {showExtraFeeInputs && (
                   <div className="bg-white border border-emerald-100 rounded-xl p-3 space-y-3 animate-fade-in">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Other Fee Amounts (leave blank to skip)</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Other Fund Amounts (leave blank to skip)</p>
                     {Object.keys(extraFees).map(type => (
                       <div key={type} className="flex items-center gap-3">
                         <span className="w-44 shrink-0 text-xs font-black uppercase tracking-widest text-slate-600">{type}</span>
