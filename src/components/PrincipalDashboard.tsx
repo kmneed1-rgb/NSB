@@ -6907,15 +6907,6 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Menu</span>
             </button>
           </div>
-          <div className="flex-1 flex justify-center">
-            <button
-              onClick={onLogout}
-              className="flex flex-col items-center justify-center py-1 transition-all text-center text-slate-400 hover:text-rose-400 focus:outline-none"
-            >
-              <LogOut size={18} />
-              <span className="text-[10px] mt-0.5 font-bold uppercase tracking-wider">Exit</span>
-            </button>
-          </div>
         </div>
       </div>
 
