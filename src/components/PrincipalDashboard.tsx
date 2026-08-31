@@ -1866,10 +1866,6 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         <div className="p-4 pb-5 border-b border-slate-50 mb-4">
           <div className="flex items-center justify-between w-full">
             <img src="/logo.png" alt="NSB1 Logo" className="h-16 w-auto object-contain animate-bounce-slow" referrerPolicy="no-referrer" />
-            <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="md:hidden flex items-center justify-center gap-1 px-2.5 h-9 rounded-lg bg-rose-500 text-white hover:bg-rose-600 shadow-md transition-colors">
-              <X size={18} />
-              <span className="text-xs font-black uppercase tracking-wider">Exit</span>
-            </button>
           </div>
           <div className="flex flex-col items-center gap-1 mt-2">
             <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
@@ -1914,18 +1910,17 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               <Download size={14} className="text-indigo-600" />
               Install App
             </button>
+
+            {/* Exit System Button in Sidebar */}
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold uppercase tracking-[0.2em] transition-all text-left group rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 mt-2 border border-rose-100"
+            >
+              <LogOut size={14} className="text-rose-600" />
+              Exit System
+            </button>
           </nav>
 
-        {/* Footer profile & logout - Minimalist */}
-        <div className="p-4 border-t border-slate-50 shrink-0 bg-white">
-          <button
-            onClick={onLogout}
-            className="w-full py-3 bg-rose-600 text-white font-black text-xs uppercase tracking-[0.3em] hover:bg-rose-700 transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-rose-200"
-          >
-            <LogOut size={16} />
-            EXIT SYSTEM
-          </button>
-        </div>
       </div>
 
       {/* Main Panel */}
