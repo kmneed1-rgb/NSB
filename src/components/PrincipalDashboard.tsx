@@ -1918,22 +1918,31 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
             {/* Metrics cards bar - Elegant Minimalist */}
             {(() => {
-              const totalBilled = students.length * 5500 * (MONTHS.indexOf(MONTHS[new Date().getMonth()]) + 1); // rough estimate of total expected fees
-              const totalCollected = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalPending = (students.length * 5500) - fees.filter(f => f.month === MONTHS[new Date().getMonth()]).reduce((sum, f) => sum + Number(f.amount || 0), 0); 
-
-              // Current Month Collection (follows the actual current month, not a fixed month)
               const currentMonth = MONTHS[new Date().getMonth()];
               const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
-              const currentMonthFees = fees.filter(f => f.month && f.month.trim().toUpperCase().startsWith(currentMonth));
-              const totalCollectedMonth = currentMonthFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-              const totalExpectedMonth = students.length * 5500;
-              const totalPendingMonth = Math.max(0, totalExpectedMonth - totalCollectedMonth);
-              const overallRemaining = fees.filter(f => f.status === 'pending').reduce((sum, f) => sum + Number(f.amount || 0), 0);
 
-              // Fee count stats
-              const paidStudentsCount = students.filter(s => currentMonthFees.some(f => f.studentId === s.id)).length;
-              const pendingStudentsCount = students.length - paidStudentsCount;
+              // Use feeEngine for accurate pending/collected amounts
+              let totalPendingAll = 0;
+              let totalCollectedAll = 0;
+              let totalPendingMonth = 0;
+              let totalCollectedMonth = 0;
+              let paidStudentsCount = 0;
+              let pendingStudentsCount = 0;
+
+              feeStudents.forEach(fs => {
+                const pending = getTotalPending(fs) + getTotalOtherFunds(fs);
+                const collected = fs.payments.reduce((sum, p) => sum + p.amount, 0);
+                totalPendingAll += pending;
+                totalCollectedAll += collected;
+
+                const monthPending = getTotalPending(fs);
+                const monthPaid = fs.payments.filter(p => p.month === currentMonth).reduce((sum, p) => sum + p.amount, 0);
+                totalPendingMonth += monthPending;
+                totalCollectedMonth += monthPaid;
+
+                if (monthPaid > 0) paidStudentsCount++;
+              });
+              pendingStudentsCount = students.length - paidStudentsCount;
 
               // Attendance Avg
               const attendanceAvg = attendance.length > 0 
@@ -1970,7 +1979,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       <>
                         <div className="p-6 bg-rose-50/50 border border-rose-100">
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{overallRemaining.toLocaleString()}</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
                         </div>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
