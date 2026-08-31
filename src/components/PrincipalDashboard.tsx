@@ -3,7 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/fi
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -461,6 +461,43 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     reader.readAsText(file);
     // Reset input so same file can be uploaded again
     event.target.value = '';
+  };
+
+  const handleDownloadJSON = () => {
+    const confirmResult = window.confirm("Download all school data as a backup file?");
+    if (!confirmResult) return;
+
+    try {
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        appName: 'NSB Academy Manager',
+        students,
+        teachers,
+        classes,
+        attendance,
+        fees,
+        coordinators,
+        marks,
+        timetable,
+        feeStudents,
+        appSettings
+      };
+
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `nsb_backup_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("Backup downloaded successfully!");
+    } catch (err: any) {
+      toast.error("Download failed: " + err.message);
+    }
   };
 
   const handlePrincipalMarkAttendance = () => {
@@ -1926,6 +1963,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               let totalCollectedAll = 0;
               let totalPendingMonth = 0;
               let totalCollectedMonth = 0;
+              let totalExtraDues = 0;
               let paidStudentsCount = 0;
               let pendingStudentsCount = 0;
 
@@ -1934,6 +1972,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 const collected = fs.payments.reduce((sum, p) => sum + p.amount, 0);
                 totalPendingAll += pending;
                 totalCollectedAll += collected;
+                totalExtraDues += getTotalOtherFunds(fs);
 
                 const monthPending = getTotalPending(fs);
                 const monthPaid = fs.payments.filter(p => p.month === currentMonth).reduce((sum, p) => sum + p.amount, 0);
@@ -1959,8 +1998,6 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       ...(userSession.role === 'principal' ? [
-                        { label: `Dues Collected (${currentMonthName})`, val: `${totalCollectedMonth.toLocaleString()}`, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: `Dues Unpaid (${currentMonthName})`, val: `${totalPendingMonth.toLocaleString()}`, color: 'text-rose-600', bg: 'bg-rose-50/50' }
                       ] : [
                         { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                         { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
@@ -1996,6 +2033,22 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       </div>
                     )}
                   </div>
+
+                  {/* Extra Dues Summary Cards */}
+                  {(userSession.role === 'principal' || userSession.role === 'coordinator') && totalExtraDues > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
+                      <div className="p-6 bg-blue-50/50 border border-blue-100">
+                        <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-blue-600 block">Total Extra Dues</span>
+                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
+                        <span className="text-[10px] font-bold text-blue-400 uppercase mt-2 block">Paper Fund, Festival & Other Charges</span>
+                      </div>
+                      <div className="p-6 bg-rose-50/50 border border-rose-100">
+                        <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Extra Dues</span>
+                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
+                        <span className="text-[10px] font-bold text-rose-400 uppercase mt-2 block">Pending from Students</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2749,9 +2802,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                      >
                                        <Plus size={8} className="w-1.5 h-1.5 sm:w-2.5 sm:h-2.5 stroke-[3]" /> <span className="hidden xs:inline">Add</span>
                                      </button>
-                                   )}
-                                 </div>
-                               </div>
+                                    )}
+                  </div>
+                </div>
                                {entry ? (
                                  <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
                                    <p className="font-extrabold text-xs sm:text-xs uppercase tracking-tight  text-slate-900 truncate" style={{ color: col }} title={entry.subject}>{entry.subject}</p>
@@ -4909,6 +4962,49 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   <Trash2 size={14} />
                   Clear Cloud
                 </button>
+              </div>
+            </div>
+
+            {/* ========== LOCAL DEVICE BACKUP ========== */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 my-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 text-blue-600">
+                  <HardDrive size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    Local Device Backup
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1">Download or upload data directly to your device without cloud</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadJSON}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-blue-500/10"
+                >
+                  <Download size={14} />
+                  Download Backup
+                </button>
+
+                <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>
+
+                <input
+                  type="file"
+                  id="local-import-input"
+                  className="hidden"
+                  accept=".json"
+                  onChange={handleImportJSON}
+                />
+                <label
+                  htmlFor="local-import-input"
+                  className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-amber-500/10"
+                >
+                  <Upload size={14} />
+                  Upload Backup
+                </label>
               </div>
             </div>
 
