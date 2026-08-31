@@ -1974,12 +1974,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 totalCollectedAll += collected;
                 totalExtraDues += getTotalOtherFunds(fs);
 
-                const monthPending = getTotalPending(fs);
-                const monthPaid = fs.payments.filter(p => p.month === currentMonth).reduce((sum, p) => sum + p.amount, 0);
-                totalPendingMonth += monthPending;
-                totalCollectedMonth += monthPaid;
+                const monthSummary = getMonthlySummary(fs, currentMonth, new Date().getFullYear());
+                totalPendingMonth += monthSummary.pending;
+                totalCollectedMonth += monthSummary.paid;
 
-                if (monthPaid > 0) paidStudentsCount++;
+                if (monthSummary.paid > 0) paidStudentsCount++;
               });
               pendingStudentsCount = students.length - paidStudentsCount;
 

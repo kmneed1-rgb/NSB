@@ -885,6 +885,61 @@ export default function App() {
     }
   }, [userSession]);
 
+  // --- PERIODIC FIRESTORE SYNC (every 30 seconds) ---
+  useEffect(() => {
+    if (!userSession) return;
+
+    const syncInterval = setInterval(async () => {
+      try {
+        const [
+          teachersSnap, classesSnap, studentsSnap, timetableSnap,
+          attendanceSnap, marksSnap, feesSnap, feeDataSnap
+        ] = await Promise.all([
+          getDocs(collection(db, "teachers")),
+          getDocs(collection(db, "classes")),
+          getDocs(collection(db, "students")),
+          getDocs(collection(db, "timetable")),
+          getDocs(collection(db, "attendance")),
+          getDocs(collection(db, "marks")),
+          getDocs(collection(db, "fees")),
+          getDocs(collection(db, "fee_data")),
+        ]);
+
+        const newTeachers: Teacher[] = [];
+        teachersSnap.forEach(d => newTeachers.push(d.data() as Teacher));
+        const newClasses: Class[] = [];
+        classesSnap.forEach(d => newClasses.push(d.data() as Class));
+        const newStudents: Student[] = [];
+        studentsSnap.forEach(d => newStudents.push(d.data() as Student));
+        const newTimetable: TimetableEntry[] = [];
+        timetableSnap.forEach(d => newTimetable.push(d.data() as TimetableEntry));
+        const newAttendance: Attendance[] = [];
+        attendanceSnap.forEach(d => newAttendance.push(d.data() as Attendance));
+        const newMarks: Mark[] = [];
+        marksSnap.forEach(d => newMarks.push(d.data() as Mark));
+        const newFees: FeeRecord[] = [];
+        feesSnap.forEach(d => newFees.push(d.data() as FeeRecord));
+        const newFeeStudents: StudentFeeData[] = [];
+        feeDataSnap.forEach(d => newFeeStudents.push(d.data() as StudentFeeData));
+
+        if (newTeachers.length > 0) setTeachers(newTeachers);
+        if (newClasses.length > 0) setClasses(newClasses);
+        if (newStudents.length > 0) setStudents(newStudents);
+        if (newTimetable.length > 0) setTimetable(newTimetable);
+        if (newAttendance.length > 0) setAttendance(newAttendance);
+        if (newMarks.length > 0) setMarks(newMarks);
+        if (newFees.length > 0) setFees(newFees);
+        if (newFeeStudents.length > 0) setFeeStudents(newFeeStudents);
+
+        isSyncComplete.current = true;
+      } catch (err) {
+        console.warn("Periodic sync skipped (offline):", err);
+      }
+    }, 30000);
+
+    return () => clearInterval(syncInterval);
+  }, [userSession]);
+
   // --- ACTIONS ---
   const handleLogin = (session: UserSession) => {
     setUserSession(session);
