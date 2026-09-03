@@ -3650,7 +3650,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                                 <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Status</span>
                                                 <span className={`text-[10px] font-black uppercase ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? `Partial · Baqi PKR ${Math.max(0, monthlyFee - totalPaid).toLocaleString()}` : 'Unpaid'}
+                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? `Partial · Remaining PKR ${Math.max(0, monthlyFee - totalPaid).toLocaleString()}` : 'Unpaid'}
                                                 </span>
                                               </div>
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
@@ -5045,7 +5045,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           <Send size={14} className="text-emerald-500" /> Dispatch Alerts
                         </h3>
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                          <p className="text-xs text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Outstanding</p>
+                          <p className="text-xs text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Pending</p>
                           <p className="text-2xl font-black text-rose-600 ">{getTotalPending(student) + getTotalOtherFunds(student)}</p>
                         </div>
                         <button 
@@ -5991,13 +5991,13 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                               recipient: 'System-Wide Defaulters',
                               phone: 'Multiple',
                               type: 'Settings Batch',
-                              text: `Manual trigger of arrears reminder for ${unpaidCount} students.`,
+                              text: `Manual trigger of pending reminder for ${unpaidCount} students.`,
                               timestamp: new Date().toLocaleString(),
                               status: 'Autopilot'
                             },
                             ...prev
                           ]);
-                          toast.success(`Arrears reminder triggered for ${unpaidCount} students.`);
+                          toast.success(`Pending reminder triggered for ${unpaidCount} students.`);
                         }}
                         className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase py-2 tracking-widest transition-all"
                       >
@@ -6066,9 +6066,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           onChange={(e) => {
                             const val = e.target.value;
                             let newTpl = "";
-                            if (val === "short") newTpl = "Reminder: {total_pending} outstanding for {student_name}. Please settle soon. - Principal.";
+                            if (val === "short") newTpl = "Reminder: {total_pending} pending for {student_name}. Please settle soon. - Principal.";
                             else if (val === "standard") newTpl = "Greetings! NSB1 Reminder: Guardian of {student_name}. Pending balance: {total_pending}. Kindly settle today. Thank you.";
-                            else if (val === "urgent") newTpl = "🚨 URGENT: {total_pending} outstanding for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
+                            else if (val === "urgent") newTpl = "🚨 URGENT: {total_pending} pending for {student_name}. Pay today to avoid portal suspension. - Principal NSB1.";
                             
                             if (newTpl) {
                               updateSetting('feeTemplate', newTpl);
@@ -7947,7 +7947,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 <h3 className="text-lg font-black text-slate-900 uppercase">Fee Payment</h3>
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{feePaymentModal.month} 2026</p>
                 <div className="flex flex-col gap-1 items-center mt-2 border-t border-slate-100 pt-3">
-                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Previous Arrears: {feePaymentModal.previousArrears}</span>
+                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Previous Remaining: {feePaymentModal.previousArrears}</span>
                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Current Fee: {feePaymentModal.pending}</span>
                 </div>
               </div>
@@ -8898,10 +8898,10 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
 }
 
 // ================= MONTH-WISE FEE BREAKDOWN =================
-// Har month ka card: Base Fee vs Jama (Paid) vs Baqi (Remaining, RED mein).
-// Dues (unpaid extra charges jaise Paper Fund) bhi usi month ke card mein show hote hain.
-// Student sirf apne enrollment month se aage ke months dekhta hai.
-// Mixed month formats ('Jun', 'Jun 2026', 'June 2026') robust matching se handle hote hain.
+// Each month card: Base Fee vs Paid (Jama) vs Remaining (Baqi, in RED).
+// Dues (unpaid extra charges like Paper Fund) also show in same month card.
+// Student only sees months from their enrollment month onward.
+// Mixed month formats ('Jun', 'Jun 2026', 'June 2026') handled via robust matching.
 function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth }: {
   feeStudent?: StudentFeeData;
   student: Student;
@@ -8940,24 +8940,24 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
           const extraPaid = monthPayments
             .filter(p => p.feeType && !TUITION_FEE_TYPES.test(p.feeType))
             .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-          const jama = tuitionPaid + extraPaid;
-          // 2) Fee ledger — unpaid extra charges isi month ke DUES hain
+          const totalPaid = tuitionPaid + extraPaid;
+          // 2) Fee ledger — unpaid extra charges for this month are DUES
           const extraPending = feeRecords.filter(f => {
             if (f.status === 'paid' || !f.feeType || TUITION_FEE_TYPES.test(f.feeType)) return false;
             const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
             return key.idx === mi && key.year === Number(year);
           }).reduce((s, f) => s + (Number(f.amount) || 0), 0);
-          const tuitionBaqi = Math.max(0, base - tuitionPaid);
-          const totalBaqi = tuitionBaqi + extraPending;
-          const hasData = jama > 0 || extraPending > 0 || base > 0;
-          const isClear = hasData && totalBaqi === 0;
+          const tuitionRemaining = Math.max(0, base - tuitionPaid);
+          const totalRemaining = tuitionRemaining + extraPending;
+          const hasData = totalPaid > 0 || extraPending > 0 || base > 0;
+          const isClear = hasData && totalRemaining === 0;
           const isSelected = selectedMonth === m;
           return (
             <div
               key={m}
               onClick={() => onSelectMonth?.(isSelected ? null : m)}
               title={`Click to ${isSelected ? 'hide' : 'view'} ${m} ${year} history`}
-              className={`p-2.5 rounded-xl border space-y-1.5 cursor-pointer transition-all select-none active:scale-[0.98] ${isClear ? 'bg-emerald-50/60 border-emerald-100' : jama > 0 ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-slate-100'} ${isSelected ? 'ring-2 ring-indigo-400 border-indigo-300 shadow-md' : 'hover:border-slate-300'}`}
+              className={`p-2.5 rounded-xl border space-y-1.5 cursor-pointer transition-all select-none active:scale-[0.98] ${isClear ? 'bg-emerald-50/60 border-emerald-100' : totalPaid > 0 ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-slate-100'} ${isSelected ? 'ring-2 ring-indigo-400 border-indigo-300 shadow-md' : 'hover:border-slate-300'}`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black text-slate-700 uppercase">{m}</span>
@@ -8967,9 +8967,9 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
                 </span>
               </div>
               <div className="text-[9px] font-bold text-slate-400 uppercase leading-tight">
-                <span className="block">Jama: {jama > 0 ? <span className="text-emerald-700 font-black">PKR {jama.toLocaleString()}</span> : <span className="text-slate-400">PKR 0</span>}</span>
-                {totalBaqi > 0 ? (
-                  <span className="block">Baqi: <span className="text-rose-600 font-black">PKR {totalBaqi.toLocaleString()}</span></span>
+                <span className="block">Paid: {totalPaid > 0 ? <span className="text-emerald-700 font-black">PKR {totalPaid.toLocaleString()}</span> : <span className="text-slate-400">PKR 0</span>}</span>
+                {totalRemaining > 0 ? (
+                  <span className="block">Remaining: <span className="text-rose-600 font-black">PKR {totalRemaining.toLocaleString()}</span></span>
                 ) : (
                   <span className="block font-black text-emerald-600">Clear</span>
                 )}
@@ -8982,13 +8982,13 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
               </div>
               <div className="flex items-center gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
                 <button
-                  onClick={() => onCollect(m, totalBaqi)}
+                  onClick={() => onCollect(m, totalRemaining)}
                   className="flex-1 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[9px] font-black uppercase tracking-wide rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
                   title={`Collect fee for ${m} ${year}`}
                 >
                   <Plus size={9} /> Collect
                 </button>
-                {(jama > 0 || extraPending > 0) && (
+                {(totalPaid > 0 || extraPending > 0) && (
                   <button
                     onClick={() => onDeleteMonth(m, year)}
                     className="w-6 h-6 bg-white border border-rose-200 text-rose-500 rounded-lg flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer"

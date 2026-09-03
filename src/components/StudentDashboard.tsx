@@ -1456,7 +1456,7 @@ export default function StudentDashboard({
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-rose-950/20 border-rose-900' : 'bg-rose-50 border-rose-100'}`}>
                   <p className="text-xs font-black uppercase tracking-widest text-rose-600">Pending Tuition</p>
                   <p className="text-xl font-black text-rose-600 mt-1">{account.totalPending.toLocaleString()}</p>
-                  <p className="text-xs text-rose-500 font-mono mt-2">Outstanding installments</p>
+                  <p className="text-xs text-rose-500 font-mono mt-2">Pending installments</p>
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${
                   account.grandTotalPending === 0

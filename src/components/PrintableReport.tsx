@@ -121,7 +121,7 @@ export default function PrintableReport({ student, studentClass, marks, fees }: 
           </tbody>
           <tfoot>
             <tr className="bg-slate-900 text-white font-bold">
-              <td colSpan={5} className="px-4 py-2 text-right uppercase tracking-[0.2em] text-[10px]">Grand Total Outstanding (Arrears)</td>
+              <td colSpan={5} className="px-4 py-2 text-right uppercase tracking-[0.2em] text-[10px]">Grand Total Pending</td>
               <td className="px-4 py-2 text-right font-mono text-sm">{totalUnpaid}</td>
             </tr>
           </tfoot>

@@ -233,18 +233,18 @@ export default function TeacherDashboard({
         description: `Partial collection recorded by faculty (${collected} of ${billTotal})`
       };
 
-      const arrearsRecord: FeeRecord = {
+      const remainingRecord: FeeRecord = {
         id: `fee_a_t_${Date.now()}`,
         studentId: newFeeStudentId,
         amount: billTotal - collected,
         dueDate: new Date().toISOString().split('T')[0],
         status: 'unpaid',
         month: newFeeMonth,
-        feeType: 'Arrears / Balance',
-        description: `Arrears from faculty collection (${newFeeType})`
+        feeType: 'Remaining Balance',
+        description: `Remaining from faculty collection (${newFeeType})`
       };
 
-      setFees([paidRecord, arrearsRecord, ...updatedFees]);
+      setFees([paidRecord, remainingRecord, ...updatedFees]);
     } else {
       const newFee: FeeRecord = {
         id: `fee_t_${Date.now()}`,
