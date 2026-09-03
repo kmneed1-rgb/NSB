@@ -85,6 +85,21 @@ export interface FeeRecord {
   description?: string;
 }
 
+export interface DueEntry {
+  id: string;
+  studentId: string | number;
+  desc: string;
+  amount: number;
+  date: string;
+  month: string;
+  year: number;
+  status: 'pending' | 'paid' | 'waived';
+  paidDate?: string;
+  paymentMethod?: string;
+  studentName?: string;
+  studentClass?: string;
+}
+
 export type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
 
 export interface TimetableEntry {
@@ -142,6 +157,7 @@ export interface StudentFeeData {
     amount: number;
     date: string;
   }[];
+  dues: DueEntry[];
 }
 
 export interface UserSession {

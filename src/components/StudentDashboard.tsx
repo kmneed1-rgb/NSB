@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -77,6 +77,85 @@ export default function StudentDashboard({
       setActiveTab(tab);
     }
   };
+
+  // Real-time Firebase listeners for cross-portal sync (Student Dashboard)
+  useEffect(() => {
+    // Listen for student changes (profile updates)
+    const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      const updatedStudents: Student[] = [];
+      snapshot.forEach(doc => {
+        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      });
+      if (updatedStudents.length !== students.length) {
+        setStudents(updatedStudents);
+      }
+    });
+
+    // Listen for class changes (teacher reassignment affects student's class)
+    const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      const updatedClasses: Class[] = [];
+      snapshot.forEach(doc => {
+        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      });
+      if (updatedClasses.length !== classes.length) {
+        setClasses(updatedClasses);
+      }
+    });
+
+    // Listen for timetable changes
+    const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      const updatedTimetable: TimetableEntry[] = [];
+      snapshot.forEach(doc => {
+        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      });
+      if (updatedTimetable.length !== timetable.length) {
+        setTimetable(updatedTimetable);
+      }
+    });
+
+    // Listen for attendance changes
+    const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      const updatedAttendance: Attendance[] = [];
+      snapshot.forEach(doc => {
+        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      });
+      if (updatedAttendance.length !== attendance.length) {
+        setAttendance(updatedAttendance);
+      }
+    });
+
+    // Listen for marks changes
+    const marksUnsubscribe = onSnapshot(collection(db, 'marks'), (snapshot) => {
+      const updatedMarks: Mark[] = [];
+      snapshot.forEach(doc => {
+        updatedMarks.push({ id: doc.id, ...doc.data() } as Mark);
+      });
+      if (updatedMarks.length !== marks.length) {
+        setMarks(updatedMarks);
+      }
+    });
+
+    // Listen for assignments changes
+    const assignmentsUnsubscribe = onSnapshot(collection(db, 'assignments'), (snapshot) => {
+      const updatedAssignments: Assignment[] = [];
+      snapshot.forEach(doc => {
+        updatedAssignments.push({ id: doc.id, ...doc.data() } as Assignment);
+      });
+      if (updatedAssignments.length !== assignments.length) {
+        setAssignments(updatedAssignments);
+      }
+    });
+
+    return () => {
+      studentsUnsubscribe();
+      classesUnsubscribe();
+      timetableUnsubscribe();
+      attendanceUnsubscribe();
+      marksUnsubscribe();
+      assignmentsUnsubscribe();
+    };
+  }, []);
+  
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const [feeStudents, setFeeStudents] = useState<StudentFeeData[]>(() => loadFromLocalStorage());

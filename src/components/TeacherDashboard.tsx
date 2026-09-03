@@ -10,7 +10,7 @@ import { getNotifications, addNotification, saveNotifications, PortalNotificatio
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
 import { db } from '../firebase';
-import { doc, writeBatch } from 'firebase/firestore';
+import { doc, writeBatch, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -81,6 +81,77 @@ export default function TeacherDashboard({
       setActiveTab(tab);
     }
   };
+
+  // Real-time Firebase listeners for cross-portal sync (Teacher Dashboard)
+  useEffect(() => {
+    // Listen for class changes (teacher reassignment)
+    const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      const updatedClasses: Class[] = [];
+      snapshot.forEach(doc => {
+        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      });
+      const hasChanges = updatedClasses.length !== classes.length || 
+        updatedClasses.some((c, i) => c.classTeacherId !== classes[i]?.classTeacherId);
+      if (hasChanges) {
+        setClasses(updatedClasses);
+        toast.info('Class assignments updated from Principal portal');
+      }
+    });
+
+    // Listen for teacher changes
+    const teachersUnsubscribe = onSnapshot(collection(db, 'teachers'), (snapshot) => {
+      const updatedTeachers: Teacher[] = [];
+      snapshot.forEach(doc => {
+        updatedTeachers.push({ id: doc.id, ...doc.data() } as Teacher);
+      });
+      if (updatedTeachers.length !== teachers.length) {
+        setTeachers(updatedTeachers);
+      }
+    });
+
+    // Listen for student changes
+    const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      const updatedStudents: Student[] = [];
+      snapshot.forEach(doc => {
+        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      });
+      if (updatedStudents.length !== students.length) {
+        setStudents(updatedStudents);
+      }
+    });
+
+    // Listen for timetable changes
+    const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      const updatedTimetable: TimetableEntry[] = [];
+      snapshot.forEach(doc => {
+        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      });
+      if (updatedTimetable.length !== timetable.length) {
+        setTimetable(updatedTimetable);
+        toast.info('Timetable updated from Principal portal');
+      }
+    });
+
+    // Listen for attendance changes
+    const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      const updatedAttendance: Attendance[] = [];
+      snapshot.forEach(doc => {
+        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      });
+      if (updatedAttendance.length !== attendance.length) {
+        setAttendance(updatedAttendance);
+      }
+    });
+
+    return () => {
+      classesUnsubscribe();
+      teachersUnsubscribe();
+      studentsUnsubscribe();
+      timetableUnsubscribe();
+      attendanceUnsubscribe();
+    };
+  }, []);
+  
   const [timetableSubTab, setTimetableSubTab] = useState<'my' | 'class'>('my');
   const [timetableClassId, setTimetableClassId] = useState<string>('');
   const [scheduleDay, setScheduleDay] = useState<string>(() => {

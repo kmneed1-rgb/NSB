@@ -15,6 +15,19 @@ export interface OtherFund {
   date: string;
 }
 
+export interface DueEntry {
+  id: string;
+  studentId: string | number;
+  desc: string;
+  amount: number;
+  date: string;
+  month: string;
+  year: number;
+  status: 'pending' | 'paid' | 'waived';
+  paidDate?: string;
+  paymentMethod?: string;
+}
+
 export interface StudentFeeData {
   id: string | number;
   name: string;
@@ -23,6 +36,7 @@ export interface StudentFeeData {
   enrollmentMonth?: string;
   payments: Payment[];
   otherFunds: OtherFund[];
+  dues: DueEntry[];
 }
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
@@ -245,6 +259,81 @@ export const getGlobalStats = (students: StudentFeeData[]) => {
   };
 };
 
+// ===== DUES MANAGEMENT (separate from monthly fee) =====
+
+// 10. addDue - Add a due entry for a student (separate from monthly fee)
+export const addDue = (students: StudentFeeData[], studentId: string | number, desc: string, amount: number, month: string, year: number): StudentFeeData[] => {
+  const date = new Date().toISOString().split('T')[0];
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        dues: [...(s.dues || []), { id: Math.random().toString(36).substr(2, 9), studentId: s.id, desc, amount, date, month, year, status: 'pending' }]
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 11. payDue - Mark a due as paid
+export const payDue = (students: StudentFeeData[], studentId: string | number, dueId: string, paymentMethod: string = 'Cash'): StudentFeeData[] => {
+  const date = new Date().toISOString().split('T')[0];
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        dues: (s.dues || []).map(d => d.id === dueId ? { ...d, status: 'paid', paidDate: date, paymentMethod } : d)
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 12. deleteDue
+export const deleteDue = (students: StudentFeeData[], studentId: string | number, dueId: string): StudentFeeData[] => {
+  const updatedStudents = students.map(s => {
+    if (String(s.id) === String(studentId)) {
+      return {
+        ...s,
+        dues: (s.dues || []).filter(d => d.id !== dueId)
+      };
+    }
+    return s;
+  });
+  saveToLocalStorage(updatedStudents);
+  return updatedStudents;
+};
+
+// 13. getTotalDues - Get total pending dues for a student
+export const getTotalDues = (student: StudentFeeData) => {
+  return (student.dues || []).filter(d => d.status === 'pending').reduce((sum, d) => sum + d.amount, 0);
+};
+
+// 14. getPaidDues - Get total paid dues for a student
+export const getPaidDues = (student: StudentFeeData) => {
+  return (student.dues || []).filter(d => d.status === 'paid').reduce((sum, d) => sum + d.amount, 0);
+};
+
+// 15. getDuesByMonth - Get dues for a specific month/year
+export const getDuesByMonth = (student: StudentFeeData, month: string, year: number) => {
+  return (student.dues || []).filter(d => d.month === month && d.year === year);
+};
+
+// 16. getAllDues - Get all dues (for dashboard)
+export const getAllDues = (students: StudentFeeData[]) => {
+  const allDues: DueEntry[] = [];
+  students.forEach(s => {
+    (s.dues || []).forEach(d => {
+      allDues.push({ ...d, studentName: s.name, studentClass: s.class });
+    });
+  });
+  return allDues.sort((a, b) => b.date.localeCompare(a.date));
+};
+
 import { safeStorage } from './safeStorage';
 
 // Persistence
@@ -257,7 +346,7 @@ export const loadFromLocalStorage = (): StudentFeeData[] => {
   if (!data) return [];
   try {
     const parsed: StudentFeeData[] = JSON.parse(data);
-    // Migration: ensure all payments and otherFunds have IDs
+    // Migration: ensure all payments, otherFunds, and dues have IDs
     return parsed.map(s => ({
       ...s,
       payments: (s.payments || []).map(p => ({
@@ -267,6 +356,10 @@ export const loadFromLocalStorage = (): StudentFeeData[] => {
       otherFunds: (s.otherFunds || []).map(f => ({
         ...f,
         id: f.id || Math.random().toString(36).substr(2, 9)
+      })),
+      dues: (s.dues || []).map(d => ({
+        ...d,
+        id: d.id || Math.random().toString(36).substr(2, 9)
       }))
     }));
   } catch (e) {

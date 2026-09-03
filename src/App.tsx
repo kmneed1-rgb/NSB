@@ -735,6 +735,7 @@ export default function App() {
     });
 
     prevFees.current = currentStr;
+    safeStorage.setItem('acadamis_fees', currentStr);
   }, [fees]);
 
   // Student Fee Data Sync (New Engine)

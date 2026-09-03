@@ -1,9 +1,10 @@
 import { db } from '../firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { testFirebaseConnection } from '../firebase';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -24,9 +25,37 @@ import {
   editOtherFund,
   deletePayment,
   editPayment,
+  addDue,
+  payDue,
+  deleteDue,
+  getTotalDues,
+  getPaidDues,
+  getDuesByMonth,
+  getAllDues,
   MONTHS,
   Month
 } from '../lib/feeEngine';
+
+// ===== Month parsing helpers =====
+// Fee month strings mixed formats mein aati hain: 'Jun', 'Jun 2026', 'June 2026', 'September'.
+// MONTH_ALIAS + parseMonthKey sab formats ko {monthIndex, year} mein normalize karte hain.
+const MONTH_ALIAS: Record<string, number> = {
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
+};
+const TUITION_FEE_TYPES = /^(tuition|school|monthly)\s*fee$/i;
+const parseMonthKey = (raw: unknown, fallbackYear: number): { idx: number; year: number } => {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^([A-Za-z]+)\s*,?\s*(\d{4})?$/);
+  if (!m) return { idx: -1, year: fallbackYear };
+  const alias = m[1].toLowerCase();
+  return {
+    idx: Object.prototype.hasOwnProperty.call(MONTH_ALIAS, alias) ? MONTH_ALIAS[alias] : -1,
+    year: m[2] ? Number(m[2]) : fallbackYear
+  };
+};
+
 
 interface PrincipalDashboardProps {
   userSession: UserSession;
@@ -183,6 +212,91 @@ export default function PrincipalDashboard({
     toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
   };
 
+  // Real-time Firebase listeners for cross-portal sync
+  useEffect(() => {
+    // Listen for class changes (teacher reassignment)
+    const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      const updatedClasses: Class[] = [];
+      snapshot.forEach(doc => {
+        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      });
+      // Only update if data actually changed (prevent infinite loops)
+      const hasChanges = updatedClasses.length !== classes.length || 
+        updatedClasses.some((c, i) => c.classTeacherId !== classes[i]?.classTeacherId);
+      if (hasChanges) {
+        setClasses(updatedClasses);
+        toast.info('Class assignments updated from Principal portal');
+      }
+    });
+
+    // Listen for teacher changes
+    const teachersUnsubscribe = onSnapshot(collection(db, 'teachers'), (snapshot) => {
+      const updatedTeachers: Teacher[] = [];
+      snapshot.forEach(doc => {
+        updatedTeachers.push({ id: doc.id, ...doc.data() } as Teacher);
+      });
+      if (updatedTeachers.length !== teachers.length) {
+        setTeachers(updatedTeachers);
+        toast.info('Teacher list updated from Principal portal');
+      }
+    });
+
+    // Listen for student changes
+    const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      const updatedStudents: Student[] = [];
+      snapshot.forEach(doc => {
+        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      });
+      if (updatedStudents.length !== students.length) {
+        setStudents(updatedStudents);
+        toast.info('Student list updated from Principal portal');
+      }
+    });
+
+    // Listen for fee data changes
+    const feeDataUnsubscribe = onSnapshot(collection(db, 'fee_data'), (snapshot) => {
+      const updatedFeeStudents: StudentFeeData[] = [];
+      snapshot.forEach(doc => {
+        updatedFeeStudents.push({ id: doc.id, ...doc.data() } as StudentFeeData);
+      });
+      if (updatedFeeStudents.length !== feeStudents.length) {
+        setFeeStudents(updatedFeeStudents);
+      }
+    });
+
+    // Listen for attendance changes
+    const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      const updatedAttendance: Attendance[] = [];
+      snapshot.forEach(doc => {
+        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      });
+      if (updatedAttendance.length !== attendance.length) {
+        setAttendance(updatedAttendance);
+      }
+    });
+
+    // Listen for timetable changes
+    const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      const updatedTimetable: TimetableEntry[] = [];
+      snapshot.forEach(doc => {
+        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      });
+      if (updatedTimetable.length !== timetable.length) {
+        setTimetable(updatedTimetable);
+        toast.info('Timetable updated from Principal portal');
+      }
+    });
+
+    return () => {
+      classesUnsubscribe();
+      teachersUnsubscribe();
+      studentsUnsubscribe();
+      feeDataUnsubscribe();
+      attendanceUnsubscribe();
+      timetableUnsubscribe();
+    };
+  }, []);
+
   // Search/Filter States
   const [teacherSearch, setTeacherSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
@@ -201,6 +315,9 @@ export default function PrincipalDashboard({
   const [quickCollectMonth, setQuickCollectMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
   const [quickCollectAmount, setQuickCollectAmount] = useState<string>('5500');
   const [quickCollectPaymentMethod, setQuickCollectPaymentMethod] = useState('Cash');
+  const [monthFeeInputs, setMonthFeeInputs] = useState<Record<string, string>>({});
+  // Month card click -> neeche sirf usi month ki history show ho (History Log filter)
+  const [monthHistoryFilter, setMonthHistoryFilter] = useState<{ studentId: string; month: string; year: number } | null>(null);
   const [quickCollectFeeType, setQuickCollectFeeType] = useState('Tuition Fee');
   const [quickCollectNotes, setQuickCollectNotes] = useState('');
   const [showExtraFeeInputs, setShowExtraFeeInputs] = useState(false);
@@ -211,6 +328,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 });
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
+  // Dues Management State
+  const [showAddDueModal, setShowAddDueModal] = useState(false);
+  const [addDueStudentId, setAddDueStudentId] = useState('');
+  const [addDueDesc, setAddDueDesc] = useState('');
+  const [addDueAmount, setAddDueAmount] = useState('');
+  const [addDueMonth, setAddDueMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
+  const [duesFilterStatus, setDuesFilterStatus] = useState<'all' | 'pending' | 'paid'>('all');
+  const [duesFilterClass, setDuesFilterClass] = useState('all');
+
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
   const [markAttendanceClassId, setMarkAttendanceClassId] = useState('');
   const [markAttRecords, setMarkAttRecords] = useState<{studentId: string, status: 'present' | 'absent' | 'late' | 'leave'}[]>([]);
@@ -218,6 +344,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   const [activeSwipeIndex, setActiveSwipeIndex] = useState<number>(0);
   const [attendanceDisplayLimit, setAttendanceDisplayLimit] = useState(50);
   const [feesDisplayLimit, setFeesDisplayLimit] = useState(50);
+  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<'all' | 'present' | 'absent' | 'late' | 'leave'>('all');
 
   // Memoized Data & Optimized Lookups for performance
   const studentsMap = React.useMemo(() => {
@@ -313,12 +440,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
   // Unified rows used by the attendance ledger (mobile cards + desktop table).
   const attendanceDisplayRows = React.useMemo(() => {
-    if (attendanceFilterClass !== 'all') return attendanceRosterRows;
-    return filteredAttendance.slice(0, attendanceDisplayLimit).map(record => {
-      const student = studentsMap.get(String(record.studentId));
-      return { student, record, isRoster: false };
-    });
-  }, [attendanceFilterClass, attendanceRosterRows, filteredAttendance, attendanceDisplayLimit, studentsMap]);
+    let rows;
+    if (attendanceFilterClass !== 'all') {
+      rows = attendanceRosterRows;
+    } else {
+      rows = filteredAttendance.slice(0, attendanceDisplayLimit).map(record => {
+        const student = studentsMap.get(String(record.studentId));
+        return { student, record, isRoster: false };
+      });
+    }
+    
+    // Apply status filter
+    if (attendanceStatusFilter !== 'all') {
+      rows = rows.filter(row => {
+        const status = row.record?.status || 'unmarked';
+        return status === attendanceStatusFilter;
+      });
+    }
+    
+    return rows;
+  }, [attendanceFilterClass, attendanceRosterRows, filteredAttendance, attendanceDisplayLimit, studentsMap, attendanceStatusFilter]);
 
 
   const formatDateDDMMYY = (dateStr?: string) => {
@@ -388,7 +529,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               ...newFeeRecords.map(r => ({
                 id: r.id,
                 month,
-                year: new Date().getFullYear(),
+                year: parseMonthKey(month, new Date().getFullYear()).year,
                 amount: r.amount,
                 date: today,
                 feeType: r.feeType,
@@ -406,6 +547,69 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setExtraFees({ 'Paper Fund': '', 'Summer Pack': '', 'Miscellaneous': '' });
     const categories = newFeeRecords.map(r => r.feeType).join(', ');
     toast.success(`${categories} collected for ${studentName} (${month})! Receipt${newFeeRecords.length > 1 ? ' x' + newFeeRecords.length : ' #' + newFeeRecords[0].id}`);
+    
+    // Send WhatsApp notification for fee collection
+    if (appSettings.whatsAppAutoFee && studentObj?.parentPhone) {
+      const totalAmount = newFeeRecords.reduce((sum, r) => sum + r.amount, 0);
+      const fStudent = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
+      let totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+      totalPending = Math.max(0, totalPending - totalAmount);
+      
+      const classId = studentObj?.classId;
+      const sClass = classId ? classes.find(c => c.id === classId) : null;
+      const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
+      
+      const template = `Greetings! We have received a payment of ${totalAmount} for ${categories} from ${studentName} (${className}). Your remaining balance is ${totalPending}. Thank you for your cooperation. NSB1 School.`;
+      
+      const phone = studentObj.parentPhone.replace(/\D/g, '');
+      let countryCodePhone = phone;
+      if (countryCodePhone.startsWith('0')) {
+        countryCodePhone = '92' + countryCodePhone.substring(1);
+      } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
+        countryCodePhone = '92' + countryCodePhone;
+      }
+      
+      const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(template)}`;
+      if (appSettings.autoWhatsAppRedirect) {
+        window.open(waUrl, '_blank');
+      }
+    }
+  };
+
+  // Open the quick collect modal pre-filled for ONE month's remaining balance
+  const openQuickCollectForMonth = (studentId: string, month: string, year: number, amount: number) => {
+    const monthKey = `${month} ${year}`;
+    const safeAmount = Math.max(0, Number(amount) || 0);
+    setQuickCollectStudentId(studentId);
+    setQuickCollectMonth(monthKey);
+    setQuickCollectAmount(String(safeAmount));
+    setMonthFeeInputs({ [monthKey]: String(safeAmount) });
+    setQuickCollectNotes('');
+    setShowExtraFeeInputs(false);
+    setExtraFees({ 'Paper Fund': '', 'Summer Pack': '', 'Miscellaneous': '' });
+    setShowQuickCollectModal(true);
+  };
+ 
+  // Delete EVERY payment recorded for a given month (fee engine + legacy ledger stay in sync)
+  const deleteMonthPayments = (studentId: string, month: string, year: number) => {
+    const monthKey = `${month} ${year}`;
+    if (!window.confirm(`Delete all ${monthKey} fee payments for this student?`)) return;
+    const monthIdx = MONTH_ALIAS[String(month).toLowerCase()] ?? -1;
+    setFeeStudents(prev => prev.map(fs => {
+      if (String(fs.id) === String(studentId)) {
+        return { ...fs, payments: fs.payments.filter(p => {
+          const key = parseMonthKey(p.month, Number(p.year) || year);
+          return !(key.idx === monthIdx && key.year === Number(year));
+        }) };
+      }
+      return fs;
+    }));
+    setFees(prev => prev.filter(f => {
+      const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
+      return !(String(f.studentId) === String(studentId) && key.idx === monthIdx && key.year === Number(year));
+    }));
+    setMonthFeeInputs(prev => { const n = {...prev}; delete n[monthKey]; return n; });
+    toast.success(`${monthKey} fee payments deleted.`);
   };
 
   // PRINCIPAL ATTENDANCE MARKING ENGINE
@@ -863,17 +1067,50 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       toast.error("Please enter a valid amount.");
       return;
     }
-    setFees(prev => prev.map(item => 
+    const [mth, yr] = (feeEditForm.month || '').split(' ');
+    setFees(prev => prev.map(item =>
       item.id === modalFee.id
         ? { ...item, month: feeEditForm.month, feeType: feeEditForm.feeType, amount: amt, paidDate: feeEditForm.paidDate, paymentMethod: feeEditForm.paymentMethod, description: feeEditForm.description }
         : item
     ));
+    // Keep the student's monthly payment ledger in sync with the edited receipt
+    setFeeStudents(prev => prev.map(fs => {
+      if (String(fs.id) === String(modalFee.studentId)) {
+        return {
+          ...fs,
+          payments: fs.payments.map(p => {
+            if (String(p.id) === String(modalFee.id)) {
+              return {
+                ...p,
+                month: mth || p.month,
+                year: Number(yr) || p.year,
+                amount: amt,
+                date: feeEditForm.paidDate || p.date,
+                feeType: feeEditForm.feeType || p.feeType
+              };
+            }
+            return p;
+          })
+        };
+      }
+      return fs;
+    }));
     setFeeActionModal({ isOpen: false, fee: null });
     toast.success("Fee record updated successfully!");
   };
 
   const deleteFeeRecord = (fee: FeeRecord) => {
+    if (!window.confirm(`Delete this fee record (PKR ${Number(fee.amount) || 0}) for ${fee.month || 'this student'}? This will also update the remaining balance.`)) return;
     setFees(prev => prev.filter(item => item.id !== fee.id));
+    const monthParts = (fee.month || '').split(' ');
+    const payMonth = monthParts[0] || '';
+    const payYear = Number(monthParts[1]) || new Date().getFullYear();
+    setFeeStudents(prev => prev.map(fs => {
+      if (String(fs.id) === String(fee.studentId)) {
+        return { ...fs, payments: fs.payments.filter(p => !(p.id === fee.id || (p.month === payMonth && p.year === payYear && Number(p.amount) === Number(fee.amount)))) };
+      }
+      return fs;
+    }));
     setFeeActionModal({ isOpen: false, fee: null });
     toast.success("Fee record deleted.");
   };
@@ -1977,25 +2214,29 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               });
               pendingStudentsCount = students.length - paidStudentsCount;
 
-              // Attendance Avg
-              const attendanceAvg = attendance.length > 0 
-                ? Math.round((attendance.filter(a => a.status === 'present').length / attendance.length) * 100)
-                : 94;
+              // Live "today" figures for real-time dashboard cards
+              const todayISO = new Date().toISOString().split('T')[0];
+              const todaysCollection = fees
+                .filter(f => f.status === 'paid' && f.paidDate === todayISO)
+                .reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
+              const todayAttendance = attendance.filter(a => a.date === todayISO);
+              const todayPresent = todayAttendance.filter(a => a.status === 'present').length;
+
+              // Attendance Avg (real value; '—' when no records marked yet)
+              const attendanceAvg = attendance.length > 0
+                ? Math.round((attendance.filter(a => a.status === 'present').length / attendance.length) * 100) + '%'
+                : '—';
 
               return (
                 <div className="space-y-8">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-8 md:gap-14 animate-fade-in pt-8 border-t border-slate-100">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-14 animate-fade-in pt-8 border-t border-slate-100">
                     
                     {[
                       { label: 'Teachers', val: teachers.length, color: 'text-blue-600', bg: 'bg-blue-50/50' },
                       { label: 'Students', val: students.length, color: 'text-emerald-600', bg: 'bg-emerald-50/50' },
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
-                      { label: 'Attendance Average', val: `${attendanceAvg}%`, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
-                      ...(userSession.role === 'principal' ? [
-                      ] : [
-                        { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
-                        { label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }
-                      ])
+                      { label: 'Attendance Average', val: attendanceAvg, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
+                      { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
                     ].map(stat => (
                       <div key={stat.label} className={`group p-6 border border-transparent hover:border-slate-100 transition-all ${stat.bg}`}>
                         <span className={`block text-xs font-black uppercase tracking-[0.3em] mb-3 ${stat.color}`}>{stat.label}</span>
@@ -2006,31 +2247,22 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
                   {/* Fee Summary Cards — Remaining Fee + Monthly (Total Paid, Remaining) in one row */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-                    {userSession.role === 'principal' || userSession.role === 'coordinator' ? (
-                      <>
-                        <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
-                        </div>
-                        <div className="p-6 bg-violet-50/50 border border-violet-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
-                        </div>
-                        <div className="p-6 bg-amber-50/50 border border-amber-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">{currentMonthName} Fee · Remaining</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="col-span-3 p-6 bg-slate-50/50 border border-slate-100 text-center">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-[.2em]">Operational Overview Active</p>
-                      </div>
-                    )}
+                    <div className="p-6 bg-rose-50/50 border border-rose-100">
+                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
+                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
+                    </div>
+                    <div className="p-6 bg-violet-50/50 border border-violet-100">
+                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
+                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
+                    </div>
+                    <div className="p-6 bg-amber-50/50 border border-amber-100">
+                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">{currentMonthName} Fee · Remaining</span>
+                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
+                    </div>
                   </div>
 
                   {/* Extra Dues Summary Cards */}
-                  {(userSession.role === 'principal' || userSession.role === 'coordinator') && totalExtraDues > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
                       <div className="p-6 bg-blue-50/50 border border-blue-100">
                         <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-blue-600 block">Total Extra Dues</span>
                         <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
@@ -2041,8 +2273,44 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
                         <span className="text-[10px] font-bold text-rose-400 uppercase mt-2 block">Pending from Students</span>
                       </div>
-                    </div>
-                  )}
+                  </div>
+
+                  {/* Dues (Separate from Monthly Fee) Summary Cards */}
+                  {(() => {
+                    let totalDuesPending = 0;
+                    let totalDuesPaid = 0;
+                    let totalDuesEntries = 0;
+                    
+                    feeStudents.forEach(fs => {
+                      (fs.dues || []).forEach(d => {
+                        totalDuesEntries++;
+                        if (d.status === 'pending') totalDuesPending += d.amount;
+                        else if (d.status === 'paid') totalDuesPaid += d.amount;
+                      });
+                    });
+                    
+                    if (totalDuesEntries === 0) return null;
+                    
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
+                        <div className="p-6 bg-rose-50/50 border border-rose-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Total Dues Pending</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesPending.toLocaleString()}</span>
+                          <span className="text-[10px] font-bold text-rose-400 uppercase mt-2 block">Separate from Monthly Fee</span>
+                        </div>
+                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">Total Dues Collected</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesPaid.toLocaleString()}</span>
+                          <span className="text-[10px] font-bold text-emerald-400 uppercase mt-2 block">Paid Dues Entries</span>
+                        </div>
+                        <div className="p-6 bg-indigo-50/50 border border-indigo-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-indigo-600 block">Total Dues Entries</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesEntries}</span>
+                          <span className="text-[10px] font-bold text-indigo-400 uppercase mt-2 block">Across All Students</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -3403,27 +3671,75 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               <Plus size={14} /> Collect Payment
                                             </button>
 
+                                            {/* Month-wise Fee Breakdown - Base Fee / Paid / Remaining (red) */}
+                                            <FeeMonthGrid
+                                              feeStudent={feeStudents.find(fs => String(fs.id) === String(student.id))}
+                                              student={student}
+                                              feeRecords={sFees}
+                                              year={new Date().getFullYear()}
+                                              selectedMonth={monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter.month : null}
+                                              onSelectMonth={(m) => setMonthHistoryFilter(m ? { studentId: String(student.id), month: m, year: new Date().getFullYear() } : null)}
+                                              onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, new Date().getFullYear(), pending)}
+                                              onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
+                                            />
+
+                                            {(() => {
+                                              const hf = monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter : null;
+                                              const historyFees = hf
+                                                ? sFees.filter(f => {
+                                                    const k = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || hf.year);
+                                                    return k.idx === (MONTH_ALIAS[hf.month.toLowerCase()] ?? -1) && k.year === Number(hf.year);
+                                                  })
+                                                : sFees;
+                                              return (
                                             <div className="space-y-2">
                                               <div className="flex items-center justify-between border-b border-slate-100 pb-1">
-                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">History Log</span>
-                                                <span className="text-[10px] font-bold text-slate-400">{sFees.length} Receipts</span>
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{hf ? `History Log · ${hf.month} ${hf.year}` : 'History Log'}</span>
+                                                {hf ? (
+                                                  <button
+                                                    onClick={() => setMonthHistoryFilter(null)}
+                                                    className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-600 text-[9px] font-black uppercase rounded-md hover:bg-indigo-100 transition-colors cursor-pointer"
+                                                  >
+                                                    ✕ All Months
+                                                  </button>
+                                                ) : (
+                                                  <span className="text-[10px] font-bold text-slate-400">{sFees.length} Receipts</span>
+                                                )}
                                               </div>
-                                              {sFees.length === 0 ? (
-                                                <p className="text-[10px] text-center text-slate-300 py-2 font-bold uppercase">No records found</p>
+                                              {historyFees.length === 0 ? (
+                                                <p className="text-[10px] text-center text-slate-300 py-2 font-bold uppercase">{hf ? `${hf.month} ${hf.year}: No transactions` : 'No records found'}</p>
                                               ) : (
                                                 <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                                                  {sFees.map(f => (
+                                                  {historyFees.map(f => (
                                                     <div key={f.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
                                                       <div>
                                                         <span className="block text-[10px] font-black text-slate-900 uppercase leading-none mb-1">{f.month} Payment</span>
                                                         <span className="block text-[9px] font-bold text-slate-400 uppercase tabular-nums">{f.paidDate}</span>
                                                       </div>
                                                       <span className="text-xs font-black text-emerald-600">PKR {Number(f.amount).toLocaleString()}</span>
+<div className="flex items-center gap-1.5 shrink-0">
+                                                        <button
+                                                          onClick={(e) => { e.stopPropagation(); openFeeActionModal(f); }}
+                                                          className="w-7 h-7 rounded-md bg-white border border-indigo-200 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                                                          title="Edit this receipt"
+                                                        >
+                                                          <Edit2 size={10} />
+                                                        </button>
+                                                        <button
+                                                          onClick={(e) => { e.stopPropagation(); deleteFeeRecord(f); }}
+                                                          className="w-7 h-7 rounded-md bg-white border border-rose-200 text-rose-500 hover:bg-rose-500 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                                                          title="Delete this receipt"
+                                                        >
+                                                          <Trash2 size={10} />
+                                                        </button>
+                                                      </div>
                                                     </div>
                                                   ))}
                                                 </div>
                                               )}
                                             </div>
+                                               );
+                                             })()}
                                           </div>
                                         </div>
                                       )}
@@ -3604,24 +3920,57 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     </div>
                                                   </div>
 
-                                                  {/* History Log List */}
-                                                  {sFees.length === 0 ? (
-                                                    <div className="py-10 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No previous transaction receipts found</p>
-                                                    </div>
-                                                  ) : (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                      {sFees.map(f => (
-                                                        <FeeReceiptCard
+{/* Month-wise Fee Breakdown - Base Fee / Paid / Remaining (red) */}
+                                                  <FeeMonthGrid
+                                                    feeStudent={feeStudents.find(fs => String(fs.id) === String(student.id))}
+                                                    student={student}
+                                                    feeRecords={sFees}
+                                                    year={new Date().getFullYear()}
+                                                    onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, new Date().getFullYear(), pending)}
+                                                    onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
+                                                  />
+                                                  {/* History Log List (filtered by clicked month card) */}
+                                                  {(() => {
+                                                    const hfD = monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter : null;
+                                                    const deskFees = hfD
+                                                      ? sFees.filter(f => {
+                                                          const k = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || hfD.year);
+                                                          return k.idx === (MONTH_ALIAS[hfD.month.toLowerCase()] ?? -1) && k.year === Number(hfD.year);
+                                                        })
+                                                      : sFees;
+                                                    return (
+                                                      <div>
+                                                        <div className="flex items-center justify-between mb-2">
+                                                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{hfD ? `History Log · ${hfD.month} ${hfD.year}` : `History Log · All Months`}</span>
+                                                          {hfD && (
+                                                            <button
+                                                              onClick={() => setMonthHistoryFilter(null)}
+                                                              className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-600 text-[9px] font-black uppercase rounded-md hover:bg-indigo-100 transition-colors cursor-pointer"
+                                                            >
+                                                              ✕ All Months
+                                                            </button>
+                                                          )}
+                                                        </div>
+                                                        {deskFees.length === 0 ? (
+                                                          <div className="py-10 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{hfD ? `${hfD.month} ${hfD.year}: No transactions` : 'No previous transaction receipts found'}</p>
+                                                          </div>
+                                                        ) : (
+                                                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                            {deskFees.map(f => (
+                                                              <FeeReceiptCard
                                                           key={f.id}
                                                           fee={f}
                                                           student={student}
                                                           onAction={() => openFeeActionModal(f)}
                                                           onDelete={() => deleteFeeRecord(f)}
                                                         />
-                                                      ))}
-                                                    </div>
-                                                  )}
+                                                            ))}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })()}
                                                 </div>
                                               </div>
                                             </td>
@@ -3755,27 +4104,94 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     </div>
                   </div>
 
-                  {/* Absentees Action Card */}
-                  <div className="md:col-span-2 bg-rose-50/60 border border-rose-100 p-5 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
-                      <p className="text-xs font-black text-rose-600 uppercase tracking-widest">
-                        Today's Absentees ({
-                          attendance.filter(a => {
-                            const student = students.find(s => String(s.id) === String(a.studentId));
-                            const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
-                            return a.date === attendanceFilterDate && matchesClass && a.status === 'absent';
-                          }).length
-                        })
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setAbsenteesModalOpen(true)}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-rose-700 hover:scale-105 active:scale-95 transition-all shadow-md shadow-rose-200 cursor-pointer"
-                    >
-                      <MessageSquare size={14} />
-                      View Absentees & WhatsApp
-                    </button>
+                  {/* Absentees List Card - Shows all absent students inline */}
+                  <div className="md:col-span-2 bg-rose-50/60 border border-rose-100 p-4 rounded-2xl shadow-xs">
+                    {(() => {
+                      const absents = attendance.filter(a => {
+                        const student = students.find(s => String(s.id) === String(a.studentId));
+                        const matchesClass = attendanceFilterClass === 'all' || student?.classId === attendanceFilterClass;
+                        return a.date === attendanceFilterDate && matchesClass && a.status === 'absent';
+                      });
+
+                      if (absents.length === 0) {
+                        return (
+                          <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                              <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">No Absentees Today 🎉</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-black text-rose-600 uppercase tracking-widest">
+                              Today's Absentees ({absents.length})
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  absents.forEach(acc => {
+                                    const st = students.find(s => String(s.id) === String(acc.studentId));
+                                    if (st && st.parentPhone) handleSendIndividualWhatsApp(st, acc.date);
+                                  });
+                                  toast.success(`WhatsApp sent to ${absents.filter(a => {
+                                    const st = students.find(s => String(s.id) === String(a.studentId));
+                                    return st && st.parentPhone;
+                                  }).length} parents.`);
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider rounded-lg hover:bg-emerald-700 transition-all shadow-sm cursor-pointer"
+                              >
+                                <Send size={12} /> WhatsApp All
+                              </button>
+                              <button
+                                onClick={() => setAbsenteesModalOpen(true)}
+                                className="px-3 py-1.5 bg-rose-600 text-white text-[9px] font-black uppercase tracking-wider rounded-lg hover:bg-rose-700 transition-all shadow-sm cursor-pointer"
+                              >
+                                <MessageSquare size={12} /> View All
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                            {absents.map(acc => {
+                              const st = students.find(s => String(s.id) === String(acc.studentId));
+                              const phone = st?.parentPhone || st?.studentPhone || '';
+                              const hasPhone = (phone || '').replace(/\D/g, '').length > 0;
+                              return (
+                                <div key={acc.id} className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-2 shadow-xs">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="w-7 h-7 rounded-full bg-rose-500 text-white flex items-center justify-center font-black text-xs shrink-0">
+                                      <User size={12} />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">{st?.name || `Student #${String(acc.studentId).slice(-4)}`}</p>
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                                        {st?.classId ? getClassName(st.classId) : 'N/A'} | Roll: {st?.rollNumber || 'N/A'}
+                                      </p>
+                                      <p className={`text-[9px] font-black uppercase tracking-wider ${hasPhone ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                        {hasPhone ? phone : 'No Phone Number'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => st && handleSendIndividualWhatsApp(st, acc.date)}
+                                    disabled={!st || !hasPhone}
+                                    title={hasPhone ? `Send WhatsApp to ${st?.name}'s parent` : 'No phone number'}
+                                    className={`p-2 flex items-center justify-center rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer shrink-0 ${
+                                      hasPhone ? 'bg-emerald-600 hover:bg-slate-900 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    <Send size={12} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -3793,13 +4209,31 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         </span>
                       )}
                     </h3>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                      <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
-                        Live Sync
-                      </span>
+<div className="flex items-center gap-2">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+                    <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                      Live Sync
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Status:</label>
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-0.5">
+                      {['all', 'present', 'absent', 'late', 'leave'].map(filter => (
+                        <button
+                          key={filter}
+                          onClick={() => setAttendanceStatusFilter(filter as 'all' | 'present' | 'absent' | 'late' | 'leave')}
+                          className={`px-2.5 py-1 text-[9px] font-black uppercase rounded-lg transition-all ${
+                            attendanceStatusFilter === filter
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
+                        </button>
+                      ))}
                     </div>
                   </div>
+                </div>
 
                   {/* MOBILE ATTENDANCE CARDS (< md) */}
                   <div className="block md:hidden divide-y divide-slate-100">
@@ -4777,6 +5211,201 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         </div>
                       </div>
 
+                      {/* Dues Management (Separate from Monthly Fee) */}
+                      <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                          <h3 className="text-xs font-black uppercase text-rose-600 tracking-widest border-b pb-2 flex items-center gap-2">
+                            <AlertCircle size={14} className="text-rose-500" /> Dues Management (Separate from Monthly Fee)
+                          </h3>
+                          <button
+                            onClick={() => {
+                              setAddDueStudentId(String(student.id));
+                              setAddDueDesc('');
+                              setAddDueAmount('');
+                              setAddDueMonth(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
+                              setShowAddDueModal(true);
+                            }}
+                            className="px-3 py-2 bg-rose-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-rose-700 transition-all shadow-sm"
+                          >
+                            <Plus size={12} /> Add Due
+                          </button>
+                        </div>
+
+                        {/* Add Due Modal */}
+                        {showAddDueModal && addDueStudentId === String(student.id) && (
+                          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl animate-in fade-in zoom-in-95">
+                              <h4 className="text-sm font-black text-slate-900 mb-4 flex items-center gap-2">
+                                <AlertCircle size={16} className="text-rose-500" /> Add New Due Entry
+                              </h4>
+                              <div className="space-y-4">
+                                <div>
+                                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Description</label>
+                                  <input
+                                    type="text"
+                                    value={addDueDesc}
+                                    onChange={(e) => setAddDueDesc(e.target.value)}
+                                    placeholder="e.g., Library Fine, Transport, Uniform"
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-rose-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Amount</label>
+                                  <input
+                                    type="number"
+                                    value={addDueAmount}
+                                    onChange={(e) => setAddDueAmount(e.target.value)}
+                                    placeholder="Amount in PKR"
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-rose-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Month</label>
+                                  <select
+                                    value={addDueMonth}
+                                    onChange={(e) => setAddDueMonth(e.target.value)}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-rose-500 outline-none"
+                                  >
+                                    {MONTHS.map(m => (
+                                      <option key={m} value={`${m} ${new Date().getFullYear()}`}>{m} {new Date().getFullYear()}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                  <button
+                                    onClick={() => setShowAddDueModal(false)}
+                                    className="flex-1 py-2 bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest rounded-lg hover:bg-slate-300 transition-all"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const amt = Number(addDueAmount);
+                                      if (!addDueDesc.trim() || amt <= 0) {
+                                        toast.error("Enter valid description and amount");
+                                        return;
+                                      }
+                                      const [monthStr, yearStr] = addDueMonth.split(' ');
+                                      setFeeStudents(prev => addDue(prev, student.id, addDueDesc, amt, monthStr, Number(yearStr)));
+                                      handleSendFeeNotification(student, 'charge', amt, addDueDesc);
+                                      setShowAddDueModal(false);
+                                      setAddDueDesc('');
+                                      setAddDueAmount('');
+                                      toast.success(`Due entry "${addDueDesc}" added for ${student.name}!`);
+                                    }}
+                                    className="flex-1 py-2 bg-rose-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-rose-700 transition-all shadow-sm"
+                                  >
+                                    Add Due
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Dues Filter */}
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          <select
+                            value={duesFilterStatus}
+                            onChange={(e) => setDuesFilterStatus(e.target.value as 'all' | 'pending' | 'paid')}
+                            className="px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg focus:border-rose-500 outline-none"
+                          >
+                            <option value="all">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="paid">Paid</option>
+                          </select>
+                          <select
+                            value={duesFilterClass}
+                            onChange={(e) => setDuesFilterClass(e.target.value)}
+                            className="px-3 py-1.5 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg focus:border-rose-500 outline-none"
+                          >
+                            <option value="all">All Classes</option>
+                            {classes.map(c => (
+                              <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Dues List */}
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2">
+                          {(() => {
+                            const studentDues = (student.dues || []).filter(d => {
+                              const matchesStatus = duesFilterStatus === 'all' || d.status === duesFilterStatus;
+                              const matchesClass = duesFilterClass === 'all' || student.class === duesFilterClass;
+                              return matchesStatus && matchesClass;
+                            });
+                            
+                            if (studentDues.length === 0) {
+                              return (
+                                <div className="py-10 flex flex-col items-center justify-center text-slate-300 gap-2">
+                                  <AlertCircle size={24} />
+                                  <p className="text-xs font-black uppercase tracking-widest">No dues entries found</p>
+                                </div>
+                              );
+                            }
+
+                            return studentDues.map((d) => (
+                              <div key={d.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 group flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-black text-slate-900 uppercase">{d.desc}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${
+                                      d.status === 'paid' ? 'bg-emerald-100 text-emerald-600' :
+                                      d.status === 'waived' ? 'bg-amber-100 text-amber-600' :
+                                      'bg-rose-100 text-rose-600'
+                                    }`}>
+                                      {d.status.toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-400 font-bold mt-0.5">
+                                    Month: {d.month} {d.year} · Added: {formatDateDDMMYY(d.date)}
+                                    {d.paidDate && ` · Paid: ${formatDateDDMMYY(d.paidDate)} (${d.paymentMethod || 'Cash'})`}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <span className="text-xs font-black text-rose-600">{d.amount.toLocaleString()}</span>
+                                  <div className="flex items-center gap-1">
+                                    {d.status === 'pending' && (
+                                      <button
+                                        onClick={() => {
+                                          if(window.confirm(`Mark "${d.desc}" as paid?`)) {
+                                            setFeeStudents(prev => payDue(prev, student.id, d.id, 'Cash'));
+                                            toast.success(`Due "${d.desc}" marked as paid!`);
+                                          }
+                                        }}
+                                        className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-all"
+                                        title="Mark as Paid"
+                                      >
+                                        <CheckCircle2 size={12} />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setFeeEditModal({ isOpen: true, type: 'other', recordId: d.id, studentId: String(student.id), amount: String(d.amount), desc: d.desc, feeType: 'Due' })}
+                                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                      title="Edit"
+                                    >
+                                      <Edit2 size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if(window.confirm("Delete this due entry?")) {
+                                          setFeeStudents(prev => deleteDue(prev, student.id, d.id));
+                                          toast.success("Due entry deleted");
+                                        }
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                      title="Delete"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
+
                       {/* Payment Transactions History (Monthly Fees) */}
                       <div className="md:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                         <h3 className="text-xs font-black uppercase text-indigo-600 tracking-widest border-b pb-2 flex justify-between items-center">
@@ -4920,6 +5549,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 >
                   <UploadCloud size={14} />
                   Upload from Localhost
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    toast.info("Testing Firebase connection...");
+                    try {
+                      const connected = await testFirebaseConnection();
+                      if (connected) {
+                        toast.success("Firebase connected successfully!");
+                      } else {
+                        toast.error("Firebase connection failed - check rules/database");
+                      }
+                    } catch (err: any) {
+                      toast.error("Connection test failed: " + err.message);
+                    }
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-indigo-500/10"
+                >
+                  <Wifi size={14} />
+                  Test Connection
                 </button>
 
                 <div className="h-4 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>
@@ -8242,6 +8892,115 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
         >
           <Trash2 size={12} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ================= MONTH-WISE FEE BREAKDOWN =================
+// Har month ka card: Base Fee vs Jama (Paid) vs Baqi (Remaining, RED mein).
+// Dues (unpaid extra charges jaise Paper Fund) bhi usi month ke card mein show hote hain.
+// Student sirf apne enrollment month se aage ke months dekhta hai.
+// Mixed month formats ('Jun', 'Jun 2026', 'June 2026') robust matching se handle hote hain.
+function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth }: {
+  feeStudent?: StudentFeeData;
+  student: Student;
+  feeRecords?: FeeRecord[];
+  year: number;
+  selectedMonth?: string | null;
+  onSelectMonth?: (month: string | null) => void;
+  onCollect: (month: string, remaining: number) => void;
+  onDeleteMonth: (month: string, year: number) => void;
+}) {
+  const base = Math.max(0, Number(student.baseFee ?? feeStudent?.monthlyFee ?? 0));
+  // Sirf wo months dikhao jis month se student enter hua hai (enrollmentMonth se aage)
+  const enrollAlias = String(student.enrollmentMonth || '').trim().toLowerCase();
+  const enrollIdx = Object.prototype.hasOwnProperty.call(MONTH_ALIAS, enrollAlias) ? MONTH_ALIAS[enrollAlias] : -1;
+  const displayMonths = enrollIdx >= 0 ? MONTHS.slice(enrollIdx) : [...MONTHS];
+
+  return (
+    <div className="pt-2">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+          Month-wise Fee Breakdown · {year}{enrollIdx >= 0 ? ` · From ${MONTHS[enrollIdx]}` : ''}
+        </h4>
+        <span className="text-[10px] font-bold text-slate-400 uppercase">Base Fee: PKR {base.toLocaleString()}</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {displayMonths.map((m) => {
+          const mi = MONTHS.indexOf(m);
+          // 1) Payments (fee engine data) — har month-format match hota hai
+          const monthPayments = (feeStudent?.payments || []).filter(p => {
+            const key = parseMonthKey(p.month, Number(p.year) || year);
+            return key.idx === mi && key.year === Number(year);
+          });
+          const tuitionPaid = monthPayments
+            .filter(p => !p.feeType || TUITION_FEE_TYPES.test(p.feeType))
+            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+          const extraPaid = monthPayments
+            .filter(p => p.feeType && !TUITION_FEE_TYPES.test(p.feeType))
+            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+          const jama = tuitionPaid + extraPaid;
+          // 2) Fee ledger — unpaid extra charges isi month ke DUES hain
+          const extraPending = feeRecords.filter(f => {
+            if (f.status === 'paid' || !f.feeType || TUITION_FEE_TYPES.test(f.feeType)) return false;
+            const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
+            return key.idx === mi && key.year === Number(year);
+          }).reduce((s, f) => s + (Number(f.amount) || 0), 0);
+          const tuitionBaqi = Math.max(0, base - tuitionPaid);
+          const totalBaqi = tuitionBaqi + extraPending;
+          const hasData = jama > 0 || extraPending > 0 || base > 0;
+          const isClear = hasData && totalBaqi === 0;
+          const isSelected = selectedMonth === m;
+          return (
+            <div
+              key={m}
+              onClick={() => onSelectMonth?.(isSelected ? null : m)}
+              title={`Click to ${isSelected ? 'hide' : 'view'} ${m} ${year} history`}
+              className={`p-2.5 rounded-xl border space-y-1.5 cursor-pointer transition-all select-none active:scale-[0.98] ${isClear ? 'bg-emerald-50/60 border-emerald-100' : jama > 0 ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-slate-100'} ${isSelected ? 'ring-2 ring-indigo-400 border-indigo-300 shadow-md' : 'hover:border-slate-300'}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-700 uppercase">{m}</span>
+                <span className="flex items-center gap-1">
+                  {isClear && <CheckCircle2 size={11} className="text-emerald-600" />}
+                  <ChevronDown size={11} className={`text-slate-300 transition-transform ${isSelected ? 'rotate-180 text-indigo-400' : ''}`} />
+                </span>
+              </div>
+              <div className="text-[9px] font-bold text-slate-400 uppercase leading-tight">
+                <span className="block">Jama: {jama > 0 ? <span className="text-emerald-700 font-black">PKR {jama.toLocaleString()}</span> : <span className="text-slate-400">PKR 0</span>}</span>
+                {totalBaqi > 0 ? (
+                  <span className="block">Baqi: <span className="text-rose-600 font-black">PKR {totalBaqi.toLocaleString()}</span></span>
+                ) : (
+                  <span className="block font-black text-emerald-600">Clear</span>
+                )}
+                {extraPending > 0 && (
+                  <span className="block text-amber-600 font-black">Dues: PKR {extraPending.toLocaleString()}</span>
+                )}
+                {extraPaid > 0 && (
+                  <span className="block text-slate-500">Extra: PKR {extraPaid.toLocaleString()}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => onCollect(m, totalBaqi)}
+                  className="flex-1 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[9px] font-black uppercase tracking-wide rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
+                  title={`Collect fee for ${m} ${year}`}
+                >
+                  <Plus size={9} /> Collect
+                </button>
+                {(jama > 0 || extraPending > 0) && (
+                  <button
+                    onClick={() => onDeleteMonth(m, year)}
+                    className="w-6 h-6 bg-white border border-rose-200 text-rose-500 rounded-lg flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer"
+                    title={`Delete all ${m} ${year} payments & dues`}
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
