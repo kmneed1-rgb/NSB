@@ -84,6 +84,7 @@ interface PrincipalDashboardProps {
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
+  pushLocalToCloud: () => Promise<void>;
 }
 
 type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers' | 'monthly_report';
@@ -122,7 +123,8 @@ export default function PrincipalDashboard({
   setAssignments,
   onLogout,
   installPromptEvent,
-  onInstallApp
+  onInstallApp,
+  pushLocalToCloud
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
@@ -5549,6 +5551,23 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 >
                   <UploadCloud size={14} />
                   Upload from Localhost
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    toast.info("Force syncing to cloud...");
+                    try {
+                      await pushLocalToCloud();
+                      toast.success("Data synced to Firestore!");
+                    } catch (err: any) {
+                      toast.error("Sync failed: " + err.message);
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm shadow-blue-500/10"
+                >
+                  <RefreshCw size={14} />
+                  Force Sync to Cloud
                 </button>
 
                 <button

@@ -479,6 +479,7 @@ export default function App() {
         setAttendance(prev => prev.length > 0 ? prev : INITIAL_ATTENDANCE);
         setMarks(prev => prev.length > 0 ? prev : INITIAL_MARKS);
         setFees(prev => prev.length > 0 ? prev : INITIAL_FEES);
+        // IMPORTANT: Set sync complete even on failure so local changes can still push
         isSyncComplete.current = true;
       }
     }
@@ -886,7 +887,7 @@ export default function App() {
     }
   }, [userSession]);
 
-  // --- PERIODIC FIRESTORE SYNC (every 30 seconds) ---
+  // --- PERIODIC FIRESTORE SYNC (every 30 seconds) - PULL from cloud ---
   useEffect(() => {
     if (!userSession) return;
 
@@ -934,12 +935,60 @@ export default function App() {
 
         isSyncComplete.current = true;
       } catch (err) {
-        console.warn("Periodic sync skipped (offline):", err);
+        console.warn("Periodic pull sync skipped (offline):", err);
       }
     }, 30000);
 
     return () => clearInterval(syncInterval);
   }, [userSession]);
+
+  // --- PERIODIC PUSH TO FIRESTORE (every 60 seconds) ---
+  const pushLocalToCloud = useCallback(async () => {
+    if (!userSession) return;
+    
+    try {
+      console.log("Pushing local data to Firestore...");
+      
+      const uploadConfig: { col: string; data: any[] | any; type: 'list' | 'object'; docId?: string }[] = [
+        { col: 'teachers', data: teachers, type: 'list' },
+        { col: 'classes', data: classes, type: 'list' },
+        { col: 'students', data: students, type: 'list' },
+        { col: 'timetable', data: timetable, type: 'list' },
+        { col: 'attendance', data: attendance, type: 'list' },
+        { col: 'marks', data: marks, type: 'list' },
+        { col: 'fees', data: fees, type: 'list' },
+        { col: 'coordinators', data: coordinators, type: 'list' },
+        { col: 'fee_data', data: feeStudents, type: 'list' },
+        { col: 'app_settings', data: appSettings, type: 'object', docId: 'global' }
+      ];
+
+      for (const item of uploadConfig) {
+        if (item.type === 'list' && Array.isArray(item.data)) {
+          const listItems = item.data;
+          for (const listItem of listItems) {
+            if (listItem && listItem.id) {
+              await setDoc(doc(db, item.col, String(listItem.id)), listItem);
+            }
+          }
+        } else if (item.type === 'object' && item.docId) {
+          await setDoc(doc(db, item.col, item.docId), item.data);
+        }
+      }
+      
+      console.log("Push to Firestore complete");
+    } catch (err) {
+      console.warn("Push to Firestore failed:", err);
+    }
+  }, [userSession, teachers, classes, students, timetable, attendance, marks, fees, coordinators, feeStudents, appSettings]);
+
+  // Push to cloud every 60 seconds
+  useEffect(() => {
+    if (!userSession) return;
+    const pushInterval = setInterval(() => {
+      pushLocalToCloud();
+    }, 60000);
+    return () => clearInterval(pushInterval);
+  }, [pushLocalToCloud, userSession]);
 
   // --- ACTIONS ---
   const handleLogin = (session: UserSession) => {
@@ -1046,6 +1095,7 @@ export default function App() {
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
+          pushLocalToCloud={pushLocalToCloud}
         />
       ) : userSession.role === 'teacher' ? (
         <TeacherDashboard
