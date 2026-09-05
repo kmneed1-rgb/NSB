@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -203,6 +203,8 @@ export default function App() {
   // Real-time listeners tab hi setup hon jab initial sync complete ho
   const [syncReady, setSyncReady] = useState(false);
   const isSyncComplete = useRef<boolean>(false);
+  // REF for pullRemoteData — avoids stale closure in heartbeat poll
+  const pullRemoteRef = useRef<((reason: string) => Promise<void>) | null>(null);
 
   const prevTeachers = useRef<string>('');
   const prevClasses = useRef<string>('');
@@ -270,16 +272,23 @@ export default function App() {
 
   const flushBatch = async () => {
     if (pendingBatch.current.set.length === 0 && pendingBatch.current.del.length === 0) return;
-    const setOps = pendingBatch.current.set;
-    const delOps = pendingBatch.current.del;
+    // CRITICAL FIX: Snapshot current ops into local arrays, then clear pending queue
+    const setOps = [...pendingBatch.current.set];
+    const delOps = [...pendingBatch.current.del];
     pendingBatch.current = { set: [], del: [] };
+    // Collection names extract karo
+    const colNames = Array.from(new Set([
+      ...setOps.map(o => String((o?.ref as any)?.parent?.id || '').replace(/^\//, '').split('/')[0] || ''),
+      ...delOps.map(d => String((d as any)?.parent?.id || '').replace(/^\//, '').split('/')[0] || ''),
+    ].filter(Boolean)));
+    let idx = 0;
     try {
       // Firestore writeBatch limit is 500 operations per commit.
-      while (setOps.length > 0 || delOps.length > 0) {
+      while (idx < setOps.length || delOps.length > 0) {
         const batch = writeBatch(db);
         let count = 0;
-        while (setOps.length > 0 && count < 450) {
-          const op = setOps.shift();
+        while (idx < setOps.length && count < 450) {
+          const op = setOps[idx++];
           if (op) { batch.set(op.ref, op.data, { merge: true }); count++; }
         }
         while (delOps.length > 0 && count < 500) {
@@ -291,25 +300,25 @@ export default function App() {
       // Success — reset retry counter and clear any sync error banner.
       batchRetryCount.current = 0;
       setSyncError(null);
-      // HEARTBEAT — doosri devices ko batao ke data badal gaya (unke onSnapshot fail hon to bhi poll se uthayengi)
-      const cols = Array.from(new Set([
-        ...setOps.map(o => String((o.ref as any)?.parent?.id || '')),
-        ...delOps.map(d => String((d as any)?.parent?.id || '')),
-      ].filter(Boolean)));
-      if (cols.length > 0) bumpSyncMeta(cols);
+      // HEARTBEAT — doosri devices ko batao ke data badal gaya
+      if (colNames.length > 0) {
+        bumpSyncMeta(colNames);
+        console.log('[Sync] batch pushed + heartbeat bumped:', colNames.join(', '));
+      }
     } catch (e: any) {
-      console.warn("Firestore batch write warning:", e);
-      // Re-queue on transient failure so data isn't silently lost.
-      pendingBatch.current.set.unshift(...setOps);
+      console.warn("Firestore batch write failed:", e?.message);
+      // Re-queue ALL failed ops (remaining setOps + all delOps) so NO data is lost
+      const remainingSet = setOps.slice(idx);
+      pendingBatch.current.set.unshift(...remainingSet);
       pendingBatch.current.del.unshift(...delOps);
-      // Retry with backoff instead of stalling silently forever.
+      // Retry with backoff
       batchRetryCount.current += 1;
       setSyncError(e?.message || 'Cloud sync failed — retrying');
       if (batchRetryCount.current <= 5) {
         setTimeout(() => { flushBatch(); }, 2000 * batchRetryCount.current);
       } else {
         batchRetryCount.current = 0;
-        toast.error('Cloud sync failing: ' + (e?.message || 'unknown error') + '. Changes are saved locally and will retry.');
+        toast.error('Cloud sync failing: ' + (e?.message || 'unknown error') + '. Changes saved locally — will retry.');
       }
     }
   };
@@ -337,6 +346,7 @@ export default function App() {
   // Poora data Firestore se fetch karke state + prev-refs update karta hai.
   // prev-refs isliye update hote hain ke differential push effects yeh data
   // dobara cloud par na likhein (loop na bane).
+  // NOTE: No state deps — uses only stable Firestore calls to avoid stale closure
   const pullRemoteData = useCallback(async (reason: string) => {
     try {
       const [tS, cS, sS, ttS, aS, mS, fS, coS, fdS, asgS] = await Promise.all([
@@ -374,16 +384,17 @@ export default function App() {
       if (rFeeStudents.length > 0) setFeeStudents(rFeeStudents);
       if (rAssignments.length > 0) setAssignments(rAssignments);
 
-      prevTeachers.current = JSON.stringify(rTeachers.length > 0 ? rTeachers : teachers);
-      prevClasses.current = JSON.stringify(rClasses.length > 0 ? rClasses : classes);
-      prevStudents.current = JSON.stringify(rStudents.length > 0 ? rStudents : students);
+      // Update prev-refs to exactly what we pulled (prevents re-push loop)
+      prevTeachers.current = JSON.stringify(rTeachers);
+      prevClasses.current = JSON.stringify(rClasses);
+      prevStudents.current = JSON.stringify(rStudents);
       prevTimetable.current = JSON.stringify(rTimetable);
       prevAttendance.current = JSON.stringify(rAttendance);
-      prevMarks.current = JSON.stringify(rMarks.length > 0 ? rMarks : marks);
-      prevFees.current = JSON.stringify(rFees.length > 0 ? rFees : fees);
-      prevCoordinators.current = JSON.stringify(rCoordinators.length > 0 ? rCoordinators : coordinators);
-      prevFeeStudents.current = JSON.stringify(rFeeStudents.length > 0 ? rFeeStudents : feeStudents);
-      prevAssignments.current = JSON.stringify(rAssignments.length > 0 ? rAssignments : assignments);
+      prevMarks.current = JSON.stringify(rMarks);
+      prevFees.current = JSON.stringify(rFees);
+      prevCoordinators.current = JSON.stringify(rCoordinators);
+      prevFeeStudents.current = JSON.stringify(rFeeStudents);
+      prevAssignments.current = JSON.stringify(rAssignments);
 
       // localStorage cache bhi refresh karo
       safeStorage.setItem('acadamis_teachers', prevTeachers.current);
@@ -401,12 +412,17 @@ export default function App() {
     } catch (e: any) {
       console.warn('[Sync] remote pull failed:', e?.message);
     }
-  }, [teachers, classes, students, timetable, attendance, marks, fees, coordinators, feeStudents, assignments]);
+  }, []); // No state deps — uses only stable Firestore calls
+
+  // Keep ref in sync so heartbeat poll always uses latest version
+  useEffect(() => { pullRemoteRef.current = pullRemoteData; }, [pullRemoteData]);
 
   // --- HEARTBEAT POLL — har 20s sirf sync_meta doc check (1 read), focus par bhi ---
+  // + 60s periodic full-sync fallback (agar onSnapshot/heartbeat dono fail hon tab bhi sync ho)
   useEffect(() => {
     if (!userSession) return;
     let stopped = false;
+    let lastFullSync = Date.now();
     const checkRemote = async () => {
       if (stopped || !isSyncComplete.current) return;
       // Local writes pending hain to pehle woh flush hon — pull is tick skip
@@ -419,9 +435,16 @@ export default function App() {
         if (ts !== lastRemoteMeta.current && ts !== lastOwnPush.current) {
           // KISI DOOSRI device ne data badla hai — full pull karo
           lastRemoteMeta.current = ts;
+          lastFullSync = Date.now();
           await pullRemoteData('heartbeat');
         } else {
           lastRemoteMeta.current = ts;
+        }
+        // PERIODIC FULL-SYNC FALLBACK: har 60s bhi pull karo (heartbeat miss hone par bhi sync ho)
+        const now = Date.now();
+        if (now - lastFullSync >= 60000) {
+          lastFullSync = now;
+          await pullRemoteData('periodic-60s');
         }
       } catch (e: any) {
         console.warn('[Sync] heartbeat poll failed:', e?.message);
@@ -440,6 +463,10 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
     };
+  }, [userSession]);
+
+
+
 
   // --- REALTIME LISTENERS — onSnapshot se live sync (doosri device ki changes turant) ---
   // Yeh effect initial sync complete hone par sab collections par real-time listener lagata hai.
@@ -501,7 +528,6 @@ export default function App() {
     };
   }, [userSession, syncReady]);
 
-  }, [userSession, pullRemoteData]);
 
   useEffect(() => {
     async function initFirebaseAndSync() {
