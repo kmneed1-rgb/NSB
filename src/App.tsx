@@ -3,7 +3,7 @@ import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, arrayUnion } from 'firebase/firestore';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData, Assignment } from './types';
 import { 
   INITIAL_TEACHERS, 
@@ -242,6 +242,30 @@ export default function App() {
     flushBatchDebounced();
   };
 
+  // --- SYNC HEARTBEAT (cross-device fallback) ---
+  // onSnapshot listeners kabhi-kabhi (WebChannel block, PWA cache, IndexedDB lock)
+  // remote updates nahi late — is liye har device push ke baad ek chhota 'sync_meta/global'
+  // heartbeat doc update karti hai. Baqi devices sirf YEH ek doc poll karti hain (20s, quota-safe)
+  // aur jab heartbeat badla ho to poora data Firestore se pull kar leti hain.
+  const deviceIdRef = useRef(Math.random().toString(36).slice(2) + Date.now().toString(36));
+  const lastRemoteMeta = useRef(0);   // aakhri heartbeat timestamp jo is device ne dekha
+  const lastOwnPush = useRef(0);      // is device ki aakhri push ka timestamp (self-echo skip)
+
+  const bumpSyncMeta = async (cols: string[]) => {
+    try {
+      const ts = Date.now();
+      lastOwnPush.current = ts;
+      lastRemoteMeta.current = ts;
+      await setDoc(doc(db, 'sync_meta', 'global'), {
+        updatedAt: ts,
+        byDevice: deviceIdRef.current,
+        collections: arrayUnion(...cols),
+      }, { merge: true });
+    } catch (e: any) {
+      console.warn('[Sync] heartbeat bump failed:', e?.message);
+    }
+  };
+
   const flushBatch = async () => {
     if (pendingBatch.current.set.length === 0 && pendingBatch.current.del.length === 0) return;
     const setOps = pendingBatch.current.set;
@@ -265,6 +289,12 @@ export default function App() {
       // Success — reset retry counter and clear any sync error banner.
       batchRetryCount.current = 0;
       setSyncError(null);
+      // HEARTBEAT — doosri devices ko batao ke data badal gaya (unke onSnapshot fail hon to bhi poll se uthayengi)
+      const cols = Array.from(new Set([
+        ...setOps.map(o => String((o.ref as any)?.parent?.id || '')),
+        ...delOps.map(d => String((d as any)?.parent?.id || '')),
+      ].filter(Boolean)));
+      if (cols.length > 0) bumpSyncMeta(cols);
     } catch (e: any) {
       console.warn("Firestore batch write warning:", e);
       // Re-queue on transient failure so data isn't silently lost.
@@ -300,6 +330,115 @@ export default function App() {
       if (batchTimer.current) clearTimeout(batchTimer.current);
     };
   }, []);
+
+  // --- REMOTE PULL (polling fallback) ---
+  // Poora data Firestore se fetch karke state + prev-refs update karta hai.
+  // prev-refs isliye update hote hain ke differential push effects yeh data
+  // dobara cloud par na likhein (loop na bane).
+  const pullRemoteData = useCallback(async (reason: string) => {
+    try {
+      const [tS, cS, sS, ttS, aS, mS, fS, coS, fdS, asgS] = await Promise.all([
+        getDocs(collection(db, 'teachers')),
+        getDocs(collection(db, 'classes')),
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'timetable')),
+        getDocs(collection(db, 'attendance')),
+        getDocs(collection(db, 'marks')),
+        getDocs(collection(db, 'fees')),
+        getDocs(collection(db, 'coordinators')),
+        getDocs(collection(db, 'fee_data')),
+        getDocs(collection(db, 'assignments')),
+      ]);
+      const arr = (snap: any) => { const out: any[] = []; snap.forEach((d: any) => out.push(d.data())); return out; };
+      const rTeachers = arr(tS) as Teacher[];
+      const rClasses = arr(cS) as Class[];
+      const rStudents = arr(sS) as Student[];
+      const rTimetable = arr(ttS) as TimetableEntry[];
+      const rAttendance = arr(aS) as Attendance[];
+      const rMarks = arr(mS) as Mark[];
+      const rFees = arr(fS) as FeeRecord[];
+      const rCoordinators = arr(coS) as Coordinator[];
+      const rFeeStudents = arr(fdS) as StudentFeeData[];
+      const rAssignments = arr(asgS) as Assignment[];
+
+      if (rTeachers.length > 0) setTeachers(rTeachers);
+      if (rClasses.length > 0) setClasses(rClasses);
+      if (rStudents.length > 0) setStudents(rStudents);
+      setTimetable(rTimetable);
+      setAttendance(rAttendance);
+      if (rMarks.length > 0) setMarks(rMarks);
+      if (rFees.length > 0) setFees(rFees);
+      if (rCoordinators.length > 0) setCoordinators(rCoordinators);
+      if (rFeeStudents.length > 0) setFeeStudents(rFeeStudents);
+      if (rAssignments.length > 0) setAssignments(rAssignments);
+
+      prevTeachers.current = JSON.stringify(rTeachers.length > 0 ? rTeachers : teachers);
+      prevClasses.current = JSON.stringify(rClasses.length > 0 ? rClasses : classes);
+      prevStudents.current = JSON.stringify(rStudents.length > 0 ? rStudents : students);
+      prevTimetable.current = JSON.stringify(rTimetable);
+      prevAttendance.current = JSON.stringify(rAttendance);
+      prevMarks.current = JSON.stringify(rMarks.length > 0 ? rMarks : marks);
+      prevFees.current = JSON.stringify(rFees.length > 0 ? rFees : fees);
+      prevCoordinators.current = JSON.stringify(rCoordinators.length > 0 ? rCoordinators : coordinators);
+      prevFeeStudents.current = JSON.stringify(rFeeStudents.length > 0 ? rFeeStudents : feeStudents);
+      prevAssignments.current = JSON.stringify(rAssignments.length > 0 ? rAssignments : assignments);
+
+      // localStorage cache bhi refresh karo
+      safeStorage.setItem('acadamis_teachers', prevTeachers.current);
+      safeStorage.setItem('acadamis_classes', prevClasses.current);
+      safeStorage.setItem('acadamis_students', prevStudents.current);
+      safeStorage.setItem('acadamis_timetable', prevTimetable.current);
+      safeStorage.setItem('acadamis_attendance', prevAttendance.current);
+      safeStorage.setItem('acadamis_marks', prevMarks.current);
+      safeStorage.setItem('acadamis_fees', prevFees.current);
+      safeStorage.setItem('acadamis_coordinators', prevCoordinators.current);
+      safeStorage.setItem('school_fee_data', prevFeeStudents.current);
+      safeStorage.setItem('acadamis_assignments', prevAssignments.current);
+
+      console.log(`[Sync] Remote data pulled (${reason}) — students: ${rStudents.length}, fees: ${rFees.length}, fee_data: ${rFeeStudents.length}`);
+    } catch (e: any) {
+      console.warn('[Sync] remote pull failed:', e?.message);
+    }
+  }, [teachers, classes, students, timetable, attendance, marks, fees, coordinators, feeStudents, assignments]);
+
+  // --- HEARTBEAT POLL — har 20s sirf sync_meta doc check (1 read), focus par bhi ---
+  useEffect(() => {
+    if (!userSession) return;
+    let stopped = false;
+    const checkRemote = async () => {
+      if (stopped || !isSyncComplete.current) return;
+      // Local writes pending hain to pehle woh flush hon — pull is tick skip
+      if (pendingBatch.current.set.length > 0 || pendingBatch.current.del.length > 0) return;
+      try {
+        const snap = await getDoc(doc(db, 'sync_meta', 'global'));
+        if (!snap.exists()) return;
+        const ts = Number((snap.data() as any)?.updatedAt) || 0;
+        if (ts <= 0) return;
+        if (ts !== lastRemoteMeta.current && ts !== lastOwnPush.current) {
+          // KISI DOOSRI device ne data badla hai — full pull karo
+          lastRemoteMeta.current = ts;
+          await pullRemoteData('heartbeat');
+        } else {
+          lastRemoteMeta.current = ts;
+        }
+      } catch (e: any) {
+        console.warn('[Sync] heartbeat poll failed:', e?.message);
+      }
+    };
+    const iv = setInterval(checkRemote, 20000);
+    const onVis = () => { if (document.visibilityState === 'visible') checkRemote(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
+    // Session shuru hote hi ek baar check — purana pending remote data turant mil jaye
+    const boot = setTimeout(checkRemote, 3000);
+    return () => {
+      stopped = true;
+      clearInterval(iv);
+      clearTimeout(boot);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onVis);
+    };
+  }, [userSession, pullRemoteData]);
 
   useEffect(() => {
     async function initFirebaseAndSync() {
@@ -952,6 +1091,7 @@ export default function App() {
         neonQueueWrite("app_settings", "global", appSettings);
         prevAppSettings.current = currentStr;
         safeStorage.setItem('acadamis_app_settings', currentStr);
+        bumpSyncMeta(['app_settings']);
       } catch (e) {
         console.error("Firestore Settings Sync Error:", e);
       }
@@ -1086,6 +1226,9 @@ export default function App() {
       await flushNeon();
       
       console.log("Push to Firestore complete (+ Neon mirror)");
+      // Heartbeat bump — doosri devices (jinke onSnapshot fail hon) 20s ke poll se
+      // yeh change foran pick kar lengi
+      try { await bumpSyncMeta(['teachers','classes','students','timetable','attendance','marks','fees','coordinators','fee_data','assignments']); } catch { /* non-fatal */ }
     } catch (err) {
       console.warn("Push to Firestore failed:", err);
       // Rethrow so callers (e.g. the Force Sync button) can surface the failure
