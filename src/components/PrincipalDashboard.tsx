@@ -402,6 +402,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
   // COLLECT DUES FEATURE — track which pending dues to collect + their months
   const [collectDuesList, setCollectDuesList] = useState<Record<string, boolean>>({});
+  // Quick Collect modal — monthly/school fee section collapsed by default (form ab DUES-first hai)
+  const [showMainFeeSection, setShowMainFeeSection] = useState(false);
   const [collectDueMonths, setCollectDueMonths] = useState<Record<string, string>>({});
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
@@ -662,8 +664,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     type FeeEntry = { feeType: string; amount: number };
     const entries: FeeEntry[] = [];
 
+    // Selected pending dues (checklist se) — pehle compute karo taake validation ho sake
+    const preSelectedDueIds = Object.entries(collectDuesList).filter(([, selected]) => selected).map(([id]) => id);
+
     const mainAmount = Number(quickCollectAmount);
-    if (mainAmount && mainAmount > 0) {
+    // Main monthly fee SIRF tab record ho jab: target-month mode (month card se aya) ya section khula ho
+    if (mainAmount && mainAmount > 0 && (quickCollectTargetMonth || showMainFeeSection)) {
       entries.push({ feeType: quickCollectFeeType, amount: mainAmount });
     }
 
@@ -674,8 +680,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       });
     }
 
-    if (entries.length === 0) {
-      toast.error("Please enter at least one valid fee amount.");
+    if (entries.length === 0 && preSelectedDueIds.length === 0) {
+      toast.error("Koi due select nahi kiya — Pending Dues se select karein ya fee amount enter karein.");
       return;
     }
 
@@ -885,6 +891,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setQuickCollectNotes('');
     setQuickCollectTargetMonth(null);
     setShowExtraFeeInputs(false);
+    setShowMainFeeSection(false);
+    setCollectDuesList({});
     setExtraFees({ 'Annual Fee': '', 'Admission Fee': '', 'Paper Fund': '', 'Exam Fee': '', 'Summer Pack': '', 'Miscellaneous': '' });
     const chargedCategories = Array.from(new Set(newDues.filter(d => d.status === 'pending').map(d => d.desc)));
     const collectedCategories = Array.from(new Set(newFeeRecords.map(r => r.feeType)));
@@ -1053,6 +1061,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setQuickCollectTargetMonth(monthKey);
     setQuickCollectNotes('');
     setShowExtraFeeInputs(false);
+    setCollectDuesList({});
+    setShowMainFeeSection(true);
     setExtraFees({ 'Annual Fee': '', 'Admission Fee': '', 'Paper Fund': '', 'Exam Fee': '', 'Summer Pack': '', 'Miscellaneous': '' });
     setShowQuickCollectModal(true);
   };
@@ -9474,7 +9484,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   })()}
                   <div className="min-w-0">
                     <h2 className="text-base sm:text-xl font-black uppercase tracking-tight flex items-center gap-2.5">
-                      <CreditCard size={22} className="shrink-0" /> ⚡ Direct Fee Collection & Receipt
+                      <CreditCard size={22} className="shrink-0" /> ⚡ Dues &amp; Fund Collection + Receipt
                     </h2>
                     {(() => {
                       const st = students.find(s => String(s.id) === String(quickCollectStudentId));
@@ -9505,21 +9515,115 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     onChange={(e) => {
                       const stId = e.target.value;
                       setQuickCollectStudentId(stId);
+                      setCollectDuesList({});
                       const stObj = students.find(s => String(s.id) === String(stId));
                       if (stObj?.baseFee) setQuickCollectAmount(String(stObj.baseFee));
                     }}
                     className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
                   >
                     <option value="">-- Select Student --</option>
-                    {students.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name.split(' ').slice(0, 1).join(' ') || s.name} - Roll #{s.rollNumber || 'N/A'}
-                      </option>
-                    ))}
+                    {students.map(s => {
+                      const fSt = feeStudents.find(fs => String(fs.id) === String(s.id));
+                      const dCount = (fSt?.dues || []).filter(d => d.status !== 'waived' && getDueRemaining(d) > 0).length;
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.name.split(' ').slice(0, 1).join(' ') || s.name} - Roll #{s.rollNumber || 'N/A'}{dCount > 0 ? ` (${dCount} dues pending)` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                {/* ===== PENDING DUES CHECKLIST — Paper Fund, Exam Fee etc. tap karke select & collect ===== */}
+                {(() => {
+                  const fSt = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
+                  const pendingDuesList = (fSt?.dues || []).filter(d => d.status !== 'waived' && getDueRemaining(d) > 0);
+                  const selIds = pendingDuesList.filter(d => collectDuesList[d.id]);
+                  const selTotal = selIds.reduce((s, d) => s + getDueRemaining(d), 0);
+                  const allSelected = pendingDuesList.length > 0 && selIds.length === pendingDuesList.length;
+                  return (
+                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                          <AlertCircle size={12} /> Pending Dues — Tap Karke Select Karein
+                        </p>
+                        {pendingDuesList.length > 0 && (
+                          <button
+                            onClick={() => {
+                              const next: Record<string, boolean> = {};
+                              if (!allSelected) pendingDuesList.forEach(d => { next[d.id] = true; });
+                              setCollectDuesList(next);
+                            }}
+                            className="text-[9px] font-black text-amber-700 uppercase tracking-widest hover:underline cursor-pointer"
+                          >
+                            {allSelected ? 'Clear All' : 'Select All'}
+                          </button>
+                        )}
+                      </div>
+
+                      {pendingDuesList.length === 0 ? (
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-100">
+                          <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+                          <span className="text-[11px] font-black text-emerald-700 uppercase tracking-wide">
+                            Koi Pending Due Nahi — Sab Clear ✓
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-1.5">
+                            {pendingDuesList.map(d => {
+                              const rem = getDueRemaining(d);
+                              const pd = getDuePaid(d);
+                              const isSel = !!collectDuesList[d.id];
+                              return (
+                                <button
+                                  key={d.id}
+                                  onClick={() => setCollectDuesList(prev => ({ ...prev, [d.id]: !prev[d.id] }))}
+                                  className={`w-full text-left p-2.5 rounded-lg border transition-all cursor-pointer flex items-center gap-2.5 ${isSel ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300' : 'bg-white border-slate-200 hover:border-amber-400'}`}
+                                >
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border-2 transition-colors ${isSel ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent'}`}>
+                                    <CheckCircle2 size={13} />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-black text-slate-900">{d.desc}</span>
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase">{d.month} {d.year}</span>
+                                    </span>
+                                    <span className="block text-[10px] font-bold text-slate-400 mt-0.5">
+                                      Total: PKR {Number(d.amount || 0).toLocaleString()}
+                                      {pd > 0 && <> • Paid: <span className="text-emerald-600 font-black">PKR {pd.toLocaleString()}</span></>}
+                                      {' '}• Remaining: <span className="text-rose-600 font-black">PKR {rem.toLocaleString()}</span>
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selIds.length > 0 && (
+                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white">
+                              <span className="text-[9px] font-black uppercase tracking-widest">{selIds.length} Selected — Collect Total:</span>
+                              <span className="text-xs font-black">PKR {selTotal.toLocaleString()}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      </div>
+                    );
+                  })()}
+
+                      {/* Collapsible: Monthly/School Fee bhi sath collect karni ho to */}
+                      <button
+                        onClick={() => setShowMainFeeSection(!showMainFeeSection)}
+                        className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-indigo-50 border border-indigo-100 cursor-pointer"
+                      >
+                        <span className="text-[9px] font-black text-indigo-700 uppercase tracking-widest flex items-center gap-1.5">
+                          <CreditCard size={11} /> Monthly / School Fee Bhi Collect Karein (Optional)
+                        </span>
+                        <ChevronDown size={13} className={`text-indigo-400 transition-transform ${showMainFeeSection ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showMainFeeSection && (
+                      <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 animate-fade-in">
                   {/* Fee Month */}
                   <div>
                     <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
@@ -9588,41 +9692,41 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   );
                 })()}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  {/* Fee Type */}
-                  <div>
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
-                      Fee Category
-                    </label>
-                    <select
-                      value={quickCollectFeeType}
-                      onChange={(e) => setQuickCollectFeeType(e.target.value)}
-                      className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
-                    >
-                      <option value="Tuition Fee">Tuition Fee</option>
-                      <option value="School Fee">School Fee</option>
-                    </select>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
-                      Tuition Fee = School Fee (same) — Annual/Paper Fund/Exam Fee neeche "Add More Fee Categories" mein
-                    </p>
-                  </div>
+                <div>
+                  {/* Fee Category — monthly fee collect karte waqt */}
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
+                    Fee Category
+                  </label>
+                  <select
+                    value={quickCollectFeeType}
+                    onChange={(e) => setQuickCollectFeeType(e.target.value)}
+                    className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
+                  >
+                    <option value="Tuition Fee">Tuition Fee</option>
+                    <option value="School Fee">School Fee</option>
+                  </select>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                    Tuition Fee = School Fee (same)
+                  </p>
+                </div>
+                </>
+              )}
 
-                  {/* Payment Method */}
-                  <div>
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
-                      Payment Method
-                    </label>
-                    <select
-                      value={quickCollectPaymentMethod}
-                      onChange={(e) => setQuickCollectPaymentMethod(e.target.value)}
-                      className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
-                    >
-                      <option value="Cash">Cash</option>
-                      <option value="Online Transfer">Online Bank Transfer</option>
-                      <option value="JazzCash">JazzCash / EasyPaisa</option>
-                      <option value="Cheque">Cheque</option>
-                    </select>
-                  </div>
+                {/* Payment Method — hamesha visible */}
+                <div>
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 block mb-1">
+                    Payment Method
+                  </label>
+                  <select
+                    value={quickCollectPaymentMethod}
+                    onChange={(e) => setQuickCollectPaymentMethod(e.target.value)}
+                    className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Online Transfer">Online Bank Transfer</option>
+                    <option value="JazzCash">JazzCash / EasyPaisa</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
                 </div>
 
                 {/* Add More Fee Categories Toggle */}
