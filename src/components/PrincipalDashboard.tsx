@@ -171,7 +171,16 @@ export default function PrincipalDashboard({
   onInstallApp,
   pushLocalToCloud
 }: PrincipalDashboardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const saved = safeStorage.getItem('acadamis_active_tab');
+    const valid: TabType[] = ['dashboard', 'management_hub', 'timetable', 'alerts', 'settings', 'registers', 'monthly_report', 'fees'];
+    return (saved && valid.includes(saved as TabType) ? saved : 'dashboard') as TabType;
+  });
+
+  // Persist activeTab to localStorage on every change
+  useEffect(() => {
+    safeStorage.setItem('acadamis_active_tab', activeTab);
+  }, [activeTab]);
 
   // Browser Back Button Support for Tabs
   useEffect(() => {
@@ -198,8 +207,18 @@ export default function PrincipalDashboard({
   const [reportClassFilter, setReportClassFilter] = useState<string>('all');
   const [selectedStudentReport, setSelectedStudentReport] = useState<Student | null>(null);
   const [reportMonth, setReportMonth] = useState<Month>(MONTHS[new Date().getMonth()]);
-  const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>('teachers');
-  const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance' | 'results'>('fees');
+  const [managementSubTab, setManagementSubTab] = useState<'teachers' | 'students' | 'classes' | 'coordinators'>(() => {
+    const saved = safeStorage.getItem('acadamis_mgmt_subtab');
+    return (saved && ['teachers', 'students', 'classes', 'coordinators'].includes(saved) ? saved : 'teachers') as 'teachers' | 'students' | 'classes' | 'coordinators';
+  });
+  const [registersSubTab, setRegistersSubTab] = useState<'fees' | 'attendance' | 'results'>(() => {
+    const saved = safeStorage.getItem('acadamis_registers_subtab');
+    return (saved && ['fees', 'attendance', 'results'].includes(saved) ? saved : 'fees') as 'fees' | 'attendance' | 'results';
+  });
+
+  // Persist sub-tabs
+  useEffect(() => { safeStorage.setItem('acadamis_mgmt_subtab', managementSubTab); }, [managementSubTab]);
+  useEffect(() => { safeStorage.setItem('acadamis_registers_subtab', registersSubTab); }, [registersSubTab]);
   const [broadcastLogs, setBroadcastLogs] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);

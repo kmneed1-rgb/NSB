@@ -3,7 +3,7 @@ import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from './firebase';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData, Assignment } from './types';
 import { 
   INITIAL_TEACHERS, 
@@ -200,6 +200,8 @@ export default function App() {
   // --- FIRESTORE SYNCHRONIZATION SYSTEM ---
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Real-time listeners tab hi setup hon jab initial sync complete ho
+  const [syncReady, setSyncReady] = useState(false);
   const isSyncComplete = useRef<boolean>(false);
 
   const prevTeachers = useRef<string>('');
@@ -438,6 +440,67 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
     };
+
+  // --- REALTIME LISTENERS — onSnapshot se live sync (doosri device ki changes turant) ---
+  // Yeh effect initial sync complete hone par sab collections par real-time listener lagata hai.
+  // Har snapshot mein data current prevRef se compare hota hai — agar farq ho to state +
+  // prevRef + localStorage + Neon backup update hote hain. Apni hi writes skip hoti hain
+  // (prevRef pehle se updated hoti hai) — echo loop nahi banta.
+  useEffect(() => {
+    if (!userSession || !syncReady) return;
+
+    const applyRemote = <T extends { id: any }>(
+      snap: any,
+      prevRef: React.MutableRefObject<string>,
+      setter: (v: T[]) => void,
+      key: string,
+      storeKey: string,
+      neonCol: string
+    ) => {
+      try {
+        const data: T[] = [];
+        snap.forEach((d: any) => {
+          const v = d.data();
+          if (v && d.id !== undefined) {
+            // Firestore doc id field mein reflect karo
+            data.push({ ...v, id: v.id !== undefined ? v.id : d.id } as T);
+          }
+        });
+        const str = JSON.stringify(data);
+        if (str === prevRef.current || str === '[]') {
+          // Same data ya khali — kuch nahi karna
+          return;
+        }
+        // Remote change mila — apply karo
+        setter(data);
+        prevRef.current = str;
+        safeStorage.setItem(storeKey, str);
+        data.forEach(item => neonQueueWrite(neonCol, String(item.id), item));
+        console.log(`[Sync:RT] ${key} remote update — ${data.length} records`);
+      } catch (e: any) {
+        console.warn(`[Sync:RT] ${key} apply failed:`, e?.message);
+      }
+    };
+
+    const unsubs: (() => void)[] = [];
+    unsubs.push(onSnapshot(collection(db, 'teachers'), (s) => applyRemote(s, prevTeachers, setTeachers, 'teachers', 'acadamis_teachers', 'teachers')));
+    unsubs.push(onSnapshot(collection(db, 'classes'), (s) => applyRemote(s, prevClasses, setClasses, 'classes', 'acadamis_classes', 'classes')));
+    unsubs.push(onSnapshot(collection(db, 'students'), (s) => applyRemote(s, prevStudents, setStudents, 'students', 'acadamis_students', 'students')));
+    unsubs.push(onSnapshot(collection(db, 'timetable'), (s) => applyRemote(s, prevTimetable, setTimetable, 'timetable', 'acadamis_timetable', 'timetable')));
+    unsubs.push(onSnapshot(collection(db, 'attendance'), (s) => applyRemote(s, prevAttendance, setAttendance, 'attendance', 'acadamis_attendance', 'attendance')));
+    unsubs.push(onSnapshot(collection(db, 'marks'), (s) => applyRemote(s, prevMarks, setMarks, 'marks', 'acadamis_marks', 'marks')));
+    unsubs.push(onSnapshot(collection(db, 'fees'), (s) => applyRemote(s, prevFees, setFees, 'fees', 'acadamis_fees', 'fees')));
+    unsubs.push(onSnapshot(collection(db, 'coordinators'), (s) => applyRemote(s, prevCoordinators, setCoordinators, 'coordinators', 'acadamis_coordinators', 'coordinators')));
+    unsubs.push(onSnapshot(collection(db, 'fee_data'), (s) => applyRemote(s, prevFeeStudents, setFeeStudents, 'fee_data', 'school_fee_data', 'fee_data')));
+    unsubs.push(onSnapshot(collection(db, 'assignments'), (s) => applyRemote(s, prevAssignments, setAssignments, 'assignments', 'acadamis_assignments', 'assignments')));
+
+    console.log('[Sync:RT] Real-time listeners active — 10 collections');
+    return () => {
+      unsubs.forEach(u => u());
+      console.log('[Sync:RT] Real-time listeners cleaned up');
+    };
+  }, [userSession, syncReady]);
+
   }, [userSession, pullRemoteData]);
 
   useEffect(() => {
@@ -533,6 +596,7 @@ export default function App() {
             if (nSettings) prevAppSettings.current = JSON.stringify(nSettings);
 
             isSyncComplete.current = true;
+            setSyncReady(true);
             toast.success('Firebase khali tha — data Neon Postgres se load ho gaya ✓');
             return;
           }
@@ -714,6 +778,7 @@ export default function App() {
           })();
         }
         isSyncComplete.current = true;
+        setSyncReady(true);
       } catch (err: any) {
         console.warn("Firestore sync running in background/offline fallback mode:", err?.message);
         setSyncError(err?.message || "Offline fallback");
@@ -760,6 +825,7 @@ export default function App() {
             if (nSettings) prevAppSettings.current = JSON.stringify(nSettings);
 
             isSyncComplete.current = true;
+            setSyncReady(true);
             toast.success('Firebase unavailable — data Neon Postgres se load ho gaya ✓');
             return;
           }
@@ -776,6 +842,7 @@ export default function App() {
         setFees(prev => prev.length > 0 ? prev : INITIAL_FEES);
         // IMPORTANT: Set sync complete even on failure so local changes can still push
         isSyncComplete.current = true;
+        setSyncReady(true);
       }
     }
 
