@@ -5,7 +5,7 @@ import { sanitizeForFirestore, listChanged } from '../lib/firestoreUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi, Banknote } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -972,6 +972,82 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     }
   };
 
+  // ===== CLASS-LEVEL APPLY DUES — poori class ya selected students ko due/paper fund lagao ya collect karo =====
+  const openClassDuesModal = (classId?: string) => {
+    setClassDuesClassId(classId || 'all');
+    setClassDuesSelected({});
+    setClassDuesDesc('Paper Fund');
+    setClassDuesAmount('');
+    setClassDuesMode('charge');
+    setClassDuesMonth(MONTHS[new Date().getMonth()] as string);
+    setClassDuesYear(new Date().getFullYear());
+    setClassDuesPaymentMethod('Cash');
+    setClassDuesCollectAmount('');
+    setShowClassDuesModal(true);
+  };
+
+  const handleSubmitClassDues = () => {
+    const amount = Number(classDuesAmount) || 0;
+    const selectedIds = Object.entries(classDuesSelected).filter(([, v]) => v).map(([id]) => id)
+      .filter(id => students.some(s => String(s.id) === id && (classDuesClassId === 'all' || s.classId === classDuesClassId)));
+    if (selectedIds.length === 0) { toast.error('Kam az kam aik student select karein.'); return; }
+    if (!(amount > 0)) { toast.error('Sahi amount enter karein (PKR).'); return; }
+    const collected = classDuesMode === 'collect' ? Math.max(0, Number(classDuesCollectAmount !== '' ? classDuesCollectAmount : classDuesAmount) || 0) : 0;
+    if (classDuesMode === 'collect' && collected > amount) { toast.error('Collect amount, due amount se zyada nahi ho sakta.'); return; }
+    const today = new Date().toISOString().split('T')[0];
+    let seq = 0;
+    const newRecords: FeeRecord[] = [];
+    let classDuesCollectedCount = 0;
+    setFeeStudents(prev => prev.map(fs => {
+      if (!selectedIds.includes(String(fs.id))) return fs;
+      const id = 'DUE_' + Date.now().toString(36).toUpperCase() + '_' + (seq++).toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+      const isCollect = classDuesMode === 'collect';
+      const toCollect = Math.min(collected, amount);
+      const fullyPaid = isCollect && toCollect >= amount;
+      const dueEntry: DueEntry = {
+        id,
+        studentId: fs.id,
+        desc: classDuesDesc,
+        amount,
+        date: today,
+        month: classDuesMonth,
+        year: classDuesYear,
+        status: isCollect && fullyPaid ? ('paid' as const) : ('pending' as const),
+        paidAmount: isCollect ? toCollect : 0,
+        paidDate: isCollect && toCollect > 0 ? today : undefined,
+        paymentMethod: isCollect && toCollect > 0 ? classDuesPaymentMethod : undefined,
+      };
+      if (isCollect && toCollect > 0) {
+        classDuesCollectedCount++;
+        newRecords.push({
+          id,
+          studentId: String(fs.id),
+          amount: toCollect,
+          dueDate: today,
+          status: 'paid',
+          paidDate: today,
+          month: `${classDuesMonth} ${classDuesYear}`,
+          paymentMethod: classDuesPaymentMethod,
+          feeType: classDuesDesc,
+          dueId: id,
+          description: `Class dues collect: ${classDuesDesc}`,
+        });
+      }
+      return { ...fs, dues: [...(fs.dues || []), dueEntry] };
+    }));
+    if (newRecords.length > 0) setFees(prev => [...newRecords, ...prev]);
+    setShowClassDuesModal(false);
+    const classText = classDuesClassId === 'all' ? 'ALL CLASSES' : getClassName(classDuesClassId);
+    if (classDuesMode === 'charge') {
+      toast.success(`"${classDuesDesc}" (PKR ${amount.toLocaleString()}) charged to ${selectedIds.length} students — ${classText} • ${classDuesMonth} ${classDuesYear} — Dues mein pending hai`);
+    } else if (newRecords.length === 0) {
+      toast.info(`"${classDuesDesc}" charged to ${selectedIds.length} students — collect amount 0 tha, Dues mein pending hai`);
+    } else {
+      const pendingText = collected < amount ? ` • har student ka PKR ${(amount - collected).toLocaleString()} pending` : ' — FULLY PAID ✓';
+      toast.success(`Collected PKR ${collected.toLocaleString()} "${classDuesDesc}" from ${classDuesCollectedCount} students (${classText})${pendingText}`);
+    }
+  };
+
   // Month ki fee record karo (Fee Payment Center se)
   const handleFpcPayMonth = (studentId: string | number, monthKey: string, payYear: number, amount: number, method: string) => {
     const monthName = String(monthKey).split(' ')[0] || String(monthKey);
@@ -1742,8 +1818,22 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   // Collect dues modal state
   const [collectDuesModal, setCollectDuesModal] = useState<{ isOpen: boolean; studentId: string; dueId: string; desc: string; amount: number; remaining: number; month: string; year: number }>({ isOpen: false, studentId: '', dueId: '', desc: '', amount: 0, remaining: 0, month: '', year: 2026 });
   const [collectDuesPaymentMethod, setCollectDuesPaymentMethod] = useState('Cash');
+  // ===== CLASS-LEVEL APPLY DUES (Paper Fund, Exam Fee etc.) — poori class ya selected students =====
+  const [showClassDuesModal, setShowClassDuesModal] = useState(false);
+  const [classDuesClassId, setClassDuesClassId] = useState<string>('all');
+  const [classDuesSelected, setClassDuesSelected] = useState<Record<string, boolean>>({});
+  const [classDuesDesc, setClassDuesDesc] = useState('Paper Fund');
+  const [classDuesAmount, setClassDuesAmount] = useState('');
+  const [classDuesMode, setClassDuesMode] = useState<'charge' | 'collect'>('charge');
+  const [classDuesMonth, setClassDuesMonth] = useState<string>(MONTHS[new Date().getMonth()] as string);
+  const [classDuesYear, setClassDuesYear] = useState(new Date().getFullYear());
+  const [classDuesPaymentMethod, setClassDuesPaymentMethod] = useState('Cash');
+  const [classDuesCollectAmount, setClassDuesCollectAmount] = useState('');
   // Partial collection: kitna amount ab is baar collect ho raha hai
   const [collectDuesAmount, setCollectDuesAmount] = useState('');
+
+  // Class-Apply-Dues modal ke liye scope ke hisaab se students
+  const classStudentsForDues = classDuesClassId === 'all' ? students : students.filter(s => s.classId === classDuesClassId);
 
   // Modals / Form editing state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -4229,8 +4319,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           return (
                             <div key={classId} className="mb-2">
                               {recordsFeeClassFilter === 'all' && (
-                                <div className="px-4 py-2 bg-slate-50 border-y border-slate-100">
+                                <div className="px-4 py-2 bg-slate-50 border-y border-slate-100 flex items-center justify-between gap-2">
                                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Class {className} ({classStudents.length})</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openClassDuesModal(classId === 'other' ? undefined : classId); }}
+                                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                                    title={`Class ${className} ke students ko Due/Paper Fund lagayein ya collect karein`}
+                                  >
+                                    <Users size={10} /> Apply Dues
+                                  </button>
                                 </div>
                               )}
                               <div className="divide-y divide-slate-50">
@@ -9729,55 +9826,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   </select>
                 </div>
 
-                {/* Add More Fee Categories Toggle */}
-                <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-700">Add More Fee Categories</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Annual Fee, Admission Fee, Paper Fund, Exam Fee, Summer Pack & more</p>
-                  </div>
-                  <button
-                    onClick={() => setShowExtraFeeInputs(!showExtraFeeInputs)}
-                    title={showExtraFeeInputs ? "Hide extra fee inputs" : "Show extra fee inputs"}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${showExtraFeeInputs ? 'bg-emerald-600 text-white border border-emerald-700 shadow-md' : 'bg-white text-slate-400 border border-slate-300 hover:border-emerald-500 hover:text-emerald-600'}`}
-                  >
-                    <CheckCircle2 size={20} />
-                  </button>
-                </div>
-
-                {showExtraFeeInputs && (
-                  <div className="bg-white border border-emerald-100 rounded-xl p-3 space-y-3 animate-fade-in">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add More Fee Categories — Annual Fee, Admission Fee, Paper Fund, Exam Fee, Summer Pack, etc. (leave blank to skip)</p>
-                    {/* Collect vs Charge mode toggle */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setExtraFeeMode('collect')}
-                        title="Collect = yeh fee abhi ADA hoti hai (PAID receipt)"
-                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${extraFeeMode === 'collect' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                      >
-                        💰 Collect (Mark PAID)
-                      </button>
-                      <button
-                        onClick={() => setExtraFeeMode('charge')}
-                        title="Charge = PENDING khata banega jo baad mein collect hoga"
-                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${extraFeeMode === 'charge' ? 'bg-rose-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                      >
-                        📝 Charge (Pending Due)
-                      </button>
-                    </div>
-                    {Object.keys(extraFees).map(type => (
-                      <div key={type} className="flex items-center gap-3">
-                        <span className="w-44 shrink-0 text-xs font-black uppercase tracking-widest text-slate-600">{type}</span>
-                        <input
-                          type="number"
-                          value={extraFees[type]}
-                          onChange={(e) => setExtraFees({ ...extraFees, [type]: e.target.value })}
-                          placeholder="Amount in PKR"
-                          className="flex-1 min-w-0 p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Add More Fee Categories — ab class-level "Apply Dues" button se hota hai */}
 
                 {/* Remarks */}
                 <div>
@@ -9962,6 +10011,158 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         onCollectDue={handleFpcCollectDue}
         onPayAutoSpread={handleFpcPayAutoSpread}
       />
+
+      {/* APPLY DUES TO CLASS — poori class / selected students ko due lagao ya collect karo */}
+      <AnimatePresence>
+        {showClassDuesModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col"
+            >
+              {/* Header */}
+              <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-4 sm:p-5 text-white flex justify-between items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0"><Users size={22} /></div>
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-black uppercase tracking-tight">Apply Dues / Paper Fund</h2>
+                    <p className="text-[10px] uppercase font-bold text-amber-100 truncate">Class ya selected students • Charge ya Collect</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowClassDuesModal(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors shrink-0"><X size={20} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                {/* Scope + mode */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Class</label>
+                    <select value={classDuesClassId} onChange={(e) => { setClassDuesClassId(e.target.value); setClassDuesSelected({}); }} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-800 cursor-pointer">
+                      <option value="all">All Classes ({students.length} students)</option>
+                      {classes.map(c => <option key={c.id} value={c.id}>{c.className} - {c.section} ({students.filter(s => s.classId === c.id).length})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Mode</label>
+                    <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl">
+                      <button onClick={() => setClassDuesMode('charge')} className={`py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all cursor-pointer ${classDuesMode === 'charge' ? 'bg-amber-500 text-white shadow' : 'text-slate-500 hover:text-slate-700'}`}>Charge Only</button>
+                      <button onClick={() => setClassDuesMode('collect')} className={`py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all cursor-pointer ${classDuesMode === 'collect' ? 'bg-emerald-600 text-white shadow' : 'text-slate-500 hover:text-slate-700'}`}>Charge & Collect</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Desc + amount + month */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="col-span-2">
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Due Type</label>
+                    <select value={classDuesDesc} onChange={(e) => setClassDuesDesc(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-800 cursor-pointer">
+                      {['Paper Fund', 'Exam Fee', 'Annual Fee', 'Admission Fee', 'Summer Pack', 'Miscellaneous'].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount (PKR)</label>
+                    <input type="number" min="0" value={classDuesAmount} onChange={(e) => setClassDuesAmount(e.target.value)} placeholder="0" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black focus:outline-none focus:border-amber-500" />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Month</label>
+                    <select value={classDuesMonth} onChange={(e) => setClassDuesMonth(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-800 cursor-pointer">
+                      {MONTHS.map(m => <option key={m} value={m}>{m} {classDuesYear}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Student checklist */}
+                <div>
+                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Students ({classStudentsForDues.length}) — kisi ek, kuch ya sab ko select karein
+                    </span>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setClassDuesSelected(Object.fromEntries(classStudentsForDues.map(s => [String(s.id), true])))} className="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-emerald-100 cursor-pointer">Select All</button>
+                      <button onClick={() => setClassDuesSelected({})} className="px-2.5 py-1 bg-slate-50 border border-slate-200 text-slate-500 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-slate-100 cursor-pointer">Clear All</button>
+                    </div>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                    {classStudentsForDues.map(s => {
+                      const sel = !!classDuesSelected[String(s.id)];
+                      const fsObj = feeStudents.find(f => String(f.id) === String(s.id));
+                      const pend = fsObj ? (fsObj.dues || []).filter(d => d.status !== 'waived').reduce((sum, d) => sum + getDueRemaining(d), 0) + getTotalPending(fsObj) : 0;
+                      return (
+                        <button
+                          key={String(s.id)}
+                          onClick={() => setClassDuesSelected(prev => ({ ...prev, [String(s.id)]: !prev[String(s.id)] }))}
+                          className={`w-full text-left px-3 py-2 rounded-xl border flex items-center justify-between gap-2 transition-all cursor-pointer ${sel ? 'bg-emerald-50 border-emerald-400' : 'bg-white border-slate-200 hover:border-slate-300'}`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className={`w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 ${sel ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                              {sel && <CheckCircle2 size={11} className="text-white" />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-xs font-black text-slate-900 truncate">{s.name}</span>
+                              <span className="block text-[9px] font-bold text-slate-400 uppercase">{getClassName(String(s.classId))}</span>
+                            </span>
+                          </span>
+                          <span className={`text-[9px] font-black uppercase tracking-widest shrink-0 ${pend > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                            {pend > 0 ? `Pending: ${pend.toLocaleString()}` : 'Clear ✓'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {classStudentsForDues.length === 0 && (
+                      <p className="text-center text-xs font-bold text-slate-400 py-6">Is class mein koi student nahi.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Collect mode extras */}
+                {classDuesMode === 'collect' && (
+                  <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-100 space-y-2">
+                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest flex items-center gap-1.5"><Banknote size={12} /> Foran Wasooli (Collect)</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="number" min="0" max={Number(classDuesAmount) || undefined}
+                        value={classDuesCollectAmount}
+                        onChange={(e) => setClassDuesCollectAmount(e.target.value)}
+                        placeholder={`Collect amount (default: full PKR ${Number(classDuesAmount || 0).toLocaleString()})`}
+                        className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-black focus:outline-none focus:border-emerald-500"
+                      />
+                      <select value={classDuesPaymentMethod} onChange={(e) => setClassDuesPaymentMethod(e.target.value)} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-700 cursor-pointer">
+                        {['Cash', 'Bank Transfer', 'JazzCash', 'EasyPaisa', 'Online', 'Cheque'].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <p className="text-[9px] font-bold text-slate-500">
+                      {Number(classDuesCollectAmount) > 0 && Number(classDuesCollectAmount) < Number(classDuesAmount)
+                        ? `✓ Har student se PKR ${Number(classDuesCollectAmount).toLocaleString()} collect hoga — baqi PKR ${(Math.max(0, (Number(classDuesAmount) || 0) - Number(classDuesCollectAmount))).toLocaleString()} Dues mein remaining rahega.`
+                        : '✓ Full amount collect hoga. Kam amount likhein to baqi remaining Dues mein reh jayega.'}
+                    </p>
+                  </div>
+                )}
+                </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-3 shrink-0">
+                <div className="min-w-0">
+                  <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    {Object.values(classDuesSelected).filter(Boolean).length} selected • PKR {Number(classDuesAmount || 0).toLocaleString()} / student
+                  </span>
+                  <span className="block text-[9px] font-bold text-slate-400">
+                    {classDuesMode === 'charge' ? 'Charge Only — Dues mein pending jayega' : 'Charge & Collect — foran wasooli, baqi remaining'}
+                  </span>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => setShowClassDuesModal(false)} className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer">Cancel</button>
+                  <button onClick={handleSubmitClassDues} className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-1.5 cursor-pointer">
+                    <CheckCircle2 size={14} /> {classDuesMode === 'charge' ? 'Charge Dues' : 'Charge & Collect'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
 
       {/* Fee Record Action Modal (Hold / Long-press) */}
       <AnimatePresence>
