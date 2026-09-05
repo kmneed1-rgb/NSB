@@ -22,6 +22,7 @@ import StudentDashboard from './components/StudentDashboard';
 
 import { safeStorage } from './lib/safeStorage';
 import { sanitizeForFirestore } from './lib/firestoreUtils';
+import { neonQueueWrite, neonQueueDelete, loadAllFromNeon, ensureNeonSchema, flushNeon } from './lib/neonSync';
 
 function safeParse<T>(key: string, fallback: T): T {
   try {
@@ -229,11 +230,15 @@ export default function App() {
       ref: doc(db, col, id),
       data: sanitizeForFirestore(data)
     });
+    // NEON MIRROR — har write Neon Postgres mein bhi jata hai (backup/fallback)
+    neonQueueWrite(col, id, data);
     flushBatchDebounced();
   };
 
   const queueBatchDelete = (col: string, id: string) => {
     pendingBatch.current.del.push(doc(db, col, id));
+    // NEON MIRROR — delete Neon se bhi
+    neonQueueDelete(col, id);
     flushBatchDebounced();
   };
 
@@ -300,7 +305,10 @@ export default function App() {
     async function initFirebaseAndSync() {
       try {
         console.log("Checking Firestore connectivity...");
-        
+
+        // NEON bootstrap — schema ensure karo (background, non-blocking)
+        ensureNeonSchema().catch(() => {});
+
         // Timeout to ensure offline fallback if network fails
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error("Firestore connection timeout")), 15000)
@@ -345,6 +353,51 @@ export default function App() {
                           studentsSnapshot.empty;
 
         if (isDbEmpty) {
+          // ===== NEON FALLBACK — Firestore khali hai to pehle Neon Postgres se load karo =====
+          const neonData = await loadAllFromNeon();
+          const nStudents = neonData['students'] || [];
+          if (nStudents.length > 0) {
+            console.log("Firestore empty — loading data from Neon Postgres fallback...");
+            const nTeachers = neonData['teachers'] || [];
+            const nClasses = neonData['classes'] || [];
+            const nTimetable = neonData['timetable'] || [];
+            const nAttendance = neonData['attendance'] || [];
+            const nMarks = neonData['marks'] || [];
+            const nFees = neonData['fees'] || [];
+            const nCoordinators = neonData['coordinators'] || [];
+            const nFeeStudents = neonData['fee_data'] || [];
+            const nAssignments = neonData['assignments'] || [];
+            const nSettings = (neonData['app_settings'] || [])[0];
+
+            if (nTeachers.length > 0) setTeachers(nTeachers); else setTeachers(INITIAL_TEACHERS);
+            if (nClasses.length > 0) setClasses(nClasses); else setClasses(INITIAL_CLASSES);
+            setStudents(nStudents);
+            if (nTimetable.length > 0) setTimetable(nTimetable); else setTimetable(INITIAL_TIMETABLE);
+            if (nAttendance.length > 0) setAttendance(nAttendance); else setAttendance(INITIAL_ATTENDANCE);
+            if (nMarks.length > 0) setMarks(nMarks); else setMarks(INITIAL_MARKS);
+            if (nFees.length > 0) setFees(nFees); else setFees(INITIAL_FEES);
+            if (nCoordinators.length > 0) setCoordinators(nCoordinators);
+            if (nFeeStudents.length > 0) setFeeStudents(nFeeStudents);
+            if (nAssignments.length > 0) setAssignments(nAssignments);
+            if (nSettings) setAppSettings(nSettings);
+
+            prevTeachers.current = JSON.stringify(nTeachers.length > 0 ? nTeachers : INITIAL_TEACHERS);
+            prevClasses.current = JSON.stringify(nClasses.length > 0 ? nClasses : INITIAL_CLASSES);
+            prevStudents.current = JSON.stringify(nStudents);
+            prevTimetable.current = JSON.stringify(nTimetable.length > 0 ? nTimetable : INITIAL_TIMETABLE);
+            prevAttendance.current = JSON.stringify(nAttendance.length > 0 ? nAttendance : INITIAL_ATTENDANCE);
+            prevMarks.current = JSON.stringify(nMarks.length > 0 ? nMarks : INITIAL_MARKS);
+            prevFees.current = JSON.stringify(nFees.length > 0 ? nFees : INITIAL_FEES);
+            prevCoordinators.current = JSON.stringify(nCoordinators);
+            prevFeeStudents.current = JSON.stringify(nFeeStudents);
+            prevAssignments.current = JSON.stringify(nAssignments);
+            if (nSettings) prevAppSettings.current = JSON.stringify(nSettings);
+
+            isSyncComplete.current = true;
+            toast.success('Firebase khali tha — data Neon Postgres se load ho gaya ✓');
+            return;
+          }
+
           console.log("Firestore database is empty. Seeding initial datasets into Cloud Firestore...");
           
           try {
@@ -438,6 +491,7 @@ export default function App() {
 
           if (loadedCoordinators.length > 0) setCoordinators(loadedCoordinators);
           if (loadedAssignments.length > 0) setAssignments(loadedAssignments);
+          let effectiveFeeStudents: StudentFeeData[] = loadedFeeStudents;
           if (loadedFeeStudents.length > 0) {
             setFeeStudents(loadedFeeStudents);
           } else {
@@ -451,6 +505,7 @@ export default function App() {
               dues: []
             }));
             setFeeStudents(defaultFeeStudents);
+            effectiveFeeStudents = defaultFeeStudents;
           }
           if (loadedSettings) setAppSettings(loadedSettings);
 
@@ -482,11 +537,97 @@ export default function App() {
           prevFeeStudents.current = JSON.stringify(loadedFeeStudents.length > 0 ? loadedFeeStudents : []);
           prevAssignments.current = JSON.stringify(loadedAssignments.length > 0 ? loadedAssignments : []);
           if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
+
+          // ===== NEON BOOTSTRAP MIRROR — Firestore se load hua poora data Neon Postgres backup mein bhi =====
+          // Yeh fire-and-forget hai; Neon fail ho to app normally chalti rahegi.
+          (async () => {
+            try {
+              if (!(await ensureNeonSchema())) return;
+              const mirrorLists: [string, any[]][] = [
+                ['teachers', finalTeachers],
+                ['classes', finalClasses],
+                ['students', finalStudents],
+                ['timetable', finalTimetable],
+                ['attendance', finalAttendance],
+                ['marks', finalMarks],
+                ['fees', finalFees],
+                ['coordinators', loadedCoordinators],
+                ['fee_data', effectiveFeeStudents],
+                ['assignments', loadedAssignments]
+              ];
+              let total = 0;
+              mirrorLists.forEach(([col, arr]) => {
+                (arr || []).forEach(item => {
+                  if (item?.id !== undefined && item?.id !== null) {
+                    neonQueueWrite(col, String(item.id), item);
+                    total++;
+                  }
+                });
+              });
+              if (loadedSettings) {
+                neonQueueWrite('app_settings', 'global', loadedSettings);
+              }
+              await flushNeon();
+              console.log(`[Neon] Bootstrap mirror complete — ${total} records backed up.`);
+            } catch (e: any) {
+              console.warn('[Neon] bootstrap mirror failed:', e?.message);
+            }
+          })();
         }
         isSyncComplete.current = true;
       } catch (err: any) {
         console.warn("Firestore sync running in background/offline fallback mode:", err?.message);
         setSyncError(err?.message || "Offline fallback");
+
+        // ===== NEON FALLBACK — Firebase fail to Neon Postgres se data load karo =====
+        try {
+          const neonData = await loadAllFromNeon();
+          const nStudents = neonData['students'] || [];
+          if (nStudents.length > 0) {
+            console.log("Firebase unavailable — loading from Neon Postgres fallback...");
+            const nTeachers = neonData['teachers'] || [];
+            const nClasses = neonData['classes'] || [];
+            const nTimetable = neonData['timetable'] || [];
+            const nAttendance = neonData['attendance'] || [];
+            const nMarks = neonData['marks'] || [];
+            const nFees = neonData['fees'] || [];
+            const nCoordinators = neonData['coordinators'] || [];
+            const nFeeStudents = neonData['fee_data'] || [];
+            const nAssignments = neonData['assignments'] || [];
+            const nSettings = (neonData['app_settings'] || [])[0];
+
+            if (nTeachers.length > 0) setTeachers(nTeachers);
+            if (nClasses.length > 0) setClasses(nClasses);
+            setStudents(nStudents);
+            if (nTimetable.length > 0) setTimetable(nTimetable);
+            if (nAttendance.length > 0) setAttendance(nAttendance);
+            if (nMarks.length > 0) setMarks(nMarks);
+            if (nFees.length > 0) setFees(nFees);
+            if (nCoordinators.length > 0) setCoordinators(nCoordinators);
+            if (nFeeStudents.length > 0) setFeeStudents(nFeeStudents);
+            if (nAssignments.length > 0) setAssignments(nAssignments);
+            if (nSettings) setAppSettings(nSettings);
+
+            prevTeachers.current = JSON.stringify(nTeachers);
+            prevClasses.current = JSON.stringify(nClasses);
+            prevStudents.current = JSON.stringify(nStudents);
+            prevTimetable.current = JSON.stringify(nTimetable);
+            prevAttendance.current = JSON.stringify(nAttendance);
+            prevMarks.current = JSON.stringify(nMarks);
+            prevFees.current = JSON.stringify(nFees);
+            prevCoordinators.current = JSON.stringify(nCoordinators);
+            prevFeeStudents.current = JSON.stringify(nFeeStudents);
+            prevAssignments.current = JSON.stringify(nAssignments);
+            if (nSettings) prevAppSettings.current = JSON.stringify(nSettings);
+
+            isSyncComplete.current = true;
+            toast.success('Firebase unavailable — data Neon Postgres se load ho gaya ✓');
+            return;
+          }
+        } catch (neonErr: any) {
+          console.warn("Neon fallback load failed:", neonErr?.message);
+        }
+
         setTeachers(prev => prev.length > 0 ? prev : INITIAL_TEACHERS);
         setClasses(prev => prev.length > 0 ? prev : INITIAL_CLASSES);
         setStudents(prev => prev.length > 0 ? prev : INITIAL_STUDENTS);
@@ -807,6 +948,8 @@ export default function App() {
     const sync = async () => {
       try {
         await setDoc(doc(db, "app_settings", "global"), sanitizeForFirestore(appSettings));
+        // NEON MIRROR — settings Neon mein bhi (collection 'app_settings', id 'global')
+        neonQueueWrite("app_settings", "global", appSettings);
         prevAppSettings.current = currentStr;
         safeStorage.setItem('acadamis_app_settings', currentStr);
       } catch (e) {
@@ -929,14 +1072,20 @@ export default function App() {
               // without it a single optional field (email, photo, paidDate...)
               // failed the ENTIRE push.
               await setDoc(doc(db, item.col, String(listItem.id)), sanitizeForFirestore(listItem));
+              // NEON MIRROR — full backup mein Neon Postgres mein bhi
+              neonQueueWrite(item.col, String(listItem.id), listItem);
             }
           }
         } else if (item.type === 'object' && item.docId) {
           await setDoc(doc(db, item.col, item.docId), sanitizeForFirestore(item.data));
+          // NEON MIRROR — settings bhi
+          neonQueueWrite(item.col, item.docId, item.data);
         }
       }
+      // Neon queue ko foran flush karo (Force Sync = immediate backup)
+      await flushNeon();
       
-      console.log("Push to Firestore complete");
+      console.log("Push to Firestore complete (+ Neon mirror)");
     } catch (err) {
       console.warn("Push to Firestore failed:", err);
       // Rethrow so callers (e.g. the Force Sync button) can surface the failure
