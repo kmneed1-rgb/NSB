@@ -222,6 +222,8 @@ export default function App() {
   // Collects writes/deletes and flushes them in a single writeBatch after
   // a short debounce window. This dramatically cuts network round-trips
   // during rapid typing/editing instead of firing one setDoc per item.
+  const [syncPaused, setSyncPaused] = useState(false);
+  const syncPausedUntil = useRef(0);
   const pendingBatch = useRef<{ set: { ref: any; data: any }[]; del: any[] }>({
     set: [],
     del: []
@@ -272,6 +274,13 @@ export default function App() {
 
   const flushBatch = async () => {
     if (pendingBatch.current.set.length === 0 && pendingBatch.current.del.length === 0) return;
+
+    // QUOTA-AWARE: agar pause mein hai to skip — local mein rakho, baad mein retry
+    if (Date.now() < syncPausedUntil.current) {
+      console.log('[Sync] paused (quota) — writes queued locally, will resume after', new Date(syncPausedUntil.current).toLocaleTimeString());
+      return;
+    }
+
     // CRITICAL FIX: Snapshot current ops into local arrays, then clear pending queue
     const setOps = [...pendingBatch.current.set];
     const delOps = [...pendingBatch.current.del];
@@ -300,6 +309,7 @@ export default function App() {
       // Success — reset retry counter and clear any sync error banner.
       batchRetryCount.current = 0;
       setSyncError(null);
+      setSyncPaused(false);
       // HEARTBEAT — doosri devices ko batao ke data badal gaya
       if (colNames.length > 0) {
         bumpSyncMeta(colNames);
@@ -307,27 +317,35 @@ export default function App() {
       }
     } catch (e: any) {
       console.warn("Firestore batch write failed:", e?.message);
+      // RESOURCE_EXHAUSTED → pause writes for 45 seconds (quota bachao)
+      const isQuota = e?.code === 'resource-exhausted' || String(e?.message || '').includes('RESOURCE_EXHAUSTED');
+      if (isQuota) {
+        syncPausedUntil.current = Date.now() + 45000;
+        setSyncPaused(true);
+        toast.warning('Cloud sync paused 45s (write quota reached). Changes saved locally & will auto-resume.', { duration: 6000 });
+      }
       // Re-queue ALL failed ops (remaining setOps + all delOps) so NO data is lost
       const remainingSet = setOps.slice(idx);
       pendingBatch.current.set.unshift(...remainingSet);
       pendingBatch.current.del.unshift(...delOps);
-      // Retry with backoff
+      // Retry with backoff (sirf quota nahi hai to)
       batchRetryCount.current += 1;
-      setSyncError(e?.message || 'Cloud sync failed — retrying');
-      if (batchRetryCount.current <= 5) {
-        setTimeout(() => { flushBatch(); }, 2000 * batchRetryCount.current);
-      } else {
+      setSyncError(isQuota ? 'Quota exceeded — paused 45s' : (e?.message || 'Cloud sync failed — retrying'));
+      if (batchRetryCount.current <= 3 && !isQuota) {
+        setTimeout(() => { flushBatch(); }, 5000);
+      } else if (!isQuota) {
         batchRetryCount.current = 0;
         toast.error('Cloud sync failing: ' + (e?.message || 'unknown error') + '. Changes saved locally — will retry.');
       }
     }
   };
 
+  // AGGRESSIVE DEBOUNCE: 3 seconds (quota bachane ke liye writes kam karo)
   const flushBatchDebounced = () => {
     if (batchTimer.current) clearTimeout(batchTimer.current);
     batchTimer.current = setTimeout(() => {
       flushBatch();
-    }, 400);
+    }, 3000);
   };
 
   // Flush any remaining writes before the tab is closed/navigated away.
@@ -1350,8 +1368,16 @@ export default function App() {
 
       {/* Cloud sync health banner */}
       {syncError && (
-        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[10000] bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full shadow-lg print:hidden max-w-[90vw] truncate">
-          Cloud sync issue: {syncError} — data saved locally, retrying
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[10000] bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full shadow-lg print:hidden max-w-[90vw] truncate flex items-center gap-2">
+          Cloud sync issue: {syncError} — data saved locally
+          {syncPaused && (
+            <button
+              onClick={() => { syncPausedUntil.current = 0; setSyncPaused(false); flushBatch(); }}
+              className="px-2 py-0.5 bg-white text-amber-700 rounded-full text-[9px] font-black uppercase hover:bg-amber-100 transition-colors cursor-pointer shrink-0"
+            >
+              Retry Now
+            </button>
+          )}
         </div>
       )}
 
