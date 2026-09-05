@@ -1,6 +1,7 @@
 import { db } from '../firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { testFirebaseConnection } from '../firebase';
+import { sanitizeForFirestore, listChanged } from '../lib/firestoreUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -8,7 +9,7 @@ import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, 
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
-import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, Assignment, getStudentPhoto } from '../types';
+import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, DueEntry, Assignment, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
 import { useLongPress } from '../lib/longPress';
 import { 
@@ -30,6 +31,8 @@ import {
   deleteDue,
   getTotalDues,
   getPaidDues,
+  getDuePaid,
+  getDueRemaining,
   getDuesByMonth,
   getAllDues,
   MONTHS,
@@ -45,6 +48,45 @@ const MONTH_ALIAS: Record<string, number> = {
   sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
 };
 const TUITION_FEE_TYPES = /^(tuition|school|monthly)\s*fee$/i;
+const isTuitionFeeType = (t: string) => TUITION_FEE_TYPES.test(String(t || '').trim()) || /school\s*fee/i.test(String(t || ''));
+
+/**
+ * Auto-spread a tuition payment across ALL pending months (oldest first).
+ * Example: student has Jun+Jul+Aug pending (PKR 2,500 each) and you collect
+ * PKR 15,000 → it automatically covers Jun, Jul, Aug ... etc. one payment
+ * record per month, so you never add each month separately.
+ * Mirrors FeeMonthGrid's matching so the preview === what gets recorded.
+ */
+const buildTuitionAllocation = (
+  feeStudent: StudentFeeData | undefined,
+  student: Student | undefined,
+  amount: number,
+  year: number
+): { month: string; year: number; amount: number }[] => {
+  if (!student) return [];
+  const base = Math.max(0, Number(student.baseFee ?? feeStudent?.monthlyFee ?? 0));
+  if (base <= 0 || !(amount > 0)) return [];
+  const enrollAlias = String(student.enrollmentMonth || '').trim().toLowerCase();
+  const enrollIdx = Object.prototype.hasOwnProperty.call(MONTH_ALIAS, enrollAlias) ? MONTH_ALIAS[enrollAlias] : 0;
+  const payments = feeStudent?.payments || [];
+  const allocs: { month: string; year: number; amount: number }[] = [];
+  let remaining = amount;
+  for (let mi = enrollIdx; mi < 12 && remaining > 0; mi++) {
+    const monthName = MONTHS[mi];
+    const tuitionPaid = payments
+      .filter(p => {
+        const key = parseMonthKey(p.month, Number(p.year) || year);
+        return key.idx === mi && key.year === Number(year) && (!p.feeType || TUITION_FEE_TYPES.test(p.feeType));
+      })
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const pending = Math.max(0, base - tuitionPaid);
+    if (pending <= 0) continue;
+    const toPay = Math.min(pending, remaining);
+    remaining -= toPay;
+    allocs.push({ month: monthName, year: Number(year), amount: toPay });
+  }
+  return allocs;
+};
 const parseMonthKey = (raw: unknown, fallbackYear: number): { idx: number; year: number } => {
   const s = String(raw ?? '').trim();
   const m = s.match(/^([A-Za-z]+)\s*,?\s*(\d{4})?$/);
@@ -87,7 +129,9 @@ interface PrincipalDashboardProps {
   pushLocalToCloud: () => Promise<void>;
 }
 
-type TabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'fees' | 'registers' | 'monthly_report';
+type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees';
+type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees';
+type TabType = PrincipalTabType | CoordinatorTabType;
 
 const STANDARD_SUBJECTS_LIST = [
   'Mathematics', 'English', 'Urdu', 'Science', 'Physics', 'Chemistry', 'Biology', 
@@ -214,79 +258,97 @@ export default function PrincipalDashboard({
     toast.success(nextVal ? "🌙 Dark theme ho gya!" : "☀️ Light theme ho gya!");
   };
 
+  // Latest-state refs so realtime callbacks never read stale closures
+  const classesRef = useRef(classes);
+  const teachersRef = useRef(teachers);
+  const studentsRef = useRef(students);
+  const feeStudentsRef = useRef(feeStudents);
+  const attendanceRef = useRef(attendance);
+  const timetableRef = useRef(timetable);
+  useEffect(() => { classesRef.current = classes; }, [classes]);
+  useEffect(() => { teachersRef.current = teachers; }, [teachers]);
+  useEffect(() => { studentsRef.current = students; }, [students]);
+  useEffect(() => { feeStudentsRef.current = feeStudents; }, [feeStudents]);
+  useEffect(() => { attendanceRef.current = attendance; }, [attendance]);
+  useEffect(() => { timetableRef.current = timetable; }, [timetable]);
+
   // Real-time Firebase listeners for cross-portal sync
   useEffect(() => {
     // Listen for class changes (teacher reassignment)
     const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return; // skip echoes of our own pending writes
       const updatedClasses: Class[] = [];
-      snapshot.forEach(doc => {
-        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      snapshot.forEach(d => {
+        updatedClasses.push({ id: d.id, ...d.data() } as Class);
       });
-      // Only update if data actually changed (prevent infinite loops)
-      const hasChanges = updatedClasses.length !== classes.length || 
-        updatedClasses.some((c, i) => c.classTeacherId !== classes[i]?.classTeacherId);
-      if (hasChanges) {
-        setClasses(updatedClasses);
-        toast.info('Class assignments updated from Principal portal');
-      }
+      // Deep per-item compare (catches same-length edits that length checks missed)
+      if (!listChanged(classesRef.current, updatedClasses)) return;
+      classesRef.current = updatedClasses;
+      setClasses(updatedClasses);
+      toast.info('Class assignments updated from Principal portal');
     });
 
     // Listen for teacher changes
     const teachersUnsubscribe = onSnapshot(collection(db, 'teachers'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedTeachers: Teacher[] = [];
-      snapshot.forEach(doc => {
-        updatedTeachers.push({ id: doc.id, ...doc.data() } as Teacher);
+      snapshot.forEach(d => {
+        updatedTeachers.push({ id: d.id, ...d.data() } as Teacher);
       });
-      if (updatedTeachers.length !== teachers.length) {
-        setTeachers(updatedTeachers);
-        toast.info('Teacher list updated from Principal portal');
-      }
+      if (!listChanged(teachersRef.current, updatedTeachers)) return;
+      teachersRef.current = updatedTeachers;
+      setTeachers(updatedTeachers);
+      toast.info('Teacher list updated from Principal portal');
     });
 
     // Listen for student changes
     const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedStudents: Student[] = [];
-      snapshot.forEach(doc => {
-        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      snapshot.forEach(d => {
+        updatedStudents.push({ id: d.id, ...d.data() } as Student);
       });
-      if (updatedStudents.length !== students.length) {
-        setStudents(updatedStudents);
-        toast.info('Student list updated from Principal portal');
-      }
+      if (!listChanged(studentsRef.current, updatedStudents)) return;
+      studentsRef.current = updatedStudents;
+      setStudents(updatedStudents);
+      toast.info('Student list updated from Principal portal');
     });
 
     // Listen for fee data changes
     const feeDataUnsubscribe = onSnapshot(collection(db, 'fee_data'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedFeeStudents: StudentFeeData[] = [];
-      snapshot.forEach(doc => {
-        updatedFeeStudents.push({ id: doc.id, ...doc.data() } as StudentFeeData);
+      snapshot.forEach(d => {
+        updatedFeeStudents.push({ id: d.id, ...d.data() } as StudentFeeData);
       });
-      if (updatedFeeStudents.length !== feeStudents.length) {
-        setFeeStudents(updatedFeeStudents);
-      }
+      if (!listChanged(feeStudentsRef.current, updatedFeeStudents)) return;
+      feeStudentsRef.current = updatedFeeStudents;
+      setFeeStudents(updatedFeeStudents);
     });
 
     // Listen for attendance changes
     const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedAttendance: Attendance[] = [];
-      snapshot.forEach(doc => {
-        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      snapshot.forEach(d => {
+        updatedAttendance.push({ id: d.id, ...d.data() } as Attendance);
       });
-      if (updatedAttendance.length !== attendance.length) {
-        setAttendance(updatedAttendance);
-      }
+      if (!listChanged(attendanceRef.current, updatedAttendance)) return;
+      attendanceRef.current = updatedAttendance;
+      setAttendance(updatedAttendance);
     });
 
     // Listen for timetable changes
     const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedTimetable: TimetableEntry[] = [];
-      snapshot.forEach(doc => {
-        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      snapshot.forEach(d => {
+        updatedTimetable.push({ id: d.id, ...d.data() } as TimetableEntry);
       });
-      if (updatedTimetable.length !== timetable.length) {
-        setTimetable(updatedTimetable);
-        toast.info('Timetable updated from Principal portal');
-      }
+      if (!listChanged(timetableRef.current, updatedTimetable)) return;
+      timetableRef.current = updatedTimetable;
+      setTimetable(updatedTimetable);
+      toast.info('Timetable updated from Principal portal');
     });
 
     return () => {
@@ -320,14 +382,26 @@ export default function PrincipalDashboard({
   const [monthFeeInputs, setMonthFeeInputs] = useState<Record<string, string>>({});
   // Month card click -> neeche sirf usi month ki history show ho (History Log filter)
   const [monthHistoryFilter, setMonthHistoryFilter] = useState<{ studentId: string; month: string; year: number } | null>(null);
+  // Fee ledger year — year change karo to months dobara Jan se start hote hain
+  const [feeLedgerYear, setFeeLedgerYear] = useState<number>(new Date().getFullYear());
   const [quickCollectFeeType, setQuickCollectFeeType] = useState('Tuition Fee');
   const [quickCollectNotes, setQuickCollectNotes] = useState('');
+  // Month card ke "Collect" se kholne pe — TARGET month mode: amount usi month mein jaye (auto-spread skip)
+  const [quickCollectTargetMonth, setQuickCollectTargetMonth] = useState<string | null>(null);
   const [showExtraFeeInputs, setShowExtraFeeInputs] = useState(false);
+const [extraFeeMode, setExtraFeeMode] = useState<'charge' | 'collect'>('collect');
 const [extraFees, setExtraFees] = useState<Record<string, string>>({
+    'Annual Fee': '',
+    'Admission Fee': '',
     'Paper Fund': '',
+    'Exam Fee': '',
     'Summer Pack': '',
     'Miscellaneous': ''
 });
+
+  // COLLECT DUES FEATURE — track which pending dues to collect + their months
+  const [collectDuesList, setCollectDuesList] = useState<Record<string, boolean>>({});
+  const [collectDueMonths, setCollectDueMonths] = useState<Record<string, string>>({});
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
   // Dues Management State
@@ -338,6 +412,68 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   const [addDueMonth, setAddDueMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
   const [duesFilterStatus, setDuesFilterStatus] = useState<'all' | 'pending' | 'paid'>('all');
   const [duesFilterClass, setDuesFilterClass] = useState('all');
+  // Bulk "Due apply to whole class" — e.g. Paper Fund/Annual Fee sab students pe ek saath
+  const [showBulkDueModal, setShowBulkDueModal] = useState(false);
+  const [bulkDueClassId, setBulkDueClassId] = useState('all');
+  const [bulkDueStudentId, setBulkDueStudentId] = useState('');
+  const [bulkDueTarget, setBulkDueTarget] = useState<'class' | 'student'>('class');
+  const [bulkDueDesc, setBulkDueDesc] = useState('Paper Fund');
+  const [bulkDueAmount, setBulkDueAmount] = useState('');
+  const [bulkDueMonth, setBulkDueMonth] = useState(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
+
+  // Apply due (e.g. Paper Fund) to EVERY student in a class OR a single student
+  const handleApplyDueToClass = () => {
+    const amt = Number(bulkDueAmount);
+    if (!bulkDueDesc.trim() || amt <= 0) {
+      toast.error("Enter valid description and amount");
+      return;
+    }
+    if (bulkDueTarget === 'student' && !bulkDueStudentId) {
+      toast.error("Please select a student for single-student mode.");
+      return;
+    }
+    const [monthStr, yearStr] = bulkDueMonth.split(' ');
+    const yr = Number(yearStr) || new Date().getFullYear();
+    // Target: single student → sirf wo; class → us class (ya all) ke students
+    const targetStudents = bulkDueTarget === 'student'
+      ? students.filter(st => String(st.id) === String(bulkDueStudentId))
+      : students.filter(st =>
+          bulkDueClassId === 'all' || st.classId === bulkDueClassId
+        );
+    if (targetStudents.length === 0) {
+      toast.error("No students found for this selection.");
+      return;
+    }
+    const alreadyHasIds = new Set(
+      feeStudents
+        .filter(fs => targetStudents.some(st => String(st.id) === String(fs.id)))
+        .flatMap(fs => (fs.dues || [])
+          .filter(d => String(d.month).toLowerCase() === String(monthStr).toLowerCase() && Number(d.year) === yr && d.desc?.trim().toLowerCase() === bulkDueDesc.trim().toLowerCase())
+          .map(d => String(fs.id))
+        )
+    );
+    let addedCount = 0;
+    setFeeStudents(prev => prev.map(fs => {
+      if (!targetStudents.some(st => String(st.id) === String(fs.id))) return fs;
+      if (alreadyHasIds.has(String(fs.id))) return fs; // skip duplicate for same month+type
+      addedCount++;
+      const due = {
+        id: 'DUE_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6),
+        studentId: fs.id,
+        desc: bulkDueDesc.trim(),
+        amount: amt,
+        date: new Date().toISOString().split('T')[0],
+        month: monthStr,
+        year: yr,
+        status: 'pending' as const,
+      };
+      return { ...fs, dues: [...(fs.dues || []), due] };
+    }));
+    setShowBulkDueModal(false);
+    setBulkDueDesc('Paper Fund');
+    setBulkDueAmount('');
+    toast.success(`Applied "${bulkDueDesc.trim()}" PKR ${amt.toLocaleString()} to ${addedCount > 0 ? addedCount : targetStudents.length} ${bulkDueTarget === 'student' ? 'student' : (bulkDueClassId === 'all' ? 'students (all classes)' : 'students (class)')}. Unpaid students ki Remaining/Dues mein show hogi.`);
+  };
 
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
   const [markAttendanceClassId, setMarkAttendanceClassId] = useState('');
@@ -473,6 +609,41 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     const yy = String(d.getFullYear()).slice(-2);
     return `${dd}/${mm}/${yy}`;
   };
+  // Collect a single due (Paper Fund, Exam Fee, etc.) — PARTIAL payment supported.
+  // amountToCollect = kitna amount ab is baar collect ho raha hai (remaining se zyada nahi).
+  const collectDue = (
+    prev: StudentFeeData[],
+    studentId: string,
+    dueId: string,
+    amountToCollect: number,
+    paymentMethod: string,
+    today: string
+  ): StudentFeeData[] => {
+    return prev.map(fs => {
+      if (String(fs.id) === String(studentId)) {
+        const updatedDues = (fs.dues || []).map(d => {
+          if (d.id !== dueId) return d;
+          const already = getDuePaid(d);
+          const maxAdd = Math.max(0, (Number(d.amount) || 0) - already);
+          const toAdd = Math.max(0, Math.min(Number(amountToCollect) || 0, maxAdd));
+          if (toAdd <= 0) return d;
+          const newPaid = already + toAdd;
+          const fullyPaid = newPaid >= (Number(d.amount) || 0);
+          return {
+            ...d,
+            paidAmount: newPaid,
+            status: fullyPaid ? ('paid' as const) : ('pending' as const),
+            paidDate: today,
+            paymentMethod,
+          };
+        });
+        return { ...fs, dues: updatedDues };
+      }
+      return fs;
+    });
+  };
+
+
 
   const handleRecordQuickFee = () => {
     if (!quickCollectStudentId) {
@@ -484,6 +655,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     const feeStudentObj = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
     const studentName = studentObj?.name || feeStudentObj?.name || 'Student';
     const month = quickCollectMonth || `${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`;
+    const year = parseMonthKey(month, new Date().getFullYear()).year;
     const today = new Date().toISOString().split('T')[0];
 
     type FeeEntry = { feeType: string; amount: number };
@@ -506,18 +678,186 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       return;
     }
 
-    const newFeeRecords: FeeRecord[] = entries.map(entry => ({
-      id: 'REC_' + Date.now().toString(36).toUpperCase() + '_' + Math.random().toString(36).substr(2, 4).toUpperCase(),
-      studentId: quickCollectStudentId,
-      amount: entry.amount,
-      dueDate: today,
-      status: 'paid',
-      paidDate: today,
-      month,
-      paymentMethod: quickCollectPaymentMethod,
-      feeType: entry.feeType,
-      description: quickCollectNotes || undefined,
-    }));
+    const newFeeRecords: FeeRecord[] = [];
+    const newPayments: { id: string; month: string; year: number; amount: number; date: string; feeType: string }[] = [];
+    // Extra fee categories (Annual Fee, Paper Fund, Exam Fee, etc.) ko Dues mein bhi
+    // record karo taake Dues Management + Home pe show hon
+    const newDues: DueEntry[] = [];
+    // Also: pending target-month due collections (dueId → amount to collect) jab month-card se collect karo
+    const targetDueCollects: { dueId: string; amount: number }[] = [];
+    const monthsCovered = new Set<string>();
+    let recSeq = 0;
+    const makeId = () => 'REC_' + Date.now().toString(36).toUpperCase() + '_' + (recSeq++).toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+    const pushForMonth = (feeType: string, amount: number, recMonth: string, recYear: number) => {
+      const id = makeId();
+      newFeeRecords.push({
+        id,
+        studentId: quickCollectStudentId,
+        amount,
+        dueDate: today,
+        status: 'paid',
+        paidDate: today,
+        month: recMonth,
+        paymentMethod: quickCollectPaymentMethod,
+        feeType,
+        description: quickCollectNotes || undefined,
+      });
+      newPayments.push({ id, month: recMonth, year: recYear, amount, date: today, feeType });
+      // Extra categories (non-tuition) → Dues Entry bhi banao (PAID) — Dues section + Home mein dikhegi
+      if (!isTuitionFeeType(feeType)) {
+        newDues.push({
+          id,
+          studentId: quickCollectStudentId,
+          desc: feeType,
+          amount,
+          date: today,
+          month: recMonth,
+          year: recYear,
+          status: 'paid' as const,
+          paidDate: today,
+          paymentMethod: quickCollectPaymentMethod,
+        });
+      }
+      monthsCovered.add(`${recMonth} ${recYear}`);
+    };
+
+    entries.forEach(entry => {
+      // Tuition/School Fee → amount ko ALLOCATE karo. Normal mode: AUTO-SPREAD (purane pending
+      // months pehle). TARGET-month mode (month card ke Collect se): sirf us month mein jaye +
+      // us month ke pending dues/paper fund bhi amount se auto-collect hon.
+      if (isTuitionFeeType(entry.feeType)) {
+        const baseFee = Math.max(0, Number(studentObj?.baseFee ?? feeStudentObj?.monthlyFee ?? 0));
+        if (quickCollectTargetMonth) {
+          // --- TARGET MONTH MODE ---
+          const tKey = parseMonthKey(quickCollectTargetMonth, year);
+          const tIdx = tKey.idx;
+          // Tuition paid in this target month
+          const tTuitionPaid = (feeStudentObj?.payments || [])
+            .filter(p => {
+              const pk = parseMonthKey(p.month, Number(p.year) || year);
+              return pk.idx === tIdx && pk.year === tKey.year && (!p.feeType || TUITION_FEE_TYPES.test(p.feeType));
+            })
+            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+          const tTuitionRemaining = Math.max(0, baseFee - tTuitionPaid);
+          // Pehle is month ka tuition remaining bharo
+          const toTuition = Math.min(entry.amount, tTuitionRemaining);
+          if (toTuition > 0) {
+            pushForMonth(entry.feeType, toTuition, month, year);
+          }
+          let remainingAfterTuition = entry.amount - toTuition;
+          // Baqi amount se is month ke PENDING DUES (Paper Fund, Exam Fee, etc.) collect karo
+          if (remainingAfterTuition > 0 && feeStudentObj) {
+            const tMonthDues = (feeStudentObj.dues || []).filter(d => {
+              const dk = parseMonthKey(d.month, d.year || year);
+              return dk.idx === tIdx && dk.year === tKey.year && getDueRemaining(d) > 0;
+            });
+            for (const due of tMonthDues) {
+              if (remainingAfterTuition <= 0) break;
+              const dueRemaining = getDueRemaining(due);
+              const toDue = Math.min(remainingAfterTuition, dueRemaining);
+              if (toDue <= 0) continue;
+              targetDueCollects.push({ dueId: due.id, amount: toDue });
+              const recId = makeId();
+              newFeeRecords.push({
+                id: recId,
+                studentId: quickCollectStudentId,
+                amount: toDue,
+                dueDate: today,
+                status: 'paid',
+                paidDate: today,
+                month,
+                paymentMethod: quickCollectPaymentMethod,
+                feeType: due.desc,
+                dueId: due.id,
+                description: `Collected: ${due.desc}`,
+              });
+              monthsCovered.add(`${month} ${year}`);
+              remainingAfterTuition -= toDue;
+            }
+          }
+          // Agar kuch bhi bacha ho → selected month mein advance / extra
+          if (remainingAfterTuition > 0) {
+            pushForMonth(entry.feeType, remainingAfterTuition, month, year);
+          }
+        } else {
+          // --- NORMAL AUTO-SPREAD: ek amount sary pending months me khud batt jata hai ---
+          const allocs = buildTuitionAllocation(feeStudentObj, studentObj, entry.amount, year);
+          let allocated = 0;
+          allocs.forEach(a => {
+            pushForMonth(entry.feeType, a.amount, a.month, a.year);
+            allocated += a.amount;
+          });
+          const leftover = entry.amount - allocated;
+          if (leftover > 0) pushForMonth(entry.feeType, leftover, month, year);
+        }
+      } else if (extraFeeMode === 'charge') {
+        // CHARGE mode: not immediately PAID — a PENDING entry is added to student's Dues.
+        // Those who haven't paid will show in Remaining/Pending.
+        // Later cleared via Dues Management "Mark as Paid".
+        const id = makeId();
+        newDues.push({
+          id,
+          studentId: quickCollectStudentId,
+          desc: entry.feeType,
+          amount: entry.amount,
+          date: today,
+          month,
+          year,
+          status: 'pending' as const,
+        });
+        monthsCovered.add(`${month} ${year}`);
+      } else {
+        // COLLECT mode: foran collection — paid receipt + payment + paid dues entry
+        pushForMonth(entry.feeType, entry.amount, month, year);
+      }
+    });
+
+    // COLLECT SELECTED DUES — mark pending dues as paid (manual checkbox list)
+    const selectedDueIds = Object.entries(collectDuesList).filter(([, selected]) => selected).map(([id]) => id);
+    // Merge target-month auto-collect + manual selected dues: dueId → amount
+    const dueCollectMap = new Map<string, number>();
+    targetDueCollects.forEach(t => dueCollectMap.set(t.dueId, (dueCollectMap.get(t.dueId) || 0) + t.amount));
+    selectedDueIds.forEach(id => {
+      const dueObj = feeStudentObj?.dues?.find(d => d.id === id);
+      if (dueObj) dueCollectMap.set(id, getDueRemaining(dueObj));
+    });
+    if (dueCollectMap.size > 0 && feeStudentObj) {
+      setFeeStudents(prev => prev.map(fs => {
+        if (String(fs.id) === String(quickCollectStudentId)) {
+          const updatedDues = (fs.dues || []).map(d => {
+            const collectAmt = dueCollectMap.get(d.id);
+            if (!collectAmt || collectAmt <= 0) return d;
+            const already = getDuePaid(d);
+            const maxAdd = Math.max(0, (Number(d.amount) || 0) - already);
+            const toAdd = Math.min(collectAmt, maxAdd);
+            if (toAdd <= 0) return d;
+            const newPaid = already + toAdd;
+            const fullyPaid = newPaid >= (Number(d.amount) || 0);
+            // Create fee record for this due collection (agar targetDueCollects se nahi bana)
+            if (!newFeeRecords.some(r => r.dueId === d.id)) {
+              const recId = makeId();
+              newFeeRecords.push({
+                id: recId,
+                studentId: quickCollectStudentId,
+                amount: toAdd,
+                dueDate: today,
+                status: 'paid',
+                paidDate: today,
+                month: d.month,
+                paymentMethod: quickCollectPaymentMethod,
+                feeType: d.desc,
+                dueId: d.id,
+                description: `Collected: ${d.desc}`,
+              });
+            }
+            monthsCovered.add(`${d.month} ${d.year}`);
+            return { ...d, paidAmount: newPaid, status: fullyPaid ? ('paid' as const) : ('pending' as const), paidDate: today, month: d.month };
+          });
+          return { ...fs, dues: updatedDues };
+        }
+        return fs;
+      }));
+    }
 
     setFees(prev => [...newFeeRecords, ...prev]);
 
@@ -528,14 +868,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
             ...fs,
             payments: [
               ...(fs.payments || []),
-              ...newFeeRecords.map(r => ({
-                id: r.id,
-                month,
-                year: parseMonthKey(month, new Date().getFullYear()).year,
-                amount: r.amount,
-                date: today,
-                feeType: r.feeType,
-              }))
+              ...newPayments
+            ],
+            dues: [
+              ...(fs.dues || []),
+              ...newDues
             ]
           };
         }
@@ -545,13 +882,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
     setShowQuickCollectModal(false);
     setQuickCollectNotes('');
+    setQuickCollectTargetMonth(null);
     setShowExtraFeeInputs(false);
-    setExtraFees({ 'Paper Fund': '', 'Summer Pack': '', 'Miscellaneous': '' });
-    const categories = newFeeRecords.map(r => r.feeType).join(', ');
-    toast.success(`${categories} collected for ${studentName} (${month})! Receipt${newFeeRecords.length > 1 ? ' x' + newFeeRecords.length : ' #' + newFeeRecords[0].id}`);
+    setExtraFees({ 'Annual Fee': '', 'Admission Fee': '', 'Paper Fund': '', 'Exam Fee': '', 'Summer Pack': '', 'Miscellaneous': '' });
+    const chargedCategories = Array.from(new Set(newDues.filter(d => d.status === 'pending').map(d => d.desc)));
+    const collectedCategories = Array.from(new Set(newFeeRecords.map(r => r.feeType)));
+    const monthsText = Array.from(monthsCovered).join(', ');
+    const summaryParts: string[] = [];
+    if (chargedCategories.length > 0) summaryParts.push(`Charged (Dues): ${chargedCategories.join(', ')}`);
+    if (collectedCategories.length > 0) summaryParts.push(`Collected: ${collectedCategories.join(', ')}`);
+    toast.success(`${summaryParts.join(' • ')} — ${studentName}${monthsText ? ` (${monthsText})` : ''}${collectedCategories.length > 0 ? ` Receipt #${newFeeRecords[0].id}` : ''}`);
     
     // Send WhatsApp notification for fee collection
     if (appSettings.whatsAppAutoFee && studentObj?.parentPhone) {
+      // CHARGE mode → charge alert (dues add hui); COLLECT mode → payment-received message
+      if (extraFeeMode === 'charge' && newFeeRecords.length === 0) {
+        const chargeTotal = newDues.filter(d => d.status === 'pending').reduce((s, d) => s + d.amount, 0);
+        if (chargeTotal > 0) {
+          handleSendFeeNotification(studentObj, 'charge', chargeTotal, chargedCategories.join(', '));
+        }
+      } else {
       const totalAmount = newFeeRecords.reduce((sum, r) => sum + r.amount, 0);
       const fStudent = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
       let totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
@@ -561,7 +911,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       const sClass = classId ? classes.find(c => c.id === classId) : null;
       const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
       
-      const template = `Greetings! We have received a payment of ${totalAmount} for ${categories} from ${studentName} (${className}). Your remaining balance is ${totalPending}. Thank you for your cooperation. NSB1 School.`;
+      const periodText = monthsText ? ` for ${monthsText}` : ` for ${month}`;
+      const template = `Greetings! We have received a payment of PKR ${totalAmount.toLocaleString()}${periodText} (${collectedCategories.join(', ')}) from ${studentName} (${className}). Your remaining balance is PKR ${totalPending.toLocaleString()}. Thank you for your cooperation. NSB1 School.`;
       
       const phone = studentObj.parentPhone.replace(/\D/g, '');
       let countryCodePhone = phone;
@@ -575,6 +926,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       if (appSettings.autoWhatsAppRedirect) {
         window.open(waUrl, '_blank');
       }
+      }
     }
   };
 
@@ -586,9 +938,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setQuickCollectMonth(monthKey);
     setQuickCollectAmount(String(safeAmount));
     setMonthFeeInputs({ [monthKey]: String(safeAmount) });
+    // TARGET month mode ON — amount isi month mein jayega, purane pending months mein nahi
+    setQuickCollectTargetMonth(monthKey);
     setQuickCollectNotes('');
     setShowExtraFeeInputs(false);
-    setExtraFees({ 'Paper Fund': '', 'Summer Pack': '', 'Miscellaneous': '' });
+    setExtraFees({ 'Annual Fee': '', 'Admission Fee': '', 'Paper Fund': '', 'Exam Fee': '', 'Summer Pack': '', 'Miscellaneous': '' });
     setShowQuickCollectModal(true);
   };
  
@@ -870,6 +1224,113 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     }
   };
 
+  // ===== FEE REMINDER SYSTEM =====
+  // Pending months (sirf enrollment se current month tak — future months reminder nahi)
+  const getPendingFeeMonthsForStudent = (student: Student, yr: number) => {
+    const fs = feeStudents.find(x => String(x.id) === String(student.id));
+    const base = Math.max(0, Number(student.baseFee ?? fs?.monthlyFee ?? 0));
+    const enrollAlias = String(student.enrollmentMonth || '').trim().toLowerCase();
+    const enrollIdx = Object.prototype.hasOwnProperty.call(MONTH_ALIAS, enrollAlias) ? MONTH_ALIAS[enrollAlias] : 0;
+    const curMi = new Date().getMonth();
+    const months: { month: string; year: number; pending: number }[] = [];
+    for (let mi = enrollIdx; mi <= curMi; mi++) {
+      const paid = (fs?.payments || []).filter(p => {
+        const key = parseMonthKey(p.month, Number(p.year) || yr);
+        return key.idx === mi && key.year === yr && (!p.feeType || TUITION_FEE_TYPES.test(p.feeType));
+      }).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const pending = base > 0 ? Math.max(0, base - paid) : 0;
+      if (pending > 0) months.push({ month: MONTHS[mi], year: yr, pending });
+    }
+    return months;
+  };
+
+  // Dues (unpaid non-tuition ledger entries — Paper Fund, Exam Fee etc. + pending Dues entries)
+  const getTotalDuesForStudent = (student: Student) => {
+    const ledgerDues = (fees || []).filter(f =>
+      String(f.studentId) === String(student.id) && f.status !== 'paid' && f.feeType && !TUITION_FEE_TYPES.test(f.feeType)
+    ).reduce((s, f) => s + (Number(f.amount) || 0), 0);
+    const fs = feeStudents.find(x => String(x.id) === String(student.id));
+    const duesDues = (fs?.dues || [])
+      .reduce((s, d) => s + getDueRemaining(d), 0);
+    return ledgerDues + duesDues;
+  };
+
+  // Reminder message — Settings ka feeTemplate use karta hai ({name}, {total_pending}, {month}...)
+  const buildFeeReminderMessage = (student: Student) => {
+    const fs = feeStudents.find(x => String(x.id) === String(student.id));
+    const yr = new Date().getFullYear();
+    const pendingMonths = getPendingFeeMonthsForStudent(student, yr);
+    const tuitionPending = pendingMonths.reduce((s, m) => s + m.pending, 0);
+    const dues = getTotalDuesForStudent(student);
+    const totalPending = tuitionPending + dues;
+    const sClass = classes.find(c => c.id === student.classId);
+    const className = sClass ? `${sClass.className} - ${sClass.section}` : (fs?.class || 'N/A');
+    const curMi = new Date().getMonth();
+    const monthsText = pendingMonths.map(m => `${m.month} ${m.year}`).join(', ');
+    const template = appSettings.feeTemplate || "Dear parent, your child {name}'s fee for {month} is {amount} which is due on {date}. NSB 1 Academy.";
+    const date = new Date().toISOString().split('T')[0];
+    let msg = template
+      .replace(/{student_name}/g, student.name)
+      .replace(/{name}/g, student.name)
+      .replace(/{roll_number}/g, student.rollNumber || 'N/A')
+      .replace(/{class_name}/g, className)
+      .replace(/{month}/g, monthsText || `${MONTHS[curMi]} ${yr}`)
+      .replace(/{amount}/g, `PKR ${totalPending.toLocaleString()}`)
+      .replace(/{total_pending}/g, `PKR ${totalPending.toLocaleString()}`)
+      .replace(/{date}/g, date);
+    if (monthsText) msg += `\n\nPending months: ${monthsText}`;
+    if (dues > 0) msg += `\nDues/Paper Fund: PKR ${dues.toLocaleString()}`;
+    return { message: msg, totalPending, pendingMonths, dues };
+  };
+
+  // Bulk reminder recipients — whose fee is pending (highest pending first)
+  const getFeeReminderRecipients = React.useMemo(() => {
+    const yr = new Date().getFullYear();
+    return students
+      .map(st => {
+        const pendingMonths = getPendingFeeMonthsForStudent(st, yr);
+        const tuitionPending = pendingMonths.reduce((s, m) => s + m.pending, 0);
+        const dues = getTotalDuesForStudent(st);
+        return { student: st, pendingMonths, totalPending: tuitionPending + dues, dues };
+      })
+      .filter(r => r.totalPending > 0)
+      .sort((a, b) => b.totalPending - a.totalPending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, feeStudents, fees, classes]);
+
+  const handleSendFeeReminderWhatsApp = (student: Student) => {
+    const info = buildFeeReminderMessage(student);
+    const phone = student.parentPhone || (student as any).studentPhone || '';
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (!cleanPhone) {
+      toast.error(`No phone number found for ${student.name}. Reminder skipped.`);
+      return;
+    }
+    let countryCodePhone = cleanPhone;
+    if (countryCodePhone.startsWith('0')) countryCodePhone = '92' + countryCodePhone.substring(1);
+    else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) countryCodePhone = '92' + countryCodePhone;
+    const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(info.message)}`;
+    window.open(waUrl, '_blank');
+    setFeeReminderSentIds(prev => new Set(prev).add(String(student.id)));
+    toast.success(`Reminder opened for ${student.name} — PKR ${info.totalPending.toLocaleString()} pending`);
+  };
+
+  const handleCopyAllFeeReminders = async () => {
+    const texts = getFeeReminderRecipients
+      .filter(r => String(r.student.parentPhone || '').replace(/\D/g, ''))
+      .map(r => `--- ${r.student.name} (${r.student.parentPhone}) ---\n${buildFeeReminderMessage(r.student).message}`);
+    if (texts.length === 0) {
+      toast.error('Nothing to copy.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(texts.join('\n\n'));
+      toast.success(`${texts.length} reminders copied — paste in WhatsApp Web/group.`);
+    } catch {
+      toast.error('Clipboard blocked by browser.');
+    }
+  };
+
   const [bulkWAModal, setBulkWAModal] = useState<{ isOpen: boolean; absents: (Student & { attendanceDate: string })[] }>({ isOpen: false, absents: [] });
   const [bulkWAClassFilter, setBulkWAClassFilter] = useState('all');
   const [absenteesModalOpen, setAbsenteesModalOpen] = useState(false);
@@ -1147,10 +1608,21 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     status: string;
   }> | null>(null);
 
+  // Fee Reminder Dispatch cockpit
+  const [feeReminderModal, setFeeReminderModal] = useState<boolean>(false);
+  const [feeReminderClassFilter, setFeeReminderClassFilter] = useState('all');
+  const [feeReminderSentIds, setFeeReminderSentIds] = useState<Set<string>>(new Set());
+
   // custom values for each category
   const [paperFundVal, setPaperFundVal] = useState('150');
   const [annualFeeVal, setAnnualFeeVal] = useState('500');
   const [miscFeeVal, setMiscFeeVal] = useState('200');
+
+  // Collect dues modal state
+  const [collectDuesModal, setCollectDuesModal] = useState<{ isOpen: boolean; studentId: string; dueId: string; desc: string; amount: number; remaining: number; month: string; year: number }>({ isOpen: false, studentId: '', dueId: '', desc: '', amount: 0, remaining: 0, month: '', year: 2026 });
+  const [collectDuesPaymentMethod, setCollectDuesPaymentMethod] = useState('Cash');
+  // Partial collection: kitna amount ab is baar collect ho raha hai
+  const [collectDuesAmount, setCollectDuesAmount] = useState('');
 
   // Modals / Form editing state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1312,11 +1784,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           const listItems = item.data;
           for (const listItem of listItems) {
             if (listItem && listItem.id) {
-              await setDoc(doc(db, item.col, String(listItem.id)), listItem);
+              // sanitizeForFirestore strips 'undefined' values Firestore rejects
+              await setDoc(doc(db, item.col, String(listItem.id)), sanitizeForFirestore(listItem));
             }
           }
         } else if (item.type === 'object' && item.docId) {
-          await setDoc(doc(db, item.col, item.docId), item.data);
+          await setDoc(doc(db, item.col, item.docId), sanitizeForFirestore(item.data));
         }
       }
 
@@ -1419,7 +1892,17 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setSName('');
     setSEmail('');
     setSClassId(classes[0]?.id || '');
-    setSRoll('');
+    // Auto-generate next roll number for the default class
+    if (classes.length > 0) {
+      const classStudents = students.filter(s => s.classId === classes[0].id);
+      const maxRoll = classStudents.reduce((max, s) => {
+        const num = parseInt(s.rollNumber, 10);
+        return !isNaN(num) && num > max ? num : max;
+      }, 0);
+      setSRoll(String(maxRoll + 1));
+    } else {
+      setSRoll('');
+    }
     setSParentPhone('');
     setSStudentPhone('');
     setSBaseFee('0');
@@ -1458,6 +1941,14 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     // Auto-pre-populate dropdown variables based on latest loads
     if (type === 'student' && classes.length > 0) {
       setSClassId(classes[0].id);
+
+      // Auto-generate next roll number for the selected class
+      const classStudents = students.filter(s => s.classId === classes[0].id);
+      const maxRoll = classStudents.reduce((max, s) => {
+        const num = parseInt(s.rollNumber, 10);
+        return !isNaN(num) && num > max ? num : max;
+      }, 0);
+      setSRoll(String(maxRoll + 1));
     }
     if (type === 'class' && teachers.length > 0) {
       setCTeacherId(teachers[0].id);
@@ -2198,6 +2689,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               let totalPendingMonth = 0;
               let totalCollectedMonth = 0;
               let totalExtraDues = 0;
+              let remainingExtraDues = 0;
               let paidStudentsCount = 0;
               let pendingStudentsCount = 0;
 
@@ -2206,7 +2698,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 const collected = fs.payments.reduce((sum, p) => sum + p.amount, 0);
                 totalPendingAll += pending;
                 totalCollectedAll += collected;
+                // Extra charges: Other Funds + Dues entries ("Add More Fee Categories" + "Add Due")
+                // Note: extra fee categories ab dues entries bhi banate hain, is liye payments se alag nahi
+                // count hote (double-counting se bachne ke liye sirf dues entries count kiye ja rahe hain)
                 totalExtraDues += getTotalOtherFunds(fs);
+                (fs.dues || []).forEach(d => {
+                  if (d.status !== 'waived') totalExtraDues += getDuePaid(d);
+                  remainingExtraDues += getDueRemaining(d);
+                });
+                remainingExtraDues += getTotalOtherFunds(fs);
 
                 const monthSummary = getMonthlySummary(fs, currentMonth, new Date().getFullYear());
                 totalPendingMonth += monthSummary.pending;
@@ -2239,6 +2739,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       { label: 'Classes', val: classes.length, color: 'text-amber-600', bg: 'bg-amber-50/50' },
                       { label: 'Attendance Average', val: attendanceAvg, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
                       { label: 'Fee Paid Students', val: paidStudentsCount, color: 'text-violet-600', bg: 'bg-violet-50/50' },
+                      ...(userSession.role === 'coordinator' ? [{ label: 'Fee Pending Students', val: pendingStudentsCount, color: 'text-rose-600', bg: 'bg-rose-50/50' }] : []),
                     ].map(stat => (
                       <div key={stat.label} className={`group p-6 border border-transparent hover:border-slate-100 transition-all ${stat.bg}`}>
                         <span className={`block text-xs font-black uppercase tracking-[0.3em] mb-3 ${stat.color}`}>{stat.label}</span>
@@ -2248,71 +2749,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   </div>
 
                   {/* Fee Summary Cards — Remaining Fee + Monthly (Total Paid, Remaining) in one row */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-                    <div className="p-6 bg-rose-50/50 border border-rose-100">
-                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
-                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
-                    </div>
-                    <div className="p-6 bg-violet-50/50 border border-violet-100">
-                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
-                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
-                    </div>
-                    <div className="p-6 bg-amber-50/50 border border-amber-100">
-                      <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">{currentMonthName} Fee · Remaining</span>
-                      <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {/* Extra Dues Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
-                      <div className="p-6 bg-blue-50/50 border border-blue-100">
-                        <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-blue-600 block">Total Extra Dues</span>
-                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
-                        <span className="text-[10px] font-bold text-blue-400 uppercase mt-2 block">Paper Fund, Festival & Other Charges</span>
-                      </div>
-                      <div className="p-6 bg-rose-50/50 border border-rose-100">
-                        <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Extra Dues</span>
-                        <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalExtraDues.toLocaleString()}</span>
-                        <span className="text-[10px] font-bold text-rose-400 uppercase mt-2 block">Pending from Students</span>
-                      </div>
-                  </div>
-
-                  {/* Dues (Separate from Monthly Fee) Summary Cards */}
-                  {(() => {
-                    let totalDuesPending = 0;
-                    let totalDuesPaid = 0;
-                    let totalDuesEntries = 0;
-                    
-                    feeStudents.forEach(fs => {
-                      (fs.dues || []).forEach(d => {
-                        totalDuesEntries++;
-                        if (d.status === 'pending') totalDuesPending += d.amount;
-                        else if (d.status === 'paid') totalDuesPaid += d.amount;
-                      });
-                    });
-                    
-                    if (totalDuesEntries === 0) return null;
-                    
-                    return (
+                  {/* Coordinator: Fee/dues cards nahi dikhenge, sirf student count */}
+                  {userSession.role !== 'coordinator' && (
+                    <>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
                         <div className="p-6 bg-rose-50/50 border border-rose-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Total Dues Pending</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesPending.toLocaleString()}</span>
-                          <span className="text-[10px] font-bold text-rose-400 uppercase mt-2 block">Separate from Monthly Fee</span>
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
                         </div>
-                        <div className="p-6 bg-emerald-50/50 border border-emerald-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-emerald-600 block">Total Dues Collected</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesPaid.toLocaleString()}</span>
-                          <span className="text-[10px] font-bold text-emerald-400 uppercase mt-2 block">Paid Dues Entries</span>
+                        <div className="p-6 bg-violet-50/50 border border-violet-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
                         </div>
-                        <div className="p-6 bg-indigo-50/50 border border-indigo-100">
-                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-indigo-600 block">Total Dues Entries</span>
-                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalDuesEntries}</span>
-                          <span className="text-[10px] font-bold text-indigo-400 uppercase mt-2 block">Across All Students</span>
+                        <div className="p-6 bg-amber-50/50 border border-amber-100">
+                          <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-amber-600 block">{currentMonthName} Fee · Remaining</span>
+                          <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
                         </div>
                       </div>
-                    );
-                  })()}
+
+                      {/* Extra Charges & Dues Summary Cards — HIDDEN for cleaner dashboard */}
+                    </>
+                  )}
                 </div>
               );
             })()}
@@ -3525,6 +3982,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     >
                       <Plus size={16} /> ⚡ Collect Fee
                     </button>
+                    <button
+                      onClick={() => { setFeeReminderSentIds(new Set()); setFeeReminderModal(true); }}
+                      className="flex-1 md:flex-none px-4 sm:px-5 py-2.5 bg-white border-2 border-emerald-600 text-emerald-700 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-emerald-600 hover:text-white transition-all shadow-md rounded-xl cursor-pointer"
+                      title="Send fee reminders to all parents with pending fees"
+                    >
+                      <Bell size={16} /> 🔔 Fee Reminders
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBulkDueClassId('all');
+                        setBulkDueDesc('Paper Fund');
+                        setBulkDueAmount('');
+                        setBulkDueMonth(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
+                        setShowBulkDueModal(true);
+                      }}
+                      className="flex-1 md:flex-none px-4 sm:px-5 py-2.5 bg-indigo-600 text-white text-xs sm:text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-md rounded-xl cursor-pointer"
+                      title="Apply a due (Paper Fund / Annual Fee / Exam Fee) to EVERY student in a class at once"
+                    >
+                      <Users size={16} /> 👥 Apply Due to Class
+                    </button>
 
                   </div>
                 </div>
@@ -3678,10 +4155,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               feeStudent={feeStudents.find(fs => String(fs.id) === String(student.id))}
                                               student={student}
                                               feeRecords={sFees}
-                                              year={new Date().getFullYear()}
+                                              year={feeLedgerYear}
+                                              onYearChange={(y) => { setFeeLedgerYear(y); setMonthHistoryFilter(null); }}
                                               selectedMonth={monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter.month : null}
-                                              onSelectMonth={(m) => setMonthHistoryFilter(m ? { studentId: String(student.id), month: m, year: new Date().getFullYear() } : null)}
-                                              onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, new Date().getFullYear(), pending)}
+                                              onSelectMonth={(m) => setMonthHistoryFilter(m ? { studentId: String(student.id), month: m, year: feeLedgerYear } : null)}
+                                              onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, feeLedgerYear, pending)}
                                               onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
                                             />
 
@@ -3693,6 +4171,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     return k.idx === (MONTH_ALIAS[hf.month.toLowerCase()] ?? -1) && k.year === Number(hf.year);
                                                   })
                                                 : sFees;
+                                              const fsObj = feeStudents.find(fs => String(fs.id) === String(student.id));
+                                              const historyDues = (fsObj?.dues || []).filter(d => {
+                                                if (!hf) return true;
+                                                const k = parseMonthKey(d.month, d.year || hf.year);
+                                                return k.idx === (MONTH_ALIAS[hf.month.toLowerCase()] ?? -1) && k.year === Number(hf.year);
+                                              });
                                               return (
                                             <div className="space-y-2">
                                               <div className="flex items-center justify-between border-b border-slate-100 pb-1">
@@ -3737,6 +4221,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                       </div>
                                                     </div>
                                                   ))}
+                                                </div>
+                                              )}
+                                              {historyDues.length > 0 && (
+                                                <div className="pt-1">
+                                                  <div className="flex items-center justify-between border-t border-slate-100 pt-2 pb-1">
+                                                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Dues</span>
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase">{historyDues.length} entries</span>
+                                                  </div>
+                                                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                                                    {historyDues.map(d => (
+                                                      <div key={d.id} className="p-2.5 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                          <span className="block text-[10px] font-black text-slate-900 uppercase leading-none mb-0.5 truncate">{d.desc}</span>
+                                                          <span className="block text-[9px] font-bold text-slate-400 uppercase tabular-nums">{d.month} {d.year} · Added {formatDateDDMMYY(d.date)}</span>
+                                                        </div>
+                                                        <span className={`text-[10px] font-black shrink-0 ${d.status === 'paid' ? 'text-emerald-600' : d.status === 'waived' ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                          {d.status === 'paid' ? 'PAID' : d.status === 'waived' ? 'WAIVED' : 'PENDING'}: PKR {(Number(d.amount) || 0).toLocaleString()}
+                                                        </span>
+                                                      </div>
+                                                    ))}
+                                                  </div>
                                                 </div>
                                               )}
                                             </div>
@@ -4775,16 +5280,21 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               );
             })()}
 
-            {/* 1.5 Global Dues Section - Non-Fee Funds (Paper Fund, Other Fund, etc.) */}
+            {/* 1.5 Global Dues Section - Non-Fee Funds (Paper Fund, Other Fund, dues entries) */}
             {(() => {
-              const allDues: { studentName: string; studentId: string | number; className: string; desc: string; amount: number; date: string }[] = [];
+              const allDues: { studentName: string; studentId: string | number; className: string; desc: string; amount: number; date: string; status: string; pending: number }[] = [];
               feeStudents.forEach(s => {
                 (s.otherFunds || []).forEach(f => {
-                  allDues.push({ studentName: s.name, studentId: s.id, className: s.class, desc: f.desc, amount: f.amount, date: f.date });
+                  allDues.push({ studentName: s.name, studentId: s.id, className: s.class, desc: f.desc, amount: f.amount, date: f.date, status: 'PAID', pending: 0 });
+                });
+                (s.dues || []).forEach(d => {
+                  const rem = getDueRemaining(d);
+                  allDues.push({ studentName: s.name, studentId: s.id, className: s.class, desc: d.desc, amount: getDuePaid(d), date: d.date, status: rem > 0 ? (getDuePaid(d) > 0 ? 'PARTIAL' : 'PENDING') : 'PAID', pending: rem });
                 });
               });
               allDues.sort((a, b) => b.date.localeCompare(a.date));
               const totalDuesAmount = allDues.reduce((sum, d) => sum + d.amount, 0);
+              const totalPendingDues = allDues.reduce((sum, d) => sum + d.pending, 0);
 
               if (allDues.length === 0) return null;
 
@@ -4808,8 +5318,13 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         </span>
                       ))}
                       <span className="px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-xl text-xs font-black text-rose-700 uppercase tracking-widest">
-                        Total: {totalDuesAmount.toLocaleString()}
+                        Collected: {totalDuesAmount.toLocaleString()}
                       </span>
+                      {totalPendingDues > 0 && (
+                        <span className="px-3 py-1.5 bg-rose-100 border border-rose-200 rounded-xl text-xs font-black text-rose-700 uppercase tracking-widest">
+                          Pending: {totalPendingDues.toLocaleString()}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -4821,7 +5336,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           <th className="px-4 py-3">Class</th>
                           <th className="px-4 py-3">Fund Type</th>
                           <th className="px-4 py-3">Date</th>
-                          <th className="px-4 py-3 text-right">Amount</th>
+                          <th className="px-4 py-3 text-right">Status</th>
+                          <th className="px-4 py-3 text-right">Collected</th>
+                          <th className="px-4 py-3 text-right">Pending</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs font-bold">
@@ -4830,16 +5347,20 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                             <td className="px-4 py-3 text-slate-900 font-black">{d.studentName}</td>
                             <td className="px-4 py-3 text-slate-500">{d.className}</td>
                             <td className="px-4 py-3">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                d.desc === 'Paper Fund' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
-                                d.desc === 'Summer Pack' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
-                                'bg-indigo-50 text-indigo-600 border border-indigo-100'
-                              }`}>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-600">
                                 {d.desc}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-slate-400 font-mono">{d.date}</td>
-                            <td className="px-4 py-3 text-right font-black text-rose-600">{Number(d.amount).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-slate-400">{formatDateDDMMYY(d.date)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                d.pending > 0 ? (d.amount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') : 'bg-emerald-100 text-emerald-700'
+                              }`}>
+                                {d.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-emerald-600 text-right">{d.amount.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-rose-600 text-right">{d.pending > 0 ? d.pending.toLocaleString() : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -5231,6 +5752,19 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           >
                             <Plus size={12} /> Add Due
                           </button>
+                          <button
+                            onClick={() => {
+                              setBulkDueClassId('all');
+                              setBulkDueDesc('Paper Fund');
+                              setBulkDueAmount('');
+                              setBulkDueMonth(`${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()}`);
+                              setShowBulkDueModal(true);
+                            }}
+                            title="Apply a due (Paper Fund/Annual Fee etc.) to EVERY student in a class at once"
+                            className="px-3 py-2 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest rounded-lg hover:bg-indigo-700 transition-all shadow-sm flex items-center gap-1.5"
+                          >
+                            <Users size={12} /> Apply to Class
+                          </button>
                         </div>
 
                         {/* Add Due Modal */}
@@ -5305,6 +5839,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           </div>
                         )}
 
+                        {/* Bulk "Apply Due to Whole Class" modal ab fixed overlay (modals section) mein hai */}
+
                         {/* Dues Filter */}
                         <div className="flex flex-wrap gap-2 mb-4">
                           <select
@@ -5365,18 +5901,29 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0">
-                                  <span className="text-xs font-black text-rose-600">{d.amount.toLocaleString()}</span>
+                                  <div className="text-right">
+                                    {getDuePaid(d) > 0 ? (
+                                      <>
+                                        <div className="text-xs font-black text-emerald-600">{getDuePaid(d).toLocaleString()} paid</div>
+                                        {getDueRemaining(d) > 0 && (
+                                          <div className="text-[10px] font-black text-rose-600">{getDueRemaining(d).toLocaleString()} pending</div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-xs font-black text-rose-600">{d.amount.toLocaleString()}</span>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-1">
-                                    {d.status === 'pending' && (
+                                    {getDueRemaining(d) > 0 && (
                                       <button
                                         onClick={() => {
-                                          if(window.confirm(`Mark "${d.desc}" as paid?`)) {
-                                            setFeeStudents(prev => payDue(prev, student.id, d.id, 'Cash'));
-                                            toast.success(`Due "${d.desc}" marked as paid!`);
-                                          }
+                                          const dRemaining = getDueRemaining(d);
+                                          setCollectDuesModal({ isOpen: true, studentId: String(student.id), dueId: d.id, desc: d.desc, amount: d.amount, remaining: dRemaining, month: d.month, year: d.year });
+                                          setCollectDuesAmount(String(dRemaining));
+                                          setCollectDuesPaymentMethod('Cash');
                                         }}
                                         className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-all"
-                                        title="Mark as Paid"
+                                        title="Collect Due"
                                       >
                                         <CheckCircle2 size={12} />
                                       </button>
@@ -6528,7 +7075,21 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           <label className="text-xs font-black uppercase tracking-widest text-slate-500 ml-1">Assigned Class</label>
                           <select
                             value={sClassId}
-                            onChange={(e) => setSClassId(e.target.value)}
+                            onChange={(e) => {
+                              const newClassId = e.target.value;
+                              setSClassId(newClassId);
+                              // Auto-generate next roll number when class changes
+                              if (newClassId) {
+                                const classStudents = students.filter(s => s.classId === newClassId);
+                                const maxRoll = classStudents.reduce((max, s) => {
+                                  const num = parseInt(s.rollNumber, 10);
+                                  return !isNaN(num) && num > max ? num : max;
+                                }, 0);
+                                setSRoll(String(maxRoll + 1));
+                              } else {
+                                setSRoll('');
+                              }
+                            }}
                             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                           >
                             <option value="">-- Choose Class --</option>
@@ -7986,10 +8547,6 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   >
                     <option value="School Fee">School Fee</option>
                     <option value="Tuition Fee">Tuition Fee</option>
-                    <option value="Exam Fee">Exam Fee</option>
-                    <option value="Admission Fee">Admission Fee</option>
-                    <option value="Annual Paper Fund">Annual Paper Fund</option>
-                    <option value="Miscellaneous">Miscellaneous</option>
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -8088,11 +8645,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     >
                       <option value="School Fee">School Fee</option>
                       <option value="Tuition Fee">Tuition Fee</option>
-                      <option value="Exam Fee">Exam Fee</option>
-                      <option value="Admission Fee">Admission Fee</option>
-                      <option value="Annual Paper Fund">Annual Paper Fund</option>
-                      <option value="Miscellaneous">Miscellaneous</option>
-                      <option value="Other">Other</option>
+                      {!['School Fee', 'Tuition Fee'].includes(feeEditModal.feeType) && (
+                        <option value={feeEditModal.feeType}>{feeEditModal.feeType} (purana record)</option>
+                      )}
                     </select>
                   </div>
                 </>
@@ -8371,6 +8926,272 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         )}
       </AnimatePresence>
 
+      {/* Fee Reminder Dispatch Modal */}
+      <AnimatePresence>
+        {feeReminderModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col"
+            >
+              <div className="bg-emerald-600 p-5 sm:p-6 text-white flex justify-between items-center gap-3 shrink-0">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight flex items-center gap-3">
+                    <Bell size={24} /> Fee Reminder Dispatch
+                  </h2>
+                  <p className="text-xs uppercase font-bold text-emerald-100 mt-1">
+                    {getFeeReminderRecipients.length} students • Total pending PKR {getFeeReminderRecipients.reduce((s, r) => s + r.totalPending, 0).toLocaleString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setFeeReminderModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="px-6 pt-4 pb-2 shrink-0">
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <select
+                    value={feeReminderClassFilter}
+                    onChange={(e) => setFeeReminderClassFilter(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-emerald-500 appearance-none cursor-pointer"
+                  >
+                    <option value="all">All Classes</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+                  Pending months (current month tak) + dues — message Settings ke feeTemplate se banta hai
+                </p>
+              </div>
+
+              <div className="p-6 pt-2 max-h-[55vh] overflow-y-auto custom-scrollbar space-y-3">
+                {(() => {
+                  const filtered = getFeeReminderRecipients.filter(r => feeReminderClassFilter === 'all' || r.student.classId === feeReminderClassFilter);
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="py-10 text-center bg-emerald-50/50 rounded-2xl border border-dashed border-emerald-200">
+                        <CheckCircle2 size={28} className="text-emerald-500 mx-auto mb-2" />
+                        <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest">All fees are clear — no reminders needed!</p>
+                      </div>
+                    );
+                  }
+                  return filtered.map((r, idx) => {
+                    const st = r.student;
+                    const sClass = classes.find(c => c.id === st.classId);
+                    const sent = feeReminderSentIds.has(String(st.id));
+                    const monthsText = r.pendingMonths.map(m => m.month).join(', ');
+                    return (
+                      <div key={st.id || idx} className={`p-4 rounded-2xl flex items-center justify-between gap-4 shadow-sm border transition-all ${sent ? 'bg-emerald-50/60 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 ${sent ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                            {sent ? <CheckCircle2 size={16} /> : idx + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-slate-900 uppercase tracking-tight truncate">{st.name}</h4>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase truncate">
+                              {sClass ? `${sClass.className} - ${sClass.section}` : 'N/A'} | Roll: {st.rollNumber || 'N/A'} | {st.parentPhone || 'No Phone'}
+                            </p>
+                            <p className="text-[10px] font-bold text-amber-600 uppercase truncate">
+                              {monthsText ? `Pending: ${monthsText}` : 'Dues only'}{r.dues > 0 ? ` + Dues PKR ${r.dues.toLocaleString()}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-sm font-black text-rose-600">PKR {r.totalPending.toLocaleString()}</span>
+                          <button
+                            onClick={() => handleSendFeeReminderWhatsApp(st)}
+                            title="Send WhatsApp Reminder"
+                            className="p-2.5 bg-emerald-600 hover:bg-slate-900 text-white flex items-center justify-center rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+                          >
+                            <Send size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              <div className="p-5 bg-slate-50 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                    Sent: {feeReminderSentIds.size} / {getFeeReminderRecipients.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyAllFeeReminders}
+                    className="px-4 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest hover:bg-indigo-700 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                  >
+                    <MessageSquare size={14} /> Copy All
+                  </button>
+                  <button
+                    onClick={() => setFeeReminderModal(false)}
+                    className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Apply Due to Class or Single Student — Fixed Overlay Modal */}
+      <AnimatePresence>
+        {showBulkDueModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 max-h-[92vh]"
+            >
+              <div className="bg-indigo-600 p-5 sm:p-6 text-white flex justify-between items-center gap-3">
+                <div>
+                  <h2 className="text-base sm:text-lg font-black uppercase tracking-tight flex items-center gap-2.5">
+                    <Users size={20} /> Apply Due
+                  </h2>
+                  <p className="text-[10px] uppercase font-bold text-indigo-100 mt-0.5">Paper Fund / Annual Fee / Exam Fee — single student ya pori class</p>
+                </div>
+                <button
+                  onClick={() => setShowBulkDueModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                {/* Target Toggle: Single Student or Whole Class */}
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => setBulkDueTarget('class')}
+                    className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${bulkDueTarget === 'class' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    <Users size={14} className="inline mr-1" /> Whole Class
+                  </button>
+                  <button
+                    onClick={() => setBulkDueTarget('student')}
+                    className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${bulkDueTarget === 'student' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    <User size={14} className="inline mr-1" /> Single Student
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {bulkDueTarget === 'class' ? (
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Class</label>
+                      <select
+                        value={bulkDueClassId}
+                        onChange={(e) => setBulkDueClassId(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-indigo-500 outline-none"
+                      >
+                        <option value="all">All Classes</option>
+                        {classes.map(c => (
+                          <option key={c.id} value={c.id}>{c.className} - {c.section}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Student</label>
+                      <select
+                        value={bulkDueStudentId}
+                        onChange={(e) => setBulkDueStudentId(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-indigo-500 outline-none"
+                      >
+                        <option value="">Select Student</option>
+                        {students.map(s => {
+                          const sClass = classes.find(c => c.id === s.classId);
+                          return (
+                            <option key={s.id} value={s.id}>{s.name} ({sClass ? `${sClass.className}-${sClass.section}` : 'N/A'})</option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Due Name / Fund</label>
+                    <select
+                      value={bulkDueDesc}
+                      onChange={(e) => setBulkDueDesc(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-indigo-500 outline-none"
+                    >
+                      <option value="Paper Fund">Paper Fund</option>
+                      <option value="Annual Fee">Annual Fee</option>
+                      <option value="Exam Fee">Exam Fee</option>
+                      <option value="Admission Fee">Admission Fee</option>
+                      <option value="Summer Pack">Summer Pack</option>
+                      <option value="Miscellaneous">Miscellaneous</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Amount (PKR)</label>
+                    <input
+                      type="number"
+                      value={bulkDueAmount}
+                      onChange={(e) => setBulkDueAmount(e.target.value)}
+                      placeholder="e.g. 200"
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Month (Due kis mahine ki)</label>
+                    <select
+                      value={bulkDueMonth}
+                      onChange={(e) => setBulkDueMonth(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:border-indigo-500 outline-none"
+                    >
+                      {MONTHS.map(m => (
+                        <option key={m} value={`${m} ${new Date().getFullYear()}`}>{m} {new Date().getFullYear()}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3">
+                  <p className="text-[11px] font-bold text-slate-600">
+                    <Users size={12} className="inline mr-1" />
+                    Target: <span className="font-black text-indigo-700">{bulkDueTarget === 'student'
+                      ? (bulkDueStudentId ? (students.find(st => String(st.id) === String(bulkDueStudentId))?.name || '1 student') : 'Select a student')
+                      : `${students.filter(st => bulkDueClassId === 'all' || st.classId === bulkDueClassId).length} students`}</span>
+                    {' '}— for each, a <span className="text-rose-600 font-black">PENDING due</span> will be created. Those who haven't paid will show in <span className="text-rose-600 font-black">Remaining / Dues</span>.
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">Same student + same month + same fund pe dobara apply nahi hoga (duplicate guard).</p>
+                </div>
+              </div>
+
+              <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-between items-center gap-2">
+                <button
+                  onClick={() => setShowBulkDueModal(false)}
+                  className="px-6 py-2.5 bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-300 rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleApplyDueToClass}
+                  className="px-6 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest hover:bg-indigo-700 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                >
+                  {bulkDueTarget === 'student' ? <User size={14} /> : <Users size={14} />} {bulkDueTarget === 'student' ? 'Apply to Student' : 'Apply to All'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Bulk Result WhatsApp Modal */}
       <AnimatePresence>
         {resultWAModal.isOpen && (
@@ -8522,8 +9343,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   </div>
                 </div>
                 <button
-                  onClick={() => setShowQuickCollectModal(false)}
-                  className="p-1.5 hover:bg-white/20 rounded-full transition-colors cursor-pointer shrink-0"
+                  onClick={() => { setShowQuickCollectModal(false); setQuickCollectTargetMonth(null); setQuickCollectNotes(''); }} className="p-1.5 hover:bg-white/20 rounded-full transition-colors cursor-pointer shrink-0"
                 >
                   <X size={20} />
                 </button>
@@ -8565,7 +9385,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       onChange={(e) => setQuickCollectMonth(e.target.value)}
                       className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
                     >
-                      {['August 2026', 'July 2026', 'June 2026', 'May 2026', 'September 2026', 'October 2026', 'Annual Paper Fund', 'Admission Fee'].map(m => (
+                      {['August 2026', 'July 2026', 'June 2026', 'May 2026', 'September 2026', 'October 2026', 'November 2026', 'December 2026'].map(m => (
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
@@ -8586,6 +9406,43 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   </div>
                 </div>
 
+                {/* Auto-Spread Preview — tuition amount kitne pending months me batt jayegi */}
+                {(() => {
+                  const stObj = students.find(s => String(s.id) === String(quickCollectStudentId));
+                  const fsObj = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
+                  const amt = Number(quickCollectAmount);
+                  if (!stObj || !isTuitionFeeType(quickCollectFeeType) || !(amt > 0)) return null;
+                  const yr = parseMonthKey(quickCollectMonth, new Date().getFullYear()).year;
+                  const allocs = buildTuitionAllocation(fsObj, stObj, amt, yr);
+                  const allocated = allocs.reduce((s, a) => s + a.amount, 0);
+                  const leftover = amt - allocated;
+                  return (
+                    <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 flex items-center gap-1.5">
+                        <CheckCircle2 size={12} /> Auto-Spread ON — ek amount, sary pending months me khud batt jayegi
+                      </p>
+                      {allocs.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {allocs.map(a => (
+                            <span key={`${a.month}-${a.year}`} className="px-2 py-0.5 bg-white border border-emerald-200 text-emerald-700 rounded-lg text-[10px] font-black">
+                              {a.month} {a.year} · PKR {a.amount.toLocaleString()}
+                            </span>
+                          ))}
+                          {leftover > 0 && (
+                            <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg text-[10px] font-black">
+                              Advance/Extra PKR {leftover.toLocaleString()} → {quickCollectMonth}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] font-bold text-slate-600">
+                          Koi pending month nahi mila — poora PKR {amt.toLocaleString()} {quickCollectMonth} me record hoga.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {/* Fee Type */}
                   <div>
@@ -8598,11 +9455,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 uppercase"
                     >
                       <option value="Tuition Fee">Tuition Fee</option>
-                      <option value="Admission Fee">Admission Fee</option>
-                      <option value="Annual Paper Fund">Annual Paper Fund</option>
-                      <option value="Exam Fee">Exam Fee</option>
-                      <option value="Miscellaneous">Miscellaneous</option>
+                      <option value="School Fee">School Fee</option>
                     </select>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                      Tuition Fee = School Fee (same) — Annual/Paper Fund/Exam Fee neeche "Add More Fee Categories" mein
+                    </p>
                   </div>
 
                   {/* Payment Method */}
@@ -8627,7 +9484,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-700">Add More Fee Categories</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Paper Fund, Summer Pack, Miscellaneous, etc.</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Annual Fee, Admission Fee, Paper Fund, Exam Fee, Summer Pack & more</p>
                   </div>
                   <button
                     onClick={() => setShowExtraFeeInputs(!showExtraFeeInputs)}
@@ -8640,7 +9497,24 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
                 {showExtraFeeInputs && (
                   <div className="bg-white border border-emerald-100 rounded-xl p-3 space-y-3 animate-fade-in">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Other Fund Amounts (leave blank to skip)</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add More Fee Categories — Annual Fee, Admission Fee, Paper Fund, Exam Fee, Summer Pack, etc. (leave blank to skip)</p>
+                    {/* Collect vs Charge mode toggle */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setExtraFeeMode('collect')}
+                        title="Collect = yeh fee abhi ADA hoti hai (PAID receipt)"
+                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${extraFeeMode === 'collect' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                      >
+                        💰 Collect (Mark PAID)
+                      </button>
+                      <button
+                        onClick={() => setExtraFeeMode('charge')}
+                        title="Charge = PENDING khata banega jo baad mein collect hoga"
+                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${extraFeeMode === 'charge' ? 'bg-rose-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                      >
+                        📝 Charge (Pending Due)
+                      </button>
+                    </div>
                     {Object.keys(extraFees).map(type => (
                       <div key={type} className="flex items-center gap-3">
                         <span className="w-44 shrink-0 text-xs font-black uppercase tracking-widest text-slate-600">{type}</span>
@@ -8673,8 +9547,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
               <div className="p-4 sm:p-6 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
                 <button
-                  onClick={() => setShowQuickCollectModal(false)}
-                  className="px-4 sm:px-6 py-2.5 bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-slate-300 transition-all cursor-pointer"
+                  onClick={() => { setShowQuickCollectModal(false); setQuickCollectTargetMonth(null); setQuickCollectNotes(''); }} className="px-4 sm:px-6 py-2.5 bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-slate-300 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -8684,6 +9557,145 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 >
                   <CheckCircle2 size={16} /> Record & Issue Receipt
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Collect Dues Modal — Paper Fund & Other Dues Collection */}
+      <AnimatePresence>
+        {collectDuesModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200"
+            >
+              <div className="bg-emerald-600 p-5 sm:p-6 text-white flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center">
+                    <CheckCircle2 size={22} />
+                  </div>
+                  <div>
+                    <h2 className="text-base sm:text-lg font-black uppercase tracking-tight">Collect Due Payment</h2>
+                    <p className="text-[10px] uppercase font-bold text-emerald-100">
+                      {students.find(s => String(s.id) === String(collectDuesModal.studentId))?.name || 'Student'} • {collectDuesModal.desc}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setCollectDuesModal({ isOpen: false, studentId: '', dueId: '', desc: '', amount: 0, remaining: 0, month: '', year: 2026 }); setCollectDuesAmount(''); }}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-emerald-600 uppercase tracking-widest">Due Total</span>
+                    <span className="text-2xl font-black text-emerald-700">PKR {collectDuesModal.amount.toLocaleString()}</span>
+                  </div>
+                  <div className="mt-2 text-xs font-bold text-emerald-500">
+                    {collectDuesModal.desc} • {collectDuesModal.month} {collectDuesModal.year}
+                  </div>
+                  {collectDuesModal.amount - collectDuesModal.remaining > 0 && (
+                    <div className="mt-2 text-xs font-black text-emerald-600">
+                      Already Paid: PKR {(collectDuesModal.amount - collectDuesModal.remaining).toLocaleString()} • Remaining: <span className="text-rose-600">PKR {collectDuesModal.remaining.toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Collecting Amount (PKR) *</label>
+                  <input
+                    type="number"
+                    value={collectDuesAmount}
+                    onChange={(e) => setCollectDuesAmount(e.target.value)}
+                    placeholder={`Max ${collectDuesModal.remaining.toLocaleString()}`}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={() => setCollectDuesAmount(String(collectDuesModal.remaining))}
+                    className="mt-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:underline cursor-pointer"
+                  >
+                    Collect Full Remaining (PKR {collectDuesModal.remaining.toLocaleString()})
+                  </button>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Payment Method</label>
+                  <select
+                    value={collectDuesPaymentMethod}
+                    onChange={(e) => setCollectDuesPaymentMethod(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500 appearance-none cursor-pointer"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="JazzCash">JazzCash</option>
+                    <option value="EasyPaisa">EasyPaisa</option>
+                    <option value="Online">Online</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1">Paid Date</label>
+                  <input
+                    type="date"
+                    value={new Date().toISOString().split('T')[0]}
+                    onChange={() => {}}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      const toCollect = Math.min(Number(collectDuesAmount) || 0, collectDuesModal.remaining);
+                      if (!(toCollect > 0)) {
+                        toast.error("Enter a valid amount to collect.");
+                        return;
+                      }
+                      // Create fee record for this collection
+                      const recId = 'REC_' + Date.now().toString(36).toUpperCase() + '_' + Math.random().toString(36).substr(2, 6).toUpperCase();
+                      setFees(p => [...p, {
+                        id: recId,
+                        studentId: collectDuesModal.studentId,
+                        amount: toCollect,
+                        dueDate: today,
+                        status: 'paid',
+                        paidDate: today,
+                        month: collectDuesModal.month,
+                        paymentMethod: collectDuesPaymentMethod,
+                        feeType: collectDuesModal.desc,
+                        dueId: collectDuesModal.dueId,
+                        description: `Collected: ${collectDuesModal.desc}`,
+                      }]);
+                      setFeeStudents(prev => collectDue(prev, collectDuesModal.studentId, collectDuesModal.dueId, toCollect, collectDuesPaymentMethod, today));
+                      const st = students.find(s => String(s.id) === String(collectDuesModal.studentId));
+                      if (st) {
+                        handleSendFeeNotification(st, 'payment', toCollect, collectDuesModal.desc);
+                      }
+                      const fullyPaidNow = (collectDuesModal.remaining - toCollect) <= 0;
+                      setCollectDuesModal({ isOpen: false, studentId: '', dueId: '', desc: '', amount: 0, remaining: 0, month: '', year: 2026 });
+                      setCollectDuesAmount('');
+                      toast.success(`Collected PKR ${toCollect.toLocaleString()} of "${collectDuesModal.desc}" from ${st?.name || 'student'} — ${fullyPaidNow ? 'DUE FULLY PAID ✓' : (collectDuesModal.remaining - toCollect).toLocaleString() + ' pending'}`);
+                    }}
+                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex justify-center items-center gap-2"
+                  >
+                    <CheckCircle2 size={16} /> Collect & Mark Paid
+                  </button>
+                  <button
+                    onClick={() => { setCollectDuesModal({ isOpen: false, studentId: '', dueId: '', desc: '', amount: 0, remaining: 0, month: '', year: 2026 }); setCollectDuesAmount(''); }}
+                    className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -8779,10 +9791,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
                         >
                           <option value="School Fee">School Fee</option>
-                          <option value="Exam Fee">Exam Fee</option>
-                          <option value="Admission Fee">Admission Fee</option>
-                          <option value="Annual Paper Fund">Annual Paper Fund</option>
-                          <option value="Other">Other</option>
+                          <option value="Tuition Fee">Tuition Fee</option>
+                          {!['School Fee', 'Tuition Fee'].includes(feeEditForm.feeType) && (
+                            <option value={feeEditForm.feeType}>{feeEditForm.feeType} (purana record)</option>
+                          )}
                         </select>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
@@ -8917,11 +9929,11 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
 }
 
 // ================= MONTH-WISE FEE BREAKDOWN =================
-// Each month card: Base Fee vs Paid (Jama) vs Remaining (Baqi, in RED).
+// Each month card: Base Fee vs Paid vs Remaining (in RED).
 // Dues (unpaid extra charges like Paper Fund) also show in same month card.
 // Student only sees months from their enrollment month onward.
 // Mixed month formats ('Jun', 'Jun 2026', 'June 2026') handled via robust matching.
-function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth }: {
+function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth, onYearChange }: {
   feeStudent?: StudentFeeData;
   student: Student;
   feeRecords?: FeeRecord[];
@@ -8930,46 +9942,130 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
   onSelectMonth?: (month: string | null) => void;
   onCollect: (month: string, remaining: number) => void;
   onDeleteMonth: (month: string, year: number) => void;
+  onYearChange?: (year: number) => void;
 }) {
   const base = Math.max(0, Number(student.baseFee ?? feeStudent?.monthlyFee ?? 0));
-  // Sirf wo months dikhao jis month se student enter hua hai (enrollmentMonth se aage)
+  // Months: current (enrollment) year me enrollment month se start;
+  // YEAR CHANGE karo to months dobara JANUARY se start hote hain (full year)
   const enrollAlias = String(student.enrollmentMonth || '').trim().toLowerCase();
   const enrollIdx = Object.prototype.hasOwnProperty.call(MONTH_ALIAS, enrollAlias) ? MONTH_ALIAS[enrollAlias] : -1;
-  const displayMonths = enrollIdx >= 0 ? MONTHS.slice(enrollIdx) : [...MONTHS];
+  const nowYear = new Date().getFullYear();
+  const startIdx = Number(year) === nowYear && enrollIdx >= 0 ? enrollIdx : 0;
+  const displayMonths = MONTHS.slice(startIdx);
+
+  // Pehle har month ki stats compute karo (summary + cards dono isi se bante hain)
+  const monthStats = displayMonths.map((m) => {
+    const mi = MONTHS.indexOf(m);
+    const monthPayments = (feeStudent?.payments || []).filter(p => {
+      const key = parseMonthKey(p.month, Number(p.year) || year);
+      return key.idx === mi && key.year === Number(year);
+    });
+    // Dues entries isi month/year ki — "Add Due" ya "Add More Fee Categories" se bane
+    const monthDues = (feeStudent?.dues || []).filter(d => {
+      const key = parseMonthKey(d.month, d.year || year);
+      return key.idx === mi && key.year === Number(year);
+    });
+    const paymentIds = new Set(monthPayments.filter(p => p.id).map(p => p.id));
+    const tuitionPaid = monthPayments
+      .filter(p => !p.feeType || TUITION_FEE_TYPES.test(p.feeType))
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    // PAYMENTS (non-tuition) — asli fee-type name ke saath
+    const extraByType = new Map<string, number>();
+    monthPayments
+      .filter(p => p.feeType && !TUITION_FEE_TYPES.test(p.feeType))
+      .forEach(p => {
+        const t = p.feeType!;
+        extraByType.set(t, (extraByType.get(t) || 0) + (Number(p.amount) || 0));
+      });
+    // DUES PAID portion (full ya partial) jo payments mein nahi dikhe (e.g. "Mark as Paid").
+    // Payment record use id se double-count guard: agar payment already count ho chuki hai to skip.
+    monthDues
+      .filter(d => d.status !== 'waived' && d.desc && !paymentIds.has(String(d.id)) && getDuePaid(d) > 0)
+      .forEach(d => {
+        const t = d.desc!;
+        extraByType.set(t, (extraByType.get(t) || 0) + getDuePaid(d));
+      });
+    const extraPaid = Array.from(extraByType.values()).reduce((s, v) => s + v, 0);
+    const totalPaid = tuitionPaid + extraPaid;
+    // Fee ledger — unpaid extra charges (DUES) type-name ke saath
+    const pendingByType = new Map<string, number>();
+    feeRecords.filter(f => {
+      if (f.status === 'paid' || !f.feeType || TUITION_FEE_TYPES.test(f.feeType)) return false;
+      const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
+      return key.idx === mi && key.year === Number(year);
+    }).forEach(f => {
+      const t = f.feeType!;
+      pendingByType.set(t, (pendingByType.get(t) || 0) + (Number(f.amount) || 0));
+    });
+    // PENDING dues (full ya partial remaining) — "Add Due" ya partial-collection baad baqi
+    monthDues
+      .filter(d => d.status !== 'waived' && d.desc && getDueRemaining(d) > 0)
+      .forEach(d => {
+        const t = d.desc!;
+        pendingByType.set(t, (pendingByType.get(t) || 0) + getDueRemaining(d));
+      });
+    const extraPending = Array.from(pendingByType.values()).reduce((s, v) => s + v, 0);
+    const tuitionRemaining = Math.max(0, base - tuitionPaid);
+    const totalRemaining = tuitionRemaining + extraPending;
+    const hasData = totalPaid > 0 || extraPending > 0 || base > 0;
+    const isClear = hasData && totalRemaining === 0;
+    return { m, tuitionPaid, extraByType, extraPaid, totalPaid, pendingByType, extraPending, tuitionRemaining, totalRemaining, hasData, isClear };
+  });
+
+  // Summary — all months combined position
+  const totals = monthStats.reduce((acc, s) => ({
+    paid: acc.paid + s.totalPaid,
+    tuitionRemaining: acc.tuitionRemaining + s.tuitionRemaining,
+    dues: acc.dues + s.extraPending,
+  }), { paid: 0, tuitionRemaining: 0, dues: 0 });
+  const totalRemainingAll = totals.tuitionRemaining + totals.dues;
+  const totalBaseAll = base * monthStats.length;
 
   return (
     <div className="pt-2">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-          Month-wise Fee Breakdown · {year}{enrollIdx >= 0 ? ` · From ${MONTHS[enrollIdx]}` : ''}
-        </h4>
-        <span className="text-[10px] font-bold text-slate-400 uppercase">Base Fee: PKR {base.toLocaleString()}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onYearChange?.(Number(year) - 1)}
+            title="Previous year"
+            className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-md text-xs font-black text-slate-500 hover:border-indigo-400 hover:text-indigo-500 transition-colors cursor-pointer"
+          >‹</button>
+          <span className="text-xs font-black text-indigo-600 uppercase">{year}</span>
+          <button
+            onClick={() => onYearChange?.(Number(year) + 1)}
+            title="Next year"
+            className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-md text-xs font-black text-slate-500 hover:border-indigo-400 hover:text-indigo-500 transition-colors cursor-pointer"
+          >›</button>
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            Month-wise Fee Breakdown{Number(year) === nowYear && enrollIdx >= 0 ? ` · From ${MONTHS[enrollIdx]}` : ' · Full Year'}
+          </h4>
+        </div>
+        <span className="text-[10px] font-bold text-slate-400 uppercase">Base Fee: PKR {base.toLocaleString()} / month</span>
       </div>
+
+      {/* SUMMARY — month cards se upar: Base, Paid, Remaining (all months combined), Dues */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+        <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100">
+          <span className="block text-[9px] font-black text-indigo-400 uppercase tracking-widest">Base Fee ({monthStats.length} months)</span>
+          <span className="block text-sm font-black text-indigo-700">PKR {totalBaseAll.toLocaleString()}</span>
+        </div>
+        <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100">
+          <span className="block text-[9px] font-black text-emerald-500 uppercase tracking-widest">Total Paid</span>
+          <span className="block text-sm font-black text-emerald-700">PKR {totals.paid.toLocaleString()}</span>
+        </div>
+        <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100">
+          <span className="block text-[9px] font-black text-rose-400 uppercase tracking-widest">Remaining (All Months)</span>
+          <span className="block text-sm font-black text-rose-600">{totalRemainingAll > 0 ? `PKR ${totalRemainingAll.toLocaleString()}` : 'Clear ✓'}</span>
+        </div>
+        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-100">
+          <span className="block text-[9px] font-black text-amber-500 uppercase tracking-widest">Dues / Paper Fund</span>
+          <span className="block text-sm font-black text-amber-700">{totals.dues > 0 ? `PKR ${totals.dues.toLocaleString()}` : 'Clear ✓'}</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-        {displayMonths.map((m) => {
-          const mi = MONTHS.indexOf(m);
-          // 1) Payments (fee engine data) — har month-format match hota hai
-          const monthPayments = (feeStudent?.payments || []).filter(p => {
-            const key = parseMonthKey(p.month, Number(p.year) || year);
-            return key.idx === mi && key.year === Number(year);
-          });
-          const tuitionPaid = monthPayments
-            .filter(p => !p.feeType || TUITION_FEE_TYPES.test(p.feeType))
-            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-          const extraPaid = monthPayments
-            .filter(p => p.feeType && !TUITION_FEE_TYPES.test(p.feeType))
-            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-          const totalPaid = tuitionPaid + extraPaid;
-          // 2) Fee ledger — unpaid extra charges for this month are DUES
-          const extraPending = feeRecords.filter(f => {
-            if (f.status === 'paid' || !f.feeType || TUITION_FEE_TYPES.test(f.feeType)) return false;
-            const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
-            return key.idx === mi && key.year === Number(year);
-          }).reduce((s, f) => s + (Number(f.amount) || 0), 0);
-          const tuitionRemaining = Math.max(0, base - tuitionPaid);
-          const totalRemaining = tuitionRemaining + extraPending;
-          const hasData = totalPaid > 0 || extraPending > 0 || base > 0;
-          const isClear = hasData && totalRemaining === 0;
+        {monthStats.map((s) => {
+          const { m, totalPaid, extraByType, pendingByType, extraPending, totalRemaining, isClear } = s;
           const isSelected = selectedMonth === m;
           return (
             <div
@@ -8992,12 +10088,14 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
                 ) : (
                   <span className="block font-black text-emerald-600">Clear</span>
                 )}
-                {extraPending > 0 && (
-                  <span className="block text-amber-600 font-black">Dues: PKR {extraPending.toLocaleString()}</span>
-                )}
-                {extraPaid > 0 && (
-                  <span className="block text-slate-500">Extra: PKR {extraPaid.toLocaleString()}</span>
-                )}
+                {/* Dues — ASLI fee-type name ke saath (e.g. Paper Fund, Exam Fee) */}
+                {Array.from(pendingByType.entries()).map(([t, amt]) => (
+                  <span key={`d-${t}`} className="block text-amber-600 font-black">{t} (Pending): PKR {amt.toLocaleString()}</span>
+                ))}
+                {/* Extra payments — ASLI fee-type name ke saath, generic 'Extra' nahi */}
+                {Array.from(extraByType.entries()).map(([t, amt]) => (
+                  <span key={`x-${t}`} className="block text-slate-500">{t}: PKR {amt.toLocaleString()}</span>
+                ))}
               </div>
               <div className="flex items-center gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
                 <button

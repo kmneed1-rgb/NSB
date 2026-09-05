@@ -11,6 +11,7 @@ import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
 import { db } from '../firebase';
 import { doc, writeBatch, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
+import { listChanged, sanitizeForFirestore } from '../lib/firestoreUtils';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -19,7 +20,9 @@ interface TeacherDashboardProps {
   students: Student[];
   setStudents: React.Dispatch<React.SetStateAction<Student[]>>;
   classes: Class[];
+  setClasses: React.Dispatch<React.SetStateAction<Class[]>>;
   timetable: TimetableEntry[];
+  setTimetable: React.Dispatch<React.SetStateAction<TimetableEntry[]>>;
   attendance: Attendance[];
   setAttendance: React.Dispatch<React.SetStateAction<Attendance[]>>;
   marks: Mark[];
@@ -44,7 +47,9 @@ export default function TeacherDashboard({
   students,
   setStudents,
   classes,
+  setClasses,
   timetable,
+  setTimetable,
   attendance,
   setAttendance,
   marks,
@@ -82,65 +87,81 @@ export default function TeacherDashboard({
     }
   };
 
+  // Latest-state refs so realtime callbacks never read stale closures
+  const classesRef = useRef(classes);
+  const teachersRef = useRef(teachers);
+  const studentsRef = useRef(students);
+  const timetableRef = useRef(timetable);
+  const attendanceRef = useRef(attendance);
+  useEffect(() => { classesRef.current = classes; }, [classes]);
+  useEffect(() => { teachersRef.current = teachers; }, [teachers]);
+  useEffect(() => { studentsRef.current = students; }, [students]);
+  useEffect(() => { timetableRef.current = timetable; }, [timetable]);
+  useEffect(() => { attendanceRef.current = attendance; }, [attendance]);
+
   // Real-time Firebase listeners for cross-portal sync (Teacher Dashboard)
   useEffect(() => {
     // Listen for class changes (teacher reassignment)
     const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return; // skip echoes of our own pending writes
       const updatedClasses: Class[] = [];
-      snapshot.forEach(doc => {
-        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      snapshot.forEach(d => {
+        updatedClasses.push({ id: d.id, ...d.data() } as Class);
       });
-      const hasChanges = updatedClasses.length !== classes.length || 
-        updatedClasses.some((c, i) => c.classTeacherId !== classes[i]?.classTeacherId);
-      if (hasChanges) {
-        setClasses(updatedClasses);
-        toast.info('Class assignments updated from Principal portal');
-      }
+      // Deep per-item compare (catches same-length edits that length checks missed)
+      if (!listChanged(classesRef.current, updatedClasses)) return;
+      classesRef.current = updatedClasses;
+      setClasses(updatedClasses);
+      toast.info('Class assignments updated from Principal portal');
     });
 
     // Listen for teacher changes
     const teachersUnsubscribe = onSnapshot(collection(db, 'teachers'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedTeachers: Teacher[] = [];
-      snapshot.forEach(doc => {
-        updatedTeachers.push({ id: doc.id, ...doc.data() } as Teacher);
+      snapshot.forEach(d => {
+        updatedTeachers.push({ id: d.id, ...d.data() } as Teacher);
       });
-      if (updatedTeachers.length !== teachers.length) {
-        setTeachers(updatedTeachers);
-      }
+      if (!listChanged(teachersRef.current, updatedTeachers)) return;
+      teachersRef.current = updatedTeachers;
+      setTeachers(updatedTeachers);
     });
 
     // Listen for student changes
     const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedStudents: Student[] = [];
-      snapshot.forEach(doc => {
-        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      snapshot.forEach(d => {
+        updatedStudents.push({ id: d.id, ...d.data() } as Student);
       });
-      if (updatedStudents.length !== students.length) {
-        setStudents(updatedStudents);
-      }
+      if (!listChanged(studentsRef.current, updatedStudents)) return;
+      studentsRef.current = updatedStudents;
+      setStudents(updatedStudents);
     });
 
     // Listen for timetable changes
     const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedTimetable: TimetableEntry[] = [];
-      snapshot.forEach(doc => {
-        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      snapshot.forEach(d => {
+        updatedTimetable.push({ id: d.id, ...d.data() } as TimetableEntry);
       });
-      if (updatedTimetable.length !== timetable.length) {
-        setTimetable(updatedTimetable);
-        toast.info('Timetable updated from Principal portal');
-      }
+      if (!listChanged(timetableRef.current, updatedTimetable)) return;
+      timetableRef.current = updatedTimetable;
+      setTimetable(updatedTimetable);
+      toast.info('Timetable updated from Principal portal');
     });
 
     // Listen for attendance changes
     const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedAttendance: Attendance[] = [];
-      snapshot.forEach(doc => {
-        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      snapshot.forEach(d => {
+        updatedAttendance.push({ id: d.id, ...d.data() } as Attendance);
       });
-      if (updatedAttendance.length !== attendance.length) {
-        setAttendance(updatedAttendance);
-      }
+      if (!listChanged(attendanceRef.current, updatedAttendance)) return;
+      attendanceRef.current = updatedAttendance;
+      setAttendance(updatedAttendance);
     });
 
     return () => {
@@ -871,7 +892,7 @@ export default function TeacherDashboard({
     try {
       const batch = writeBatch(db);
       removed.forEach(m => { if (m && m.id) batch.delete(doc(db, 'marks', m.id)); });
-      recs.forEach(m => { if (m && m.id) batch.set(doc(db, 'marks', m.id), m); });
+      recs.forEach(m => { if (m && m.id) batch.set(doc(db, 'marks', m.id), sanitizeForFirestore(m)); });
       await batch.commit();
     } catch (err) {
       console.error('Marks cloud sync failed', err);

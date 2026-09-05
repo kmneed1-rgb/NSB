@@ -1,10 +1,10 @@
-{
-  "projectId": "nsb1-897c0",
-  "appId": "1:575061074136:web:7394cb100619a9359637ad",
-  "apiKey": "AIzaSyCRjaB9OQZXOJo7htOLwV0zLC0dA0QvBJw",
-  "authDomain": "nsb1-897c0.firebaseapp.com",
+﻿{
+  "projectId": "nsb2-1c23a",
+  "appId": "1:1062534330584:web:5429f60384ce436f573fad",
+  "apiKey": "AIzaSyCfsV5OKtyzPe6U_8ZWQ_MdxA7ySPmUl7M",
+  "authDomain": "nsb2-1c23a.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
-  "storageBucket": "nsb1-897c0.firebasestorage.app",
-  "messagingSenderId": "575061074136",
+  "storageBucket": "nsb2-1c23a.firebasestorage.app",
+  "messagingSenderId": "1062534330584",
   "measurementId": ""
 }

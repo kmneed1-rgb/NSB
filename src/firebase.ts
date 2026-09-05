@@ -1,23 +1,24 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
-import { initializeFirestore, doc, getDocFromServer, enableIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, doc, getDocFromServer, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import firebaseConfig from "../firebase-applet-config.json";
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// Initialize main services with aggressive long-polling for iframe environments
+// Initialize main services.
+// - Multi-tab persistent cache: lets several portals (Principal/Teacher/Student)
+//   stay open in separate tabs/windows at the same time. The old single-tab
+//   `enableIndexedDbPersistence` used to fail with "Failed to obtain exclusive
+//   access to the persistence layer", which left the second portal's writes
+//   stuck locally so they never reached Firestore or the other portal.
+// - Auto long-polling: uses WebChannel streaming when possible and falls back
+//   to long-polling in restricted (iframe/proxy) environments.
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  experimentalAutoDetectLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
-
-// Enable offline persistence safely for better offline/slow connection resiliency
-if (typeof window !== "undefined") {
-  enableIndexedDbPersistence(db).catch((err) => {
-    console.warn("Firestore offline persistence failed to initialize:", err.message);
-  });
-}
 
 export const auth = getAuth(app);
 
@@ -45,12 +46,19 @@ export async function testFirebaseConnection(): Promise<boolean> {
     // Attempt an offline-safe check by fetching a test document
     await getDocFromServer(doc(db, "test", "connection"));
     return true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("offline")) {
-      console.warn("Doc connection offline alert:", error.message);
+  } catch (error: any) {
+    const code: string = error?.code || "";
+    const msg: string = error?.message || "";
+    // Security rules blocking access — a REAL failure the user must know about.
+    if (code === "permission-denied" || /permission/i.test(msg)) {
+      console.warn("Firestore rules blocked the connection test:", msg);
       return false;
     }
-    // Any response, even permission error, indicates successful connection reached
+    if (code === "unavailable" || /offline/i.test(msg)) {
+      console.warn("Doc connection offline alert:", msg);
+      return false;
+    }
+    // Any other server response still proves the backend was reached.
     return true;
   }
 }

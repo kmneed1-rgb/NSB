@@ -24,6 +24,7 @@ export interface DueEntry {
   month: string;
   year: number;
   status: 'pending' | 'paid' | 'waived';
+  paidAmount?: number;
   paidDate?: string;
   paymentMethod?: string;
 }
@@ -46,7 +47,7 @@ export type Month = typeof MONTHS[number];
  * Core Fee Engine Functions
  */
 
-// 1. addPayment - Partial payment support
+// 1. addPayment - Partial payment support with auto-fill for future months
 export const addPayment = (students: StudentFeeData[], studentId: string | number, targetMonth: string, year: number, amount: number, feeType: string = 'School Fee'): StudentFeeData[] => {
   const date = new Date().toISOString().split('T')[0];
   const updatedStudents = students.map(s => {
@@ -55,6 +56,7 @@ export const addPayment = (students: StudentFeeData[], studentId: string | numbe
       const newPayments = [...s.payments];
       const yearly = getYearlySummary(s, year);
       
+      // First: pay pending for current/past months
       for (const m of yearly) {
         if (!m.isFutureMonth && m.pending > 0 && remainingAmount > 0) {
           const toPay = Math.min(m.pending, remainingAmount);
@@ -63,6 +65,16 @@ export const addPayment = (students: StudentFeeData[], studentId: string | numbe
         }
       }
       
+      // Second: auto-fill future months if there's excess payment
+      for (const m of yearly) {
+        if (m.isFutureMonth && m.due > 0 && remainingAmount > 0) {
+          const toPay = Math.min(m.due, remainingAmount);
+          remainingAmount -= toPay;
+          newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: m.month, year, amount: toPay, date, feeType });
+        }
+      }
+      
+      // Third: any remaining goes to target month
       if (remainingAmount > 0) {
          newPayments.push({ id: Math.random().toString(36).substr(2, 9), month: targetMonth, year, amount: remainingAmount, date, feeType });
       }
@@ -261,14 +273,28 @@ export const getGlobalStats = (students: StudentFeeData[]) => {
 
 // ===== DUES MANAGEMENT (separate from monthly fee) =====
 
+/** Kitna amount is due ka already paid/collected hai. */
+export const getDuePaid = (d: DueEntry): number => {
+  if (Number.isFinite(d.paidAmount) && Number(d.paidAmount) > 0) return Number(d.paidAmount);
+  return d.status === 'paid' ? Number(d.amount) || 0 : 0;
+};
+
+/** Kitna amount abhi bhi pending / baqi hai. */
+export const getDueRemaining = (d: DueEntry): number => {
+  if (d.status === 'waived') return 0;
+  if (d.status === 'paid') return Math.max(0, (Number(d.amount) || 0) - getDuePaid(d));
+  return Math.max(0, (Number(d.amount) || 0) - getDuePaid(d));
+};
+
 // 10. addDue - Add a due entry for a student (separate from monthly fee)
 export const addDue = (students: StudentFeeData[], studentId: string | number, desc: string, amount: number, month: string, year: number): StudentFeeData[] => {
   const date = new Date().toISOString().split('T')[0];
   const updatedStudents = students.map(s => {
     if (String(s.id) === String(studentId)) {
+      const newDue: DueEntry = { id: Math.random().toString(36).substr(2, 9), studentId: s.id, desc, amount, date, month, year, status: 'pending', paidAmount: 0 };
       return {
         ...s,
-        dues: [...(s.dues || []), { id: Math.random().toString(36).substr(2, 9), studentId: s.id, desc, amount, date, month, year, status: 'pending' }]
+        dues: [...(s.dues || []), newDue]
       };
     }
     return s;
@@ -277,14 +303,21 @@ export const addDue = (students: StudentFeeData[], studentId: string | number, d
   return updatedStudents;
 };
 
-// 11. payDue - Mark a due as paid
-export const payDue = (students: StudentFeeData[], studentId: string | number, dueId: string, paymentMethod: string = 'Cash'): StudentFeeData[] => {
+// 11. payDue - Mark a due as paid (partial amount allowed; ager amount >= due → fully paid)
+export const payDue = (students: StudentFeeData[], studentId: string | number, dueId: string, paymentMethod: string = 'Cash', partialAmount?: number): StudentFeeData[] => {
   const date = new Date().toISOString().split('T')[0];
   const updatedStudents = students.map(s => {
     if (String(s.id) === String(studentId)) {
       return {
         ...s,
-        dues: (s.dues || []).map(d => d.id === dueId ? { ...d, status: 'paid', paidDate: date, paymentMethod } : d)
+        dues: (s.dues || []).map(d => {
+          if (d.id !== dueId) return d;
+          const alreadyPaid = getDuePaid(d);
+          const toAdd = Number.isFinite(partialAmount) ? Math.max(0, Number(partialAmount) || 0) : Math.max(0, (Number(d.amount) || 0) - alreadyPaid);
+          const newPaid = Math.min((Number(d.amount) || 0), alreadyPaid + toAdd);
+          const fullyPaid = newPaid >= (Number(d.amount) || 0);
+          return { ...d, paidAmount: newPaid, status: fullyPaid ? 'paid' as const : 'pending' as const, paidDate: date, paymentMethod };
+        })
       };
     }
     return s;
@@ -308,14 +341,14 @@ export const deleteDue = (students: StudentFeeData[], studentId: string | number
   return updatedStudents;
 };
 
-// 13. getTotalDues - Get total pending dues for a student
+// 13. getTotalDues - Get total pending dues (remaining amount) for a student
 export const getTotalDues = (student: StudentFeeData) => {
-  return (student.dues || []).filter(d => d.status === 'pending').reduce((sum, d) => sum + d.amount, 0);
+  return (student.dues || []).reduce((sum, d) => sum + getDueRemaining(d), 0);
 };
 
-// 14. getPaidDues - Get total paid dues for a student
+// 14. getPaidDues - Get total paid/collected amount for a student's dues
 export const getPaidDues = (student: StudentFeeData) => {
-  return (student.dues || []).filter(d => d.status === 'paid').reduce((sum, d) => sum + d.amount, 0);
+  return (student.dues || []).reduce((sum, d) => sum + getDuePaid(d), 0);
 };
 
 // 15. getDuesByMonth - Get dues for a specific month/year
@@ -324,8 +357,13 @@ export const getDuesByMonth = (student: StudentFeeData, month: string, year: num
 };
 
 // 16. getAllDues - Get all dues (for dashboard)
-export const getAllDues = (students: StudentFeeData[]) => {
-  const allDues: DueEntry[] = [];
+export interface DueEntryWithStudent extends DueEntry {
+  studentName: string;
+  studentClass: string;
+}
+
+export const getAllDues = (students: StudentFeeData[]): DueEntryWithStudent[] => {
+  const allDues: DueEntryWithStudent[] = [];
   students.forEach(s => {
     (s.dues || []).forEach(d => {
       allDues.push({ ...d, studentName: s.name, studentClass: s.class });
@@ -359,7 +397,9 @@ export const loadFromLocalStorage = (): StudentFeeData[] => {
       })),
       dues: (s.dues || []).map(d => ({
         ...d,
-        id: d.id || Math.random().toString(36).substr(2, 9)
+        id: d.id || Math.random().toString(36).substr(2, 9),
+        // Migration: purane dues mein paidAmount set karo (agar already paid ho to amount ke barabar)
+        paidAmount: Number.isFinite(d.paidAmount) ? Number(d.paidAmount) : (d.status === 'paid' ? (Number(d.amount) || 0) : 0)
       }))
     }));
   } catch (e) {

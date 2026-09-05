@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,6 +21,7 @@ import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
 
 import { safeStorage } from './lib/safeStorage';
+import { sanitizeForFirestore } from './lib/firestoreUtils';
 
 function safeParse<T>(key: string, fallback: T): T {
   try {
@@ -221,6 +222,7 @@ export default function App() {
     del: []
   });
   const batchTimer = useRef<any>(null);
+  const batchRetryCount = useRef<number>(0);
 
   const queueBatchWrite = (col: string, id: string, data: any) => {
     pendingBatch.current.set.push({
@@ -255,11 +257,23 @@ export default function App() {
         }
         await batch.commit();
       }
-    } catch (e) {
+      // Success — reset retry counter and clear any sync error banner.
+      batchRetryCount.current = 0;
+      setSyncError(null);
+    } catch (e: any) {
       console.warn("Firestore batch write warning:", e);
       // Re-queue on transient failure so data isn't silently lost.
       pendingBatch.current.set.unshift(...setOps);
       pendingBatch.current.del.unshift(...delOps);
+      // Retry with backoff instead of stalling silently forever.
+      batchRetryCount.current += 1;
+      setSyncError(e?.message || 'Cloud sync failed — retrying');
+      if (batchRetryCount.current <= 5) {
+        setTimeout(() => { flushBatch(); }, 2000 * batchRetryCount.current);
+      } else {
+        batchRetryCount.current = 0;
+        toast.error('Cloud sync failing: ' + (e?.message || 'unknown error') + '. Changes are saved locally and will retry.');
+      }
     }
   };
 
@@ -433,7 +447,8 @@ export default function App() {
               class: s.classId === 'c1' ? 'Grade 10 A' : 'Grade 11 B',
               monthlyFee: 2500,
               payments: [],
-              otherFunds: []
+              otherFunds: [],
+              dues: []
             }));
             setFeeStudents(defaultFeeStudents);
           }
@@ -567,26 +582,8 @@ export default function App() {
   }, [assignments]);
 
   // --- UTILS ---
-  /**
-   * Firestore does not support 'undefined' values in documents.
-   * This utility recursively removes undefined fields or converts them to null 
-   * if they are optional in the type but missing in the instance.
-   */
-  const sanitizeForFirestore = (obj: any): any => {
-    if (Array.isArray(obj)) {
-      return obj.map(v => sanitizeForFirestore(v));
-    } else if (obj !== null && typeof obj === 'object') {
-      const newObj: any = {};
-      Object.keys(obj).forEach(key => {
-        const val = obj[key];
-        if (val !== undefined) {
-          newObj[key] = sanitizeForFirestore(val);
-        }
-      });
-      return newObj;
-    }
-    return obj;
-  };
+  // sanitizeForFirestore is imported from './lib/firestoreUtils' — it removes
+  // 'undefined' values, which Firestore rejects in documents.
 
   // Classes Sync
   useEffect(() => {
@@ -783,7 +780,8 @@ export default function App() {
             class: classNameStr,
             monthlyFee: 2500,
             payments: [],
-            otherFunds: []
+            otherFunds: [],
+            dues: []
           });
           changed = true;
         } else if (updated[existingIdx].name !== s.name || updated[existingIdx].class !== classNameStr) {
@@ -843,7 +841,8 @@ export default function App() {
           monthlyFee: s.baseFee || 0,
           enrollmentMonth: s.enrollmentMonth || 'January',
           payments: [],
-          otherFunds: []
+          otherFunds: [],
+          dues: []
         };
       }
     });
@@ -887,62 +886,21 @@ export default function App() {
     }
   }, [userSession]);
 
-  // --- PERIODIC FIRESTORE SYNC (every 30 seconds) - PULL from cloud ---
-  useEffect(() => {
-    if (!userSession) return;
+  // --- PERIODIC FIRESTORE SYNC — REMOVED (quota fix) ---
+  // The old 30s full-pull (~750 reads every 30s) and 60s full-push (~750 writes
+  // every 60s) exhausted the Firebase free-tier quota (RESOURCE_EXHAUSTED), after
+  // which ALL new saves failed. Real-time updates are already handled by the
+  // onSnapshot listeners in each dashboard (near-zero quota cost), and local
+  // changes are pushed by the differential batch writer below, which only
+  // writes documents that actually changed. pushLocalToCloud() is kept for the
+  // manual "Force Sync to Cloud" button only.
 
-    const syncInterval = setInterval(async () => {
-      try {
-        const [
-          teachersSnap, classesSnap, studentsSnap, timetableSnap,
-          attendanceSnap, marksSnap, feesSnap, feeDataSnap
-        ] = await Promise.all([
-          getDocs(collection(db, "teachers")),
-          getDocs(collection(db, "classes")),
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "timetable")),
-          getDocs(collection(db, "attendance")),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "fees")),
-          getDocs(collection(db, "fee_data")),
-        ]);
 
-        const newTeachers: Teacher[] = [];
-        teachersSnap.forEach(d => newTeachers.push(d.data() as Teacher));
-        const newClasses: Class[] = [];
-        classesSnap.forEach(d => newClasses.push(d.data() as Class));
-        const newStudents: Student[] = [];
-        studentsSnap.forEach(d => newStudents.push(d.data() as Student));
-        const newTimetable: TimetableEntry[] = [];
-        timetableSnap.forEach(d => newTimetable.push(d.data() as TimetableEntry));
-        const newAttendance: Attendance[] = [];
-        attendanceSnap.forEach(d => newAttendance.push(d.data() as Attendance));
-        const newMarks: Mark[] = [];
-        marksSnap.forEach(d => newMarks.push(d.data() as Mark));
-        const newFees: FeeRecord[] = [];
-        feesSnap.forEach(d => newFees.push(d.data() as FeeRecord));
-        const newFeeStudents: StudentFeeData[] = [];
-        feeDataSnap.forEach(d => newFeeStudents.push(d.data() as StudentFeeData));
-
-        if (newTeachers.length > 0) setTeachers(newTeachers);
-        if (newClasses.length > 0) setClasses(newClasses);
-        if (newStudents.length > 0) setStudents(newStudents);
-        if (newTimetable.length > 0) setTimetable(newTimetable);
-        if (newAttendance.length > 0) setAttendance(newAttendance);
-        if (newMarks.length > 0) setMarks(newMarks);
-        if (newFees.length > 0) setFees(newFees);
-        if (newFeeStudents.length > 0) setFeeStudents(newFeeStudents);
-
-        isSyncComplete.current = true;
-      } catch (err) {
-        console.warn("Periodic pull sync skipped (offline):", err);
-      }
-    }, 30000);
-
-    return () => clearInterval(syncInterval);
-  }, [userSession]);
-
-  // --- PERIODIC PUSH TO FIRESTORE (every 60 seconds) ---
+  // NOTE: The automatic 60-second full push was removed (quota fix) — it rewrote
+  // every document (~750 writes/minute) and exhausted the free-tier write quota,
+  // which made ALL saves fail with RESOURCE_EXHAUSTED. Changed documents are
+  // pushed in real time by the differential batch writer, and "Force Sync to
+  // Cloud" (this function) remains available as a manual full backup.
   const pushLocalToCloud = useCallback(async () => {
     if (!userSession) return;
     
@@ -967,28 +925,28 @@ export default function App() {
           const listItems = item.data;
           for (const listItem of listItems) {
             if (listItem && listItem.id) {
-              await setDoc(doc(db, item.col, String(listItem.id)), listItem);
+              // sanitizeForFirestore strips 'undefined' values Firestore rejects —
+              // without it a single optional field (email, photo, paidDate...)
+              // failed the ENTIRE push.
+              await setDoc(doc(db, item.col, String(listItem.id)), sanitizeForFirestore(listItem));
             }
           }
         } else if (item.type === 'object' && item.docId) {
-          await setDoc(doc(db, item.col, item.docId), item.data);
+          await setDoc(doc(db, item.col, item.docId), sanitizeForFirestore(item.data));
         }
       }
       
       console.log("Push to Firestore complete");
     } catch (err) {
       console.warn("Push to Firestore failed:", err);
+      // Rethrow so callers (e.g. the Force Sync button) can surface the failure
+      // instead of showing a false "synced" success message.
+      throw err;
     }
   }, [userSession, teachers, classes, students, timetable, attendance, marks, fees, coordinators, feeStudents, appSettings]);
 
-  // Push to cloud every 60 seconds
-  useEffect(() => {
-    if (!userSession) return;
-    const pushInterval = setInterval(() => {
-      pushLocalToCloud();
-    }, 60000);
-    return () => clearInterval(pushInterval);
-  }, [pushLocalToCloud, userSession]);
+  // Push interval removed — see note above pushLocalToCloud (quota fix).
+
 
   // --- ACTIONS ---
   const handleLogin = (session: UserSession) => {
@@ -1004,6 +962,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
+
+      {/* Cloud sync health banner */}
+      {syncError && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[10000] bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full shadow-lg print:hidden max-w-[90vw] truncate">
+          Cloud sync issue: {syncError} — data saved locally, retrying
+        </div>
+      )}
 
       {/* PWA Install Modal Popup */}
       <AnimatePresence>
@@ -1105,7 +1070,9 @@ export default function App() {
           students={students}
           setStudents={setStudents}
           classes={classes}
+          setClasses={setClasses}
           timetable={timetable}
+          setTimetable={setTimetable}
           attendance={attendance}
           setAttendance={setAttendance}
           marks={marks}
@@ -1126,12 +1093,17 @@ export default function App() {
           students={students}
           setStudents={setStudents}
           classes={classes}
+          setClasses={setClasses}
           timetable={timetable}
+          setTimetable={setTimetable}
           attendance={attendance}
+          setAttendance={setAttendance}
           marks={marks}
+          setMarks={setMarks}
           fees={fees}
           setFees={setFees}
           assignments={assignments}
+          setAssignments={setAssignments}
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}

@@ -83,6 +83,8 @@ export interface FeeRecord {
   paymentMethod?: string; // e.g., "Credit Card", "Bank Transfer", "Cash"
   feeType?: 'Tuition Fee' | 'Admission Fee' | 'Annual Fee' | 'Paper Fund' | 'Pending Balance' | 'Miscellaneous' | string;
   description?: string;
+  /** Agar yeh payment kisi due (khata) ke collection se bani hai to us due ka id (double-count guard). */
+  dueId?: string;
 }
 
 export interface DueEntry {
@@ -94,6 +96,8 @@ export interface DueEntry {
   month: string;
   year: number;
   status: 'pending' | 'paid' | 'waived';
+  /** Partial collection support: kitna amount already PAID collect ho chuka hai (0 = kuch nahi). */
+  paidAmount?: number;
   paidDate?: string;
   paymentMethod?: string;
   studentName?: string;

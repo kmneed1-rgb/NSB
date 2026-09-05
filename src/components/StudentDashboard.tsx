@@ -1,5 +1,6 @@
 import { db } from '../firebase';
 import { doc, setDoc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
+import { listChanged, sanitizeForFirestore } from '../lib/firestoreUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -21,12 +22,17 @@ interface StudentDashboardProps {
   students: Student[];
   setStudents: React.Dispatch<React.SetStateAction<Student[]>>;
   classes: Class[];
+  setClasses: React.Dispatch<React.SetStateAction<Class[]>>;
   timetable: TimetableEntry[];
+  setTimetable: React.Dispatch<React.SetStateAction<TimetableEntry[]>>;
   attendance: Attendance[];
+  setAttendance: React.Dispatch<React.SetStateAction<Attendance[]>>;
   marks: Mark[];
+  setMarks: React.Dispatch<React.SetStateAction<Mark[]>>;
   fees: FeeRecord[];
   setFees: React.Dispatch<React.SetStateAction<FeeRecord[]>>;
   assignments: Assignment[];
+  setAssignments: React.Dispatch<React.SetStateAction<Assignment[]>>;
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
@@ -43,12 +49,17 @@ export default function StudentDashboard({
   students,
   setStudents,
   classes,
+  setClasses,
   timetable,
+  setTimetable,
   attendance,
+  setAttendance,
   marks,
+  setMarks,
   fees,
   setFees,
   assignments,
+  setAssignments,
   onLogout,
   installPromptEvent,
   onInstallApp
@@ -78,72 +89,93 @@ export default function StudentDashboard({
     }
   };
 
+  // Latest-state refs so realtime callbacks never read stale closures
+  const studentsRef = useRef(students);
+  const classesRef = useRef(classes);
+  const timetableRef = useRef(timetable);
+  const attendanceRef = useRef(attendance);
+  const marksRef = useRef(marks);
+  const assignmentsRef = useRef(assignments);
+  useEffect(() => { studentsRef.current = students; }, [students]);
+  useEffect(() => { classesRef.current = classes; }, [classes]);
+  useEffect(() => { timetableRef.current = timetable; }, [timetable]);
+  useEffect(() => { attendanceRef.current = attendance; }, [attendance]);
+  useEffect(() => { marksRef.current = marks; }, [marks]);
+  useEffect(() => { assignmentsRef.current = assignments; }, [assignments]);
+
   // Real-time Firebase listeners for cross-portal sync (Student Dashboard)
   useEffect(() => {
     // Listen for student changes (profile updates)
     const studentsUnsubscribe = onSnapshot(collection(db, 'students'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return; // skip echoes of our own pending writes
       const updatedStudents: Student[] = [];
-      snapshot.forEach(doc => {
-        updatedStudents.push({ id: doc.id, ...doc.data() } as Student);
+      snapshot.forEach(d => {
+        updatedStudents.push({ id: d.id, ...d.data() } as Student);
       });
-      if (updatedStudents.length !== students.length) {
-        setStudents(updatedStudents);
-      }
+      // Deep per-item compare (catches same-length edits that length checks missed)
+      if (!listChanged(studentsRef.current, updatedStudents)) return;
+      studentsRef.current = updatedStudents;
+      setStudents(updatedStudents);
     });
 
     // Listen for class changes (teacher reassignment affects student's class)
     const classesUnsubscribe = onSnapshot(collection(db, 'classes'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedClasses: Class[] = [];
-      snapshot.forEach(doc => {
-        updatedClasses.push({ id: doc.id, ...doc.data() } as Class);
+      snapshot.forEach(d => {
+        updatedClasses.push({ id: d.id, ...d.data() } as Class);
       });
-      if (updatedClasses.length !== classes.length) {
-        setClasses(updatedClasses);
-      }
+      if (!listChanged(classesRef.current, updatedClasses)) return;
+      classesRef.current = updatedClasses;
+      setClasses(updatedClasses);
     });
 
     // Listen for timetable changes
     const timetableUnsubscribe = onSnapshot(collection(db, 'timetable'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedTimetable: TimetableEntry[] = [];
-      snapshot.forEach(doc => {
-        updatedTimetable.push({ id: doc.id, ...doc.data() } as TimetableEntry);
+      snapshot.forEach(d => {
+        updatedTimetable.push({ id: d.id, ...d.data() } as TimetableEntry);
       });
-      if (updatedTimetable.length !== timetable.length) {
-        setTimetable(updatedTimetable);
-      }
+      if (!listChanged(timetableRef.current, updatedTimetable)) return;
+      timetableRef.current = updatedTimetable;
+      setTimetable(updatedTimetable);
     });
 
     // Listen for attendance changes
     const attendanceUnsubscribe = onSnapshot(query(collection(db, 'attendance'), orderBy('date', 'desc')), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedAttendance: Attendance[] = [];
-      snapshot.forEach(doc => {
-        updatedAttendance.push({ id: doc.id, ...doc.data() } as Attendance);
+      snapshot.forEach(d => {
+        updatedAttendance.push({ id: d.id, ...d.data() } as Attendance);
       });
-      if (updatedAttendance.length !== attendance.length) {
-        setAttendance(updatedAttendance);
-      }
+      if (!listChanged(attendanceRef.current, updatedAttendance)) return;
+      attendanceRef.current = updatedAttendance;
+      setAttendance(updatedAttendance);
     });
 
     // Listen for marks changes
     const marksUnsubscribe = onSnapshot(collection(db, 'marks'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedMarks: Mark[] = [];
-      snapshot.forEach(doc => {
-        updatedMarks.push({ id: doc.id, ...doc.data() } as Mark);
+      snapshot.forEach(d => {
+        updatedMarks.push({ id: d.id, ...d.data() } as Mark);
       });
-      if (updatedMarks.length !== marks.length) {
-        setMarks(updatedMarks);
-      }
+      if (!listChanged(marksRef.current, updatedMarks)) return;
+      marksRef.current = updatedMarks;
+      setMarks(updatedMarks);
     });
 
     // Listen for assignments changes
     const assignmentsUnsubscribe = onSnapshot(collection(db, 'assignments'), (snapshot) => {
+      if (snapshot.metadata.hasPendingWrites) return;
       const updatedAssignments: Assignment[] = [];
-      snapshot.forEach(doc => {
-        updatedAssignments.push({ id: doc.id, ...doc.data() } as Assignment);
+      snapshot.forEach(d => {
+        updatedAssignments.push({ id: d.id, ...d.data() } as Assignment);
       });
-      if (updatedAssignments.length !== assignments.length) {
-        setAssignments(updatedAssignments);
-      }
+      if (!listChanged(assignmentsRef.current, updatedAssignments)) return;
+      assignmentsRef.current = updatedAssignments;
+      setAssignments(updatedAssignments);
     });
 
     return () => {
@@ -339,7 +371,8 @@ export default function StudentDashboard({
     // Also save to database
     try {
       const studentRef = doc(db, 'students', studentProfile.id);
-      await setDoc(studentRef, updatedStudent, { merge: true });
+      // sanitizeForFirestore strips 'undefined' values Firestore rejects
+      await setDoc(studentRef, sanitizeForFirestore(updatedStudent), { merge: true });
       toast.success("ID Card design saved permanently!");
     } catch (err) {
       console.error(err);
@@ -1421,7 +1454,8 @@ export default function StudentDashboard({
             class: assignedClass ? `${assignedClass.className}-${assignedClass.section}` : 'N/A',
             monthlyFee: studentProfile?.baseFee || 1500,
             payments: [],
-            otherFunds: []
+            otherFunds: [],
+            dues: []
           };
 
           const account = getStudentFullAccount(fStudent, 2026);
