@@ -11,6 +11,7 @@ import { addNotification, getNotifications, saveNotifications, PortalNotificatio
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, DueEntry, Assignment, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
+import { FeePaymentCenter } from './FeePaymentCenter';
 import { useLongPress } from '../lib/longPress';
 import { 
   addPayment, 
@@ -928,6 +929,116 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       }
       }
     }
+  };
+
+  // ===== FEE PAYMENT CENTER — state + handlers =====
+  const [showFeePaymentCenter, setShowFeePaymentCenter] = useState(false);
+  const [feePaymentCenterStudentId, setFeePaymentCenterStudentId] = useState<string | undefined>(undefined);
+
+  const openFeePaymentCenter = (studentId?: string) => {
+    setFeePaymentCenterStudentId(studentId);
+    setShowFeePaymentCenter(true);
+  };
+
+  const fpcMakeId = (seq: number = 0) => 'REC_' + Date.now().toString(36).toUpperCase() + '_' + seq.toString(36).toUpperCase() + Math.random().toString(36).substr(2, 5).toUpperCase();
+
+  const fpcNotifyWhatsApp = (studentId: string | number, totalAmount: number, categoriesText: string, periodText: string) => {
+    const studentObj = students.find(s => String(s.id) === String(studentId));
+    if (!appSettings.whatsAppAutoFee || !studentObj?.parentPhone) return;
+    const fStudent = feeStudents.find(fs => String(fs.id) === String(studentId));
+    const totalPending = Math.max(0, (fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0));
+    const classId = studentObj?.classId;
+    const sClass = classId ? classes.find(c => c.id === classId) : null;
+    const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
+    const template = `Greetings! We have received a payment of PKR ${totalAmount.toLocaleString()}${periodText ? ` for ${periodText}` : ''} (${categoriesText}) from ${studentObj.name} (${className}). Your remaining balance is PKR ${totalPending.toLocaleString()}. Thank you for your cooperation. NSB1 School.`;
+    const phone = String(studentObj.parentPhone).replace(/\D/g, '');
+    let countryCodePhone = phone;
+    if (countryCodePhone.startsWith('0')) {
+      countryCodePhone = '92' + countryCodePhone.substring(1);
+    } else if (!countryCodePhone.startsWith('92') && countryCodePhone.length === 10) {
+      countryCodePhone = '92' + countryCodePhone;
+    }
+    const waUrl = `https://wa.me/${countryCodePhone}?text=${encodeURIComponent(template)}`;
+    if (appSettings.autoWhatsAppRedirect) {
+      window.open(waUrl, '_blank');
+    }
+  };
+
+  // Month ki fee record karo (Fee Payment Center se)
+  const handleFpcPayMonth = (studentId: string | number, monthKey: string, payYear: number, amount: number, method: string) => {
+    const monthName = String(monthKey).split(' ')[0] || String(monthKey);
+    const today = new Date().toISOString().split('T')[0];
+    const recId = fpcMakeId();
+    setFeeStudents(prev => prev.map(fs => {
+      if (String(fs.id) !== String(studentId)) return fs;
+      return { ...fs, payments: [...(fs.payments || []), { id: recId, month: monthName, year: payYear, amount, date: today, feeType: 'School Fee' }] };
+    }));
+    setFees(prev => [{
+      id: recId, studentId: String(studentId), amount, dueDate: today, status: 'paid' as const, paidDate: today,
+      month: `${monthName} ${payYear}`, paymentMethod: method, feeType: 'School Fee', description: 'Fee Payment Center — month fee'
+    }, ...prev]);
+    const sName = students.find(s => String(s.id) === String(studentId))?.name || 'Student';
+    toast.success(`PKR ${amount.toLocaleString()} received — ${monthName} ${payYear} fee ✓ ${sName} (Receipt #${recId})`);
+    fpcNotifyWhatsApp(studentId, amount, 'School Fee', `${monthName} ${payYear}`);
+  };
+
+  // Due (Paper Fund, Exam Fee, Other Fund...) collect karo — partial supported
+  const handleFpcCollectDue = (studentId: string | number, dueId: string, amount: number, method: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const fStudent = feeStudents.find(fs => String(fs.id) === String(studentId));
+    const dueObj = fStudent?.dues?.find(d => d.id === dueId);
+    if (!dueObj) { toast.error('Due entry nahi mili.'); return; }
+    const recId = fpcMakeId();
+    setFeeStudents(prev => prev.map(fs => {
+      if (String(fs.id) !== String(studentId)) return fs;
+      return {
+        ...fs,
+        dues: (fs.dues || []).map(d => {
+          if (d.id !== dueId) return d;
+          const already = getDuePaid(d);
+          const maxAdd = Math.max(0, (Number(d.amount) || 0) - already);
+          const toAdd = Math.min(amount, maxAdd);
+          if (toAdd <= 0) return d;
+          const newPaid = already + toAdd;
+          const fullyPaid = newPaid >= (Number(d.amount) || 0);
+          return { ...d, paidAmount: newPaid, status: fullyPaid ? ('paid' as const) : ('pending' as const), paidDate: today, paymentMethod: method };
+        })
+      };
+    }));
+    setFees(prev => [{
+      id: recId, studentId: String(studentId), amount, dueDate: today, status: 'paid' as const, paidDate: today,
+      month: dueObj.month, paymentMethod: method, feeType: dueObj.desc, dueId, description: `Collected: ${dueObj.desc}`
+    }, ...prev]);
+    const sNameC = fStudent?.name || students.find(s => String(s.id) === String(studentId))?.name || 'Student';
+    const newRemaining = Math.max(0, (Number(dueObj.amount) || 0) - (getDuePaid(dueObj) + amount));
+    toast.success(`PKR ${amount.toLocaleString()} collected — "${dueObj.desc}" ✓ ${sNameC}${newRemaining > 0 ? ` — PKR ${newRemaining.toLocaleString()} pending` : ' — DUE FULLY PAID ✓'} (Receipt #${recId})`);
+    fpcNotifyWhatsApp(studentId, amount, dueObj.desc, `${dueObj.month} ${dueObj.year}`);
+  };
+
+  // Total remaining tuition — purane pending months (oldest first) mein auto-spread
+  const handleFpcPayAutoSpread = (studentId: string | number, amount: number, method: string) => {
+    const studentObj = students.find(s => String(s.id) === String(studentId));
+    const fsObj = feeStudents.find(fs => String(fs.id) === String(studentId));
+    const payYear = new Date().getFullYear();
+    const allocs = buildTuitionAllocation(fsObj, studentObj, amount, payYear);
+    if (allocs.length === 0) { toast.error('Allocation fail — base fee ya amount check karein.'); return; }
+    const today = new Date().toISOString().split('T')[0];
+    const newFeeRecords: FeeRecord[] = [];
+    const newPayments: { id: string; month: string; year: number; amount: number; date: string; feeType: string }[] = [];
+    allocs.forEach((a, i) => {
+      const id = fpcMakeId(i);
+      newFeeRecords.push({
+        id, studentId: String(studentId), amount: a.amount, dueDate: today, status: 'paid', paidDate: today,
+        month: `${a.month} ${a.year}`, paymentMethod: method, feeType: 'School Fee', description: 'Fee Payment Center — auto-spread'
+      });
+      newPayments.push({ id, month: a.month, year: a.year, amount: a.amount, date: today, feeType: 'School Fee' });
+    });
+    setFeeStudents(prev => prev.map(fs => String(fs.id) === String(studentId) ? { ...fs, payments: [...(fs.payments || []), ...newPayments] } : fs));
+    setFees(prev => [...newFeeRecords, ...prev]);
+    const monthsText = allocs.map(a => a.month).join(', ');
+    const sName = studentObj?.name || fsObj?.name || 'Student';
+    toast.success(`PKR ${amount.toLocaleString()} received ✓ ${sName} — spread across: ${monthsText} (Receipt #${newFeeRecords[0].id})`);
+    fpcNotifyWhatsApp(studentId, amount, 'School Fee', monthsText);
   };
 
   // Open the quick collect modal pre-filled for ONE month's remaining balance
@@ -2753,10 +2864,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   {userSession.role !== 'coordinator' && (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-                        <div className="p-6 bg-rose-50/50 border border-rose-100">
+                        <button
+                          onClick={() => openFeePaymentCenter()}
+                          className="p-6 bg-rose-50/50 border border-rose-100 hover:border-rose-400 hover:bg-rose-50 text-left transition-all cursor-pointer group"
+                          title="Click karein — Fee Payment Center khulega"
+                        >
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-rose-600 block">Remaining Fee</span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
-                        </div>
+                          <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">Pay Now <ArrowRight size={11} /></span>
+                        </button>
                         <div className="p-6 bg-violet-50/50 border border-violet-100">
                           <span className="text-xs font-black uppercase tracking-[0.3em] mb-3 text-violet-600 block">{currentMonthName} Fee · Total Paid</span>
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
@@ -2766,6 +2882,23 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                           <span className="text-2xl md:text-3xl font-light tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
                         </div>
                       </div>
+
+                      {/* FEE PAYMENT CENTER — prominent CTA banner */}
+                      <button
+                        onClick={() => openFeePaymentCenter()}
+                        className="w-full mt-4 p-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 rounded-2xl shadow-md text-left text-white transition-all cursor-pointer flex items-center justify-between gap-4 group"
+                      >
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                            <CreditCard size={24} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-black uppercase tracking-widest">Fee Payment Center</p>
+                            <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest truncate">Month-wise Fee • Paper Fund • Other Funds • Dues — Sab kuch ek jagah se pay karein</p>
+                          </div>
+                        </div>
+                        <span className="px-4 py-2 bg-white text-emerald-700 text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0 group-hover:scale-105 transition-transform">Open <ArrowRight size={12} className="inline ml-1" /></span>
+                      </button>
 
                       {/* Extra Charges & Dues Summary Cards — HIDDEN for cleaner dashboard */}
                     </>
@@ -4161,6 +4294,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               onSelectMonth={(m) => setMonthHistoryFilter(m ? { studentId: String(student.id), month: m, year: feeLedgerYear } : null)}
                                               onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, feeLedgerYear, pending)}
                                               onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
+                                              onPayDues={() => openFeePaymentCenter(String(student.id))}
                                             />
 
                                             {(() => {
@@ -4435,6 +4569,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     year={new Date().getFullYear()}
                                                     onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, new Date().getFullYear(), pending)}
                                                     onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
+                                                    onPayDues={() => openFeePaymentCenter(String(student.id))}
                                                   />
                                                   {/* History Log List (filtered by clicked month card) */}
                                                   {(() => {
@@ -5268,14 +5403,16 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     <p className="text-xs sm:text-xs font-black text-emerald-600 uppercase tracking-tight sm:tracking-widest truncate">Collected</p>
                     <p className="text-xs sm:text-xl font-black text-emerald-700">{stats.totalCollected.toLocaleString()}</p>
                   </div>
-                  <div className="bg-rose-50 p-2 sm:p-4 rounded-2xl border border-rose-100 shadow-sm">
+                  <button onClick={() => openFeePaymentCenter()} className="bg-rose-50 p-2 sm:p-4 rounded-2xl border border-rose-100 hover:border-rose-400 hover:shadow-md transition-all cursor-pointer text-left" title="Click karein — Fee Payment Center khulega">
                     <p className="text-xs sm:text-xs font-black text-rose-600 uppercase tracking-tight sm:tracking-widest truncate">Pending</p>
                     <p className="text-xs sm:text-xl font-black text-rose-700">{stats.totalPending.toLocaleString()}</p>
-                  </div>
-                  <div className="bg-amber-50 p-2 sm:p-4 rounded-2xl border border-amber-100 shadow-sm">
+                    <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mt-1">Pay Now →</p>
+                  </button>
+                  <button onClick={() => openFeePaymentCenter()} className="bg-amber-50 p-2 sm:p-4 rounded-2xl border border-amber-100 hover:border-amber-400 hover:shadow-md transition-all cursor-pointer text-left" title="Click karein — Fee Payment Center khulega">
                     <p className="text-xs sm:text-xs font-black text-amber-600 uppercase tracking-tight sm:tracking-widest truncate">Other Funds</p>
                     <p className="text-xs sm:text-xl font-black text-amber-700">{stats.totalOther.toLocaleString()}</p>
-                  </div>
+                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mt-1">Pay Dues →</p>
+                  </button>
                 </div>
               );
             })()}
@@ -5343,8 +5480,16 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs font-bold">
                         {allDues.map((d, idx) => (
-                          <tr key={idx} className="hover:bg-amber-50/30 transition-colors">
-                            <td className="px-4 py-3 text-slate-900 font-black">{d.studentName}</td>
+                          <tr
+                            key={idx}
+                            onClick={d.pending > 0 ? () => openFeePaymentCenter(String(d.studentId)) : undefined}
+                            title={d.pending > 0 ? 'Click karein — Fee Payment Center se pay karein' : undefined}
+                            className={`transition-colors ${d.pending > 0 ? 'hover:bg-amber-50/60 cursor-pointer' : 'hover:bg-amber-50/30'}`}
+                          >
+                            <td className="px-4 py-3 text-slate-900 font-black">
+                              {d.studentName}
+                              {d.pending > 0 && <span className="ml-2 text-[9px] font-black text-amber-600 uppercase tracking-widest">Pay →</span>}
+                            </td>
                             <td className="px-4 py-3 text-slate-500">{d.className}</td>
                             <td className="px-4 py-3">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-600">
@@ -9702,6 +9847,18 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         )}
       </AnimatePresence>
 
+      {/* FEE PAYMENT CENTER — complete month-wise fee + dues payment modal */}
+      <FeePaymentCenter
+        open={showFeePaymentCenter}
+        onClose={() => setShowFeePaymentCenter(false)}
+        feeStudents={feeStudents}
+        students={students}
+        initialStudentId={feePaymentCenterStudentId}
+        onPayMonth={handleFpcPayMonth}
+        onCollectDue={handleFpcCollectDue}
+        onPayAutoSpread={handleFpcPayAutoSpread}
+      />
+
       {/* Fee Record Action Modal (Hold / Long-press) */}
       <AnimatePresence>
         {feeActionModal.isOpen && feeActionModal.fee && (
@@ -9933,7 +10090,7 @@ function FeeReceiptCard({ fee, student, onAction, onDelete }: {
 // Dues (unpaid extra charges like Paper Fund) also show in same month card.
 // Student only sees months from their enrollment month onward.
 // Mixed month formats ('Jun', 'Jun 2026', 'June 2026') handled via robust matching.
-function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth, onYearChange }: {
+function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMonth, onSelectMonth, onCollect, onDeleteMonth, onYearChange, onPayDues }: {
   feeStudent?: StudentFeeData;
   student: Student;
   feeRecords?: FeeRecord[];
@@ -9943,6 +10100,7 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
   onCollect: (month: string, remaining: number) => void;
   onDeleteMonth: (month: string, year: number) => void;
   onYearChange?: (year: number) => void;
+  onPayDues?: () => void;
 }) {
   const base = Math.max(0, Number(student.baseFee ?? feeStudent?.monthlyFee ?? 0));
   // Months: current (enrollment) year me enrollment month se start;
@@ -10057,10 +10215,14 @@ function FeeMonthGrid({ feeStudent, student, feeRecords = [], year, selectedMont
           <span className="block text-[9px] font-black text-rose-400 uppercase tracking-widest">Remaining (All Months)</span>
           <span className="block text-sm font-black text-rose-600">{totalRemainingAll > 0 ? `PKR ${totalRemainingAll.toLocaleString()}` : 'Clear ✓'}</span>
         </div>
-        <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-100">
-          <span className="block text-[9px] font-black text-amber-500 uppercase tracking-widest">Dues / Paper Fund</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onPayDues?.(); }}
+          title={totals.dues > 0 ? 'Click karein — dues/paper fund pay karein' : 'Koi due pending nahi'}
+          className={`p-2.5 rounded-xl bg-amber-50/70 border border-amber-100 text-left ${totals.dues > 0 ? 'hover:border-amber-400 hover:shadow-md cursor-pointer transition-all' : 'cursor-default'}`}
+        >
+          <span className="block text-[9px] font-black text-amber-500 uppercase tracking-widest">Dues / Paper Fund {totals.dues > 0 ? '• Pay →' : ''}</span>
           <span className="block text-sm font-black text-amber-700">{totals.dues > 0 ? `PKR ${totals.dues.toLocaleString()}` : 'Clear ✓'}</span>
-        </div>
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
