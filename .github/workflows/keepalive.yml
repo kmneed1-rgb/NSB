@@ -1,0 +1,28 @@
+name: Supabase Keepalive
+
+# Har 2 din Supabase ko ping karta hai taake free project pause na ho.
+# NOTE: Repo 60 din inactive raha toh GitHub scheduled workflows auto-disable ho jate hain —
+# us case mein Actions tab se "Run workflow" se manually trigger karein.
+on:
+  schedule:
+    - cron: '0 4 */2 * *' # har 2 din, 04:00 UTC
+  workflow_dispatch: # manual trigger (Actions tab → Run workflow)
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Repo settings → Secrets and variables → Actions mein set karein:
+      #   SUPABASE_URL = https://YOUR-PROJECT.supabase.co
+      #   SUPABASE_PUBLISHABLE_KEY = sb_publishable_... (ya anon key)
+      - name: Ping Supabase
+        run: node scripts/supabase-keepalive.cjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
