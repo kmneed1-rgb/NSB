@@ -3,7 +3,8 @@
 // Run: node scripts/supabase-keepalive.cjs          (one-shot ping — GitHub Actions / Task Scheduler)
 //     npm run keepalive
 // Env: VITE_SUPABASE_URL (ya SUPABASE_URL) + VITE_SUPABASE_PUBLISHABLE_KEY (ya SUPABASE_PUBLISHABLE_KEY)
-require('dotenv').config();
+// dotenv optional hai — GitHub Actions par node_modules install nahi hota, env vars workflow se aate hain.
+try { require('dotenv').config(); } catch (_) { /* CI: ignore */ }
 
 const url = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const key =
