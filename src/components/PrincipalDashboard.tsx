@@ -87,6 +87,42 @@ const buildTuitionAllocation = (
   }
   return allocs;
 };
+
+/**
+ * Auto-spread a tuition payment starting from a SPECIFIC month (clicked month) forward.
+ * Used by Fee Payment Center month-row Pay and Quick Collect target-month mode.
+ * The clicked month fills first, then excess rolls into subsequent months (oldest-first from there).
+ */
+const buildTuitionAllocationFrom = (
+  feeStudent: StudentFeeData | undefined,
+  student: Student | undefined,
+  amount: number,
+  year: number,
+  startMonthIdx: number
+): { month: string; year: number; amount: number }[] => {
+  if (!student) return [];
+  const base = Math.max(0, Number(student.baseFee ?? feeStudent?.monthlyFee ?? 0));
+  if (base <= 0 || !(amount > 0)) return [];
+  const payments = feeStudent?.payments || [];
+  const allocs: { month: string; year: number; amount: number }[] = [];
+  let remaining = amount;
+  for (let mi = startMonthIdx; mi < 12 && remaining > 0; mi++) {
+    const monthName = MONTHS[mi];
+    const tuitionPaid = payments
+      .filter(p => {
+        const key = parseMonthKey(p.month, Number(p.year) || year);
+        return key.idx === mi && key.year === Number(year) && (!p.feeType || TUITION_FEE_TYPES.test(p.feeType));
+      })
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const pending = Math.max(0, base - tuitionPaid);
+    if (pending <= 0) continue;
+    const toPay = Math.min(pending, remaining);
+    remaining -= toPay;
+    allocs.push({ month: monthName, year: Number(year), amount: toPay });
+  }
+  return allocs;
+};
+
 const parseMonthKey = (raw: unknown, fallbackYear: number): { idx: number; year: number } => {
   const s = String(raw ?? '').trim();
   const m = s.match(/^([A-Za-z]+)\s*,?\s*(\d{4})?$/);
@@ -777,9 +813,16 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               remainingAfterTuition -= toDue;
             }
           }
-          // Agar kuch bhi bacha ho → selected month mein advance / extra
+          // Agar kuch bhi bacha ho → pehle aage ke pending months mein roll-over, December ke baad bacha to advance
           if (remainingAfterTuition > 0) {
-            pushForMonth(entry.feeType, remainingAfterTuition, month, year);
+            const nextAllocs = buildTuitionAllocationFrom(feeStudentObj, studentObj, remainingAfterTuition, year, tIdx + 1);
+            let rolled = 0;
+            nextAllocs.forEach(a => {
+              pushForMonth(entry.feeType, a.amount, a.month, a.year);
+              rolled += a.amount;
+            });
+            const stillLeft = remainingAfterTuition - rolled;
+            if (stillLeft > 0) pushForMonth(entry.feeType, stillLeft, month, year);
           }
         } else {
           // --- NORMAL AUTO-SPREAD: ek amount sary pending months me khud batt jata hai ---
@@ -1057,22 +1100,69 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     }
   };
 
-  // Month ki fee record karo (Fee Payment Center se)
+  // Month ki fee record karo (Fee Payment Center se) — base fee se zyada ho to aage ke months mein roll-over
   const handleFpcPayMonth = (studentId: string | number, monthKey: string, payYear: number, amount: number, method: string) => {
     const monthName = String(monthKey).split(' ')[0] || String(monthKey);
     const today = new Date().toISOString().split('T')[0];
-    const recId = fpcMakeId();
-    setFeeStudents(prev => prev.map(fs => {
-      if (String(fs.id) !== String(studentId)) return fs;
-      return { ...fs, payments: [...(fs.payments || []), { id: recId, month: monthName, year: payYear, amount, date: today, feeType: 'School Fee' }] };
-    }));
-    setFees(prev => [{
-      id: recId, studentId: String(studentId), amount, dueDate: today, status: 'paid' as const, paidDate: today,
-      month: `${monthName} ${payYear}`, paymentMethod: method, feeType: 'School Fee', description: 'Fee Payment Center — month fee'
-    }, ...prev]);
-    const sName = students.find(s => String(s.id) === String(studentId))?.name || 'Student';
-    toast.success(`PKR ${amount.toLocaleString()} received — ${monthName} ${payYear} fee ✓ ${sName} (Receipt #${recId})`);
-    fpcNotifyWhatsApp(studentId, amount, 'School Fee', `${monthName} ${payYear}`);
+    const targetIdx = parseMonthKey(monthKey, payYear).idx;
+    const studentObj = students.find(s => String(s.id) === String(studentId));
+    const fsObj = feeStudents.find(fs => String(fs.id) === String(studentId));
+
+    // Amount ko clicked month se start hokar aage ke pending months mein auto-spread karo
+    const startIdx = targetIdx >= 0 ? targetIdx : 0;
+    const allocs = buildTuitionAllocationFrom(fsObj, studentObj, amount, payYear, startIdx);
+
+    // Agar allocation nahi bana (e.g. amount<=0 ya baseFee<=0) to seedhi entry karo target month mein
+    if (allocs.length === 0) {
+      const recId = fpcMakeId();
+      setFeeStudents(prev => prev.map(fs => {
+        if (String(fs.id) !== String(studentId)) return fs;
+        return { ...fs, payments: [...(fs.payments || []), { id: recId, month: monthName, year: payYear, amount, date: today, feeType: 'School Fee' }] };
+      }));
+      setFees(prev => [{
+        id: recId, studentId: String(studentId), amount, dueDate: today, status: 'paid' as const, paidDate: today,
+        month: `${monthName} ${payYear}`, paymentMethod: method, feeType: 'School Fee', description: 'Fee Payment Center — month fee'
+      }, ...prev]);
+      const sName = studentObj?.name || fsObj?.name || 'Student';
+      toast.success(`PKR ${amount.toLocaleString()} received — ${monthName} ${payYear} fee ✓ ${sName} (Receipt #${recId})`);
+      fpcNotifyWhatsApp(studentId, amount, 'School Fee', `${monthName} ${payYear}`);
+      return;
+    }
+
+    const newFeeRecords: FeeRecord[] = [];
+    const newPayments: { id: string; month: string; year: number; amount: number; date: string; feeType: string }[] = [];
+    let allocated = 0;
+    allocs.forEach((a, i) => {
+      const id = fpcMakeId(i);
+      newFeeRecords.push({
+        id, studentId: String(studentId), amount: a.amount, dueDate: today, status: 'paid' as const, paidDate: today,
+        month: `${a.month} ${a.year}`, paymentMethod: method, feeType: 'School Fee',
+        description: 'Fee Payment Center — month fee (auto-spread)'
+      });
+      newPayments.push({ id, month: a.month, year: a.year, amount: a.amount, date: today, feeType: 'School Fee' });
+      allocated += a.amount;
+    });
+
+    // Agar December ke baad bhi bacha (year boundary) to target month mein advance
+    const leftover = amount - allocated;
+    if (leftover > 0) {
+      const advId = fpcMakeId(99);
+      newFeeRecords.push({
+        id: advId, studentId: String(studentId), amount: leftover, dueDate: today, status: 'paid' as const, paidDate: today,
+        month: `${monthName} ${payYear}`, paymentMethod: method, feeType: 'School Fee',
+        description: 'Fee Payment Center — advance'
+      });
+      newPayments.push({ id: advId, month: monthName, year: payYear, amount: leftover, date: today, feeType: 'School Fee' });
+    }
+
+    setFeeStudents(prev => prev.map(fs => String(fs.id) === String(studentId) ? { ...fs, payments: [...(fs.payments || []), ...newPayments] } : fs));
+    setFees(prev => [...newFeeRecords, ...prev]);
+
+    const monthsText = allocs.map(a => `${a.month} ${a.year}`).join(', ');
+    const sName = studentObj?.name || fsObj?.name || 'Student';
+    const finalMonths = leftover > 0 ? `${monthsText} + advance ${monthName}` : monthsText;
+    toast.success(`PKR ${amount.toLocaleString()} received ✓ ${sName} — spread across: ${finalMonths} (Receipt #${newFeeRecords[0].id})`);
+    fpcNotifyWhatsApp(studentId, amount, 'School Fee', finalMonths);
   };
 
   // Due (Paper Fund, Exam Fee, Other Fund...) collect karo — partial supported

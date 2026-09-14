@@ -26,3 +26,69 @@
   }
 }
 
+/* Global button shadows - taake buttons easily identifiable hon */
+@layer base {
+  button {
+    box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+  }
+
+  button:hover {
+    box-shadow: 0 4px 8px -2px rgba(0, 0, 0, 0.15), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  }
+
+  button:active {
+    box-shadow: 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+    transform: scale(0.97);
+  }
+
+  /* Primary action buttons (emerald) - zyada prominent shadow */
+  button[class*="bg-emerald-600"],
+  button[class*="bg-emerald-500"] {
+    box-shadow: 0 4px 12px -2px rgba(5, 150, 105, 0.4), 0 2px 4px -2px rgba(5, 150, 105, 0.2);
+  }
+
+  button[class*="bg-emerald-600"]:hover,
+  button[class*="bg-emerald-500"]:hover {
+    box-shadow: 0 6px 16px -4px rgba(5, 150, 105, 0.5), 0 3px 6px -2px rgba(5, 150, 105, 0.3);
+  }
+
+  /* Secondary action buttons (indigo) */
+  button[class*="bg-indigo-600"],
+  button[class*="bg-indigo-500"] {
+    box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.4), 0 2px 4px -2px rgba(79, 70, 229, 0.2);
+  }
+
+  button[class*="bg-indigo-600"]:hover,
+  button[class*="bg-indigo-500"]:hover {
+    box-shadow: 0 6px 16px -4px rgba(79, 70, 229, 0.5), 0 3px 6px -2px rgba(79, 70, 229, 0.3);
+  }
+
+  /* Danger buttons (red/rose) */
+  button[class*="bg-rose-600"],
+  button[class*="bg-red-600"] {
+    box-shadow: 0 4px 12px -2px rgba(225, 29, 72, 0.4), 0 2px 4px -2px rgba(225, 29, 72, 0.2);
+  }
+
+  /* Warning buttons (amber) */
+  button[class*="bg-amber-500"],
+  button[class*="bg-amber-600"] {
+    box-shadow: 0 4px 12px -2px rgba(245, 158, 11, 0.4), 0 2px 4px -2px rgba(245, 158, 11, 0.2);
+  }
+
+  /* Dark buttons (slate-900) */
+  button[class*="bg-slate-900"],
+  button[class*="bg-slate-800"] {
+    box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.4), 0 2px 4px -2px rgba(15, 23, 42, 0.2);
+  }
+
+  /* Outlined buttons (white with border) */
+  button[class*="bg-white"][class*="border"] {
+    box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  button[class*="bg-white"][class*="border"]:hover {
+    box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.15), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  }
+}
+
