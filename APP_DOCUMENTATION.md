@@ -232,6 +232,9 @@ npm run dev       # Dev server (port 3000/3001)
 npm run build     # Production build → dist/
 npm run preview   # Preview production build
 npm run lint      # TypeScript check (tsc --noEmit)
+npm run auth:deploy  # admin-auth edge function deploy (token: .env → SUPABASE_ACCESS_TOKEN, ya --from-clipboard, ya ~/.supabase saved login)
+npm run auth:sync    # STAFF (teacher/coordinator + principal/dev) → Supabase Auth (idempotent)
+npm run auth:students:clean  # students ko Auth se hataye (dry run default; --confirm se asli delete)
 node scripts/migrate-neon-to-supabase.cjs  # One-time Neon → Supabase data migration
 ```
 
@@ -241,6 +244,15 @@ node scripts/migrate-neon-to-supabase.cjs  # One-time Neon → Supabase data mig
 - [ ] `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (browser), `SUPABASE_SECRET_KEY` (scripts-only, kabhi bundle nahi)
 - [ ] Realtime enabled on `records` table (schema.sql karta hai)
 - [ ] Data migrated: `node scripts/migrate-neon-to-supabase.cjs`
+- [ ] Auth users banaye: `npm run auth:sync` — **sirf STAFF** (teacher/coordinator + principal/developer). Students Supabase Auth se **bahar** hain (unka login app ke record password se hota hai)
+- [ ] Students Auth mein ho gaye hon to: `npm run auth:students:clean` (dry run) → `--confirm` se delete
+- [x] Edge function deploy: `npm run auth:deploy` — token 3 tareeqon se mil sakta hai:
+      1) `.env` → `SUPABASE_ACCESS_TOKEN="sbp_..."` (Dashboard → Account → Access Tokens, "Never expire")
+      2) clipboard: token copy karein → `npm run auth:deploy -- --from-clipboard`
+      3) CLI ka saved login — ek dafa `npm run auth:deploy -- --save-login` chala dein, phir token kabhi nahi maangta
+         (Windows par ye Windows Credential Manager mein save hota hai, is liye koi file nahi banti —
+          script usay `cmdkey` se detect karta hai, warna CLI probe se confirm karta hai). **Ab yahi set hai.**
+      Verify: deploy ke baad script khud check karta hai (bina session call par 400/401/403 = function live + auth guard OK), log `deploy-auth-out.txt` mein.
 
 ### PWA Installation
 - Runs on HTTPS or localhost
