@@ -7,3 +7,8 @@ coverage/
 *.bat
 .env*
 !.env.example
+deploy-auth-out.txt
+auth-sync-out.txt
+supabase/.temp/
+supa-cli-out.txt
+*.bak

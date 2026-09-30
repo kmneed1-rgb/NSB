@@ -1,5 +1,17 @@
-﻿const { neon } = require("@neondatabase/serverless");
-const sql = neon("postgresql://neondb_owner:npg_uHRTvXQ2f4zJ@ep-misty-sky-aybucjjd-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require");
+/**
+ * Neon connectivity check (legacy backup DB).
+ * Connection string .env se aati hai — NEON_CONNECTION (kabhi code mein hardcode na karein).
+ * Run: node scripts/check-neon.cjs
+ */
+require('dotenv').config();
+const { neon } = require('@neondatabase/serverless');
+
+const NEON_CONNECTION = (process.env.NEON_CONNECTION || '').trim();
+if (!NEON_CONNECTION) {
+  console.error('Missing NEON_CONNECTION in .env');
+  process.exit(1);
+}
+const sql = neon(NEON_CONNECTION);
 async function main() {
   try {
     const r = await sql`SELECT COUNT(*) as c FROM fee_data`;

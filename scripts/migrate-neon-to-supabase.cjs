@@ -4,14 +4,15 @@
 require('dotenv').config();
 const { neon } = require('@neondatabase/serverless');
 
-const NEON_CONNECTION = process.env.NEON_CONNECTION ||
-  'postgresql://neondb_owner:npg_uHRTvXQ2f4zJ@ep-misty-sky-aybucjjd-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require';
+// Connection string .env se (NEON_CONNECTION) — code mein hardcode NAHI (public repo).
+const NEON_CONNECTION = (process.env.NEON_CONNECTION || '').trim();
 const SB_URL = process.env.VITE_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SECRET_KEY;
 
 const KNOWN_TABLES = ['students', 'teachers', 'classes', 'timetable', 'attendance', 'marks', 'fees', 'fee_data', 'coordinators', 'assignments', 'app_settings'];
 
 (async () => {
+  if (!NEON_CONNECTION) { console.error('Missing NEON_CONNECTION in .env'); process.exit(1); }
   if (!SB_URL || !SB_KEY) { console.error('Missing VITE_SUPABASE_URL / SUPABASE_SECRET_KEY in .env'); process.exit(1); }
 
   const sql = neon(NEON_CONNECTION);
