@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { GraduationCap, Mail, Lock, Eye, EyeOff, Shield, User, Users, AlertCircle } from 'lucide-react';
 import { Role, UserSession, Teacher, Student, Coordinator } from '../types';
 import { supabase } from '../supabase';
+import { authEmailFor } from '../lib/authAdmin';
+import { AppSettings } from '../types';
+import { isRoleLoginEnabled, getRoleLoginBlockMessage } from '../lib/appControl';
 import { toast } from 'sonner';
 
 interface LoginProps {
@@ -10,9 +13,13 @@ interface LoginProps {
   coordinators: Coordinator[];
   onLogin: (session: UserSession) => void;
   onBackToLanding?: () => void;
+  /** Portal OFF / subscription expired hone par dikhne wala message (null = portal online). */
+  portalNotice?: string | null;
+  /** Developer Control: role-wise login switches (App.tsx se aata hai). */
+  appSettings?: AppSettings;
 }
 
-export default function Login({ teachers, students, coordinators, onLogin, onBackToLanding }: LoginProps) {
+export default function Login({ teachers, students, coordinators, onLogin, onBackToLanding, portalNotice, appSettings }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -29,8 +36,60 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
       return;
     }
 
+    // Developer Control: us role ka login band hai? → Auth attempt se PEHLE block.
+    const blockedByDeveloper = (role: Role): boolean => {
+      if (!appSettings) return false;
+      const msg = getRoleLoginBlockMessage(appSettings, role);
+      if (msg) { setError(msg); toast.error(msg); return true; }
+      return false;
+    };
+
+    // Best-effort Supabase Auth session (developer/principal) — edge function
+    // (admin-auth) ko bhejne ke liye session chahiye. Fail hone par bhi login chalta hai.
+    const tryAuthSession = async (authEmail: string, pw: string = password) => {
+      try {
+        await supabase.auth.signInWithPassword({ email: authEmail, password: pw });
+      } catch {
+        /* offline / Auth user nahi bana — ignore */
+      }
+    };
+
+    // Record-based login — sirf STAFF (teacher/coordinator):
+    // online → Supabase Auth (asli verification + JWT session); offline ya
+    // Auth fail → local record password fallback.
+    // NOTE: role ka login developer ne band kiya ho to yahan tak aate hi nahi.
+    const tryStaffLogin = async (
+      role: 'coordinator' | 'teacher',
+      session: UserSession,
+      recEmail: string,
+      recPassword: string,
+      welcomeMsg: string
+    ) => {
+      const authEmail = authEmailFor(role, recEmail || session.email, session.id);
+      if (navigator.onLine !== false) {
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
+          if (!error && data?.user) {
+            onLogin(session);
+            toast.success(welcomeMsg);
+            return;
+          }
+        } catch {
+          /* network fail → local fallback */
+        }
+      }
+      if (password === recPassword) {
+        onLogin(session);
+        toast.success(welcomeMsg);
+        return;
+      }
+      setError('Invalid ID or Password. Portal access denied.');
+    };
+
     // 1. Check Developer (Superuser)
     if (checkInput === 'km' && password === '6016') {
+      // Auth copy '60166016' — Supabase min 6 char ('6016' se Auth session fail hota)
+      await tryAuthSession('dev@nsb1.com', '60166016');
       onLogin({
         role: 'developer',
         email: 'developer@nsb1.com',
@@ -43,6 +102,8 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
 
     // 2. Check Principal (Master Credentials)
     if (checkInput === 'ali' && password === '111222') {
+      if (blockedByDeveloper('principal')) return;
+      await tryAuthSession('ali@nsb1.com'); // best-effort — edge function calls ke liye session
       onLogin({
         role: 'principal',
         email: 'ali@nsb1.com',
@@ -53,21 +114,21 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
       return;
     }
 
-    // 3. Check Coordinators
+    // 3. Check Coordinators — record mila to Auth-first (online) + local fallback
     const foundCoordinator = coordinators.find(c => 
       c.name?.toLowerCase() === checkInput || 
       c.username?.toLowerCase() === checkInput ||
       c.id?.toLowerCase() === checkInput
     );
-    if (foundCoordinator && password === foundCoordinator.password) {
-      onLogin({
+    if (foundCoordinator) {
+      if (blockedByDeveloper('coordinator')) return;
+      await tryStaffLogin('coordinator', {
         role: 'coordinator',
         email: foundCoordinator.email || '',
         username: foundCoordinator.username || '',
         id: foundCoordinator.id,
         name: foundCoordinator.name,
-      });
-      toast.success(`Welcome Coordinator ${foundCoordinator.name}!`);
+      }, foundCoordinator.email, foundCoordinator.password, `Welcome Coordinator ${foundCoordinator.name}!`);
       return;
     }
 
@@ -77,37 +138,51 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
       t.username?.toLowerCase() === checkInput ||
       t.id?.toLowerCase() === checkInput
     );
-    if (foundTeacher && password === foundTeacher.password) {
-      onLogin({
+    if (foundTeacher) {
+      if (blockedByDeveloper('teacher')) return;
+      await tryStaffLogin('teacher', {
         role: 'teacher',
         email: foundTeacher.email || '',
         username: foundTeacher.username || '',
         id: foundTeacher.id,
         name: foundTeacher.name,
-      });
-      toast.success(`Welcome Faculty ${foundTeacher.name}!`);
+      }, foundTeacher.email, foundTeacher.password, `Welcome Faculty ${foundTeacher.name}!`);
       return;
     }
 
-    // 5. Check Students
+    // 5. Check Students — PURANA TAREEQA: sirf local record password
+    // (students Supabase Auth se BAHAR hain — unke Auth users nahi bante)
     const foundStudent = students.find(s => 
       s.email?.toLowerCase() === checkInput || 
       s.username?.toLowerCase() === checkInput ||
       s.id?.toLowerCase() === checkInput
     );
-    if (foundStudent && password === foundStudent.password) {
-      onLogin({
-        role: 'student',
-        email: foundStudent.email || '',
-        username: foundStudent.username || '',
-        id: foundStudent.id,
-        name: foundStudent.name,
-      });
-      toast.success(`Welcome Student ${foundStudent.name}!`);
-      return;
+    if (foundStudent) {
+      if (blockedByDeveloper('student')) return;
+      if (password === foundStudent.password) {
+        onLogin({
+          role: 'student',
+          email: foundStudent.email || '',
+          username: foundStudent.username || '',
+          id: foundStudent.id,
+          name: foundStudent.name,
+        });
+        toast.success(`Welcome Student ${foundStudent.name}!`);
+        return;
+      }
+      setError('Invalid ID or Password. Portal access denied.');
+      return; // student record mila — Auth fallback ki koi zaroorat nahi
     }
 
-    // 6. Fallback — Cloud Register (Supabase Auth) for generic Principal/Secure Admin
+    // 6. Fallback — Cloud Register (Supabase Auth).
+    // SECURITY: yeh sirf ADMIN (principal/developer) allowlist ke liye hai — warna
+    // koi bhi valid Auth user (masalan teacher) apne email/password se principal ban jata.
+    const ADMIN_AUTH_EMAILS = ['ali@nsb1.com', 'dev@nsb1.com'];
+    const fallbackEmail = email.trim().toLowerCase();
+    if (!ADMIN_AUTH_EMAILS.includes(fallbackEmail)) {
+      setError('Invalid ID or Password. Portal access denied.');
+      return;
+    }
     try {
       const { data: cred, error: authErr } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -116,11 +191,13 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
       if (authErr) throw authErr;
       const user = cred.user;
       if (user && user.email) {
+        const isDev = user.email.toLowerCase() === 'dev@nsb1.com';
+        if (blockedByDeveloper(isDev ? 'developer' : 'principal')) return;
         onLogin({
-          role: 'principal',
+          role: isDev ? 'developer' : 'principal',
           email: user.email,
           username: user.email.split('@')[0],
-          name: 'Principal Office',
+          name: isDev ? 'System Developer' : 'Principal Office',
         });
         toast.success("Authenticated via Cloud Register.");
         return;
@@ -152,6 +229,14 @@ export default function Login({ teachers, students, coordinators, onLogin, onBac
             </p>
           </div>
         </div>
+
+        {/* Portal Offline / Subscription expired notice */}
+        {portalNotice && (
+          <div className="mb-6 flex items-start gap-2 text-[10px] font-bold uppercase tracking-[0.15em] text-center bg-amber-50 dark:bg-amber-950/30 py-3 px-3 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <span>{portalNotice}</span>
+          </div>
+        )}
 
         {/* Unified Form */}
         <form onSubmit={handleLogin} className="space-y-8">
