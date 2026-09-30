@@ -11,6 +11,7 @@ import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
 import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
+import { updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { HoldActionWrapper } from './HoldActionWrapper';
 
 interface TeacherDashboardProps {
@@ -1267,8 +1268,8 @@ export default function TeacherDashboard({
             </div>
 
             {/* ========== DAILY REMINDER & AGENDA PORTAL ========== */}
-            <div id="daily-reminder-board" className="bg-white border border-slate-200 shadow-sm rounded-3xl p-6 space-y-5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/40 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+            <div id="daily-reminder-board" className="bg-gradient-to-br from-indigo-50/40 via-white to-sky-50/30 border border-indigo-100/90 shadow-xs rounded-3xl p-6 space-y-5 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
               
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4 relative z-10">
                 <div className="flex items-center gap-2.5">
@@ -1460,7 +1461,7 @@ export default function TeacherDashboard({
             </div>
 
             {/* ========== WEEKLY PERIOD SCHEDULE (HOME TAB) ========== */}
-            <div className="bg-white border border-slate-200 shadow-sm rounded-3xl p-6">
+            <div className="bg-gradient-to-br from-amber-50/30 via-white to-slate-50/40 border border-amber-100/90 shadow-xs rounded-3xl p-6">
               <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 bg-amber-50 text-amber-600 border border-amber-100">
@@ -1624,11 +1625,18 @@ export default function TeacherDashboard({
                             return;
                           }
                           
-                          // Update password logic
+                          // Update password logic (local record sync + Supabase Auth)
                           setTeachers(prev => prev.map(t => 
                             t.id === userSession.id ? { ...t, password: newPassword } : t
                           ));
-                          
+                          const me = teachers.find(t => t.id === userSession.id);
+                          updateAuthPassword({
+                            email: authEmailFor('teacher', me?.email || userSession.email, userSession.id),
+                            password: newPassword,
+                          }).then(ok => {
+                            if (!ok) toast.warning('Local password updated — Supabase Auth sync pending. Internet check karein ya "node scripts/sync-auth-users.cjs" chalayein.');
+                          });
+
                           toast.success('Password updated successfully! Next login requires new credentials.');
                           setShowPasswordModal(false);
                         }}
@@ -1803,7 +1811,7 @@ export default function TeacherDashboard({
                                 <Users size={12} />
                               </div>
                             )}
-                            <span className="font-semibold text-slate-900">{s.name.split(' ').slice(0, 1).join(' ') || s.name}</span>
+                            <span className="font-semibold text-slate-900">{s.name}</span>
                           </td>
                           <td className="px-6 py-4 text-xs font-mono text-gray-500">{s.parentPhone}</td>
                           <td className="px-6 py-4 text-right">
@@ -3623,7 +3631,7 @@ Total: ${totalObtained}/${totalMax} (${overallPct}%). Status: ${overallPct >= 40
                                    <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200"><Users size={14} /></div>
                                  )}
                                  <div className="min-w-0 flex-1">
-                                   <p className="font-bold text-slate-900 text-sm truncate">{st.name.split(' ').slice(0, 1).join(' ') || st.name}</p>
+                                   <p className="font-bold text-slate-900 text-sm truncate">{st.name}</p>
                                    <p className="text-xs text-slate-400">Roll #{st.rollNumber}</p>
                                  </div>
                                  {done && <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">SAVED</span>}
@@ -3990,11 +3998,17 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
                     return;
                   }
 
-                  // Update teacher record in state
+                  // Update teacher record in state (local sync) + Supabase Auth
                   const updatedTeachers = teachers.map(t => 
                     t.id === userSession.id ? { ...t, username: newID, password: newPass } : t
                   );
                   setTeachers(updatedTeachers);
+                  updateAuthPassword({
+                    email: authEmailFor('teacher', teacherProfile?.email || userSession.email, userSession.id),
+                    password: newPass,
+                  }).then(ok => {
+                    if (!ok) toast.warning('Local credentials updated — Supabase Auth sync pending. Internet check karein ya "node scripts/sync-auth-users.cjs" chalayein.');
+                  });
                   toast.success("Profile credentials updated successfully! These changes are now active.");
                 }}
                 className="max-w-md space-y-6"

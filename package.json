@@ -11,6 +11,10 @@
     "build": "vite build",
     "backup:neon": "node scripts/backup-supabase-to-neon.cjs",
     "keepalive": "node scripts/supabase-keepalive.cjs",
+    "db:setup": "node scripts/setup-supabase-tables.cjs",
+    "auth:sync": "node scripts/sync-auth-users.cjs",
+    "auth:students:clean": "node scripts/remove-student-auth-users.cjs",
+    "auth:deploy": "node scripts/deploy-auth.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

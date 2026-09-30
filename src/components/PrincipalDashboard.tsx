@@ -1,6 +1,7 @@
 import { testSupabaseConnection } from '../supabase';
 import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
+import { toMonthKey, monthKeyLabel, formatAttendanceDayShort, attendanceDaysByStatus, groupAttendanceByMonth } from '../lib/dateUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -11,7 +12,11 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, DueEntry, Assignment, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
 import { FeePaymentCenter } from './FeePaymentCenter';
+import PaperGenerator from './PaperGenerator';
+import TeacherPayrollPanel from './TeacherPayrollPanel';
+import { isPaperGeneratorEnabled, isTeacherSalaryEnabled } from '../lib/appControl';
 import { useLongPress } from '../lib/longPress';
+import { syncAuthAccount, updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { 
   addPayment, 
   getMonthlySummary, 
@@ -165,8 +170,8 @@ interface PrincipalDashboardProps {
   pushLocalToCloud: () => Promise<void>;
 }
 
-type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees';
-type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees';
+type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll';
+type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll';
 type TabType = PrincipalTabType | CoordinatorTabType;
 
 const STANDARD_SUBJECTS_LIST = [
@@ -208,7 +213,7 @@ export default function PrincipalDashboard({
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = safeStorage.getItem('acadamis_active_tab');
-    const valid: TabType[] = ['dashboard', 'management_hub', 'timetable', 'alerts', 'settings', 'registers', 'monthly_report', 'fees'];
+    const valid: TabType[] = ['dashboard', 'management_hub', 'timetable', 'alerts', 'settings', 'registers', 'monthly_report', 'fees', 'papers', 'payroll'];
     return (saved && valid.includes(saved as TabType) ? saved : 'dashboard') as TabType;
   });
 
@@ -216,6 +221,21 @@ export default function PrincipalDashboard({
   useEffect(() => {
     safeStorage.setItem('acadamis_active_tab', activeTab);
   }, [activeTab]);
+
+  // ===== Developer Control Portal se on/off hone wale modules =====
+  // (toggles DeveloperDashboard mein hain; settings Supabase 'app_settings/global' se sync hoti hain)
+  // Papers + Payroll: Principal AUR Coordinator dono ke liye (jab developer ne module ON rakha ho)
+  const canUseFeatureModules = userSession.role === 'principal' || userSession.role === 'coordinator';
+  const showPapersTab = canUseFeatureModules && isPaperGeneratorEnabled(appSettings);
+  const showPayrollTab = canUseFeatureModules && isTeacherSalaryEnabled(appSettings);
+
+  // Agar developer ne module band kar diya aur user usi tab par mojood hai → dashboard par wapas
+  useEffect(() => {
+    if ((activeTab === 'papers' && !showPapersTab) || (activeTab === 'payroll' && !showPayrollTab)) {
+      window.history.replaceState({ tab: 'dashboard' }, '', '');
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, showPapersTab, showPayrollTab]);
 
   // Browser Back Button Support for Tabs
   useEffect(() => {
@@ -289,6 +309,28 @@ export default function PrincipalDashboard({
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setAppSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  /**
+   * Record save hone ke baad Supabase Auth user bhi sync karo (best-effort).
+   * Sirf STAFF (teacher/coordinator) — students Auth se bahar hain.
+   * Online → edge function (admin-auth) se Auth → Users mein user ban/update ho jata hai;
+   * offline/fail → warning toast (repair: node scripts/sync-auth-users.cjs).
+   */
+  const syncAuthAfterSave = (
+    role: 'teacher' | 'coordinator',
+    email: string,
+    password: string,
+    linkId: string,
+    isNew: boolean
+  ) => {
+    syncAuthAccount({ role, email, password, linkId }).then(ok => {
+      if (ok) {
+        if (isNew) toast.success('Supabase Auth user created — Authentication → Users mein dikhega.');
+      } else {
+        toast.warning('Record save ho gaya, lekin Supabase Auth sync nahi hua. Internet check karein ya "node scripts/sync-auth-users.cjs" chalayein.');
+      }
+    });
   };
 
   // Theme support
@@ -2457,7 +2499,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         const newTeacher: Teacher = {
           id,
           name: tName.trim(),
-          email: tEmail.toLowerCase().trim(),
+          email: authEmailFor('teacher', tEmail, id),
           username: tName.trim(), 
           password: tPassword,
           subject: tSubject.trim(),
@@ -2465,17 +2507,20 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         };
         setTeachers([...teachers, newTeacher]);
         toast.success("Teacher profile added successfully!");
+        syncAuthAfterSave('teacher', newTeacher.email, newTeacher.password, id, true);
       } else {
+        const teacherEmail = authEmailFor('teacher', tEmail, currentId);
         setTeachers(teachers.map(t => t.id === currentId ? {
           ...t,
           name: tName.trim(),
-          email: tEmail.toLowerCase().trim(),
+          email: teacherEmail,
           subject: tSubject.trim(),
           phone: tPhone.trim(),
           password: tPassword,
           username: tName.trim(),
         } : t));
         toast.success("Teacher profile updated successfully!");
+        syncAuthAfterSave('teacher', teacherEmail, tPassword, String(currentId), false);
       }
     } 
     
@@ -2485,23 +2530,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         const newCoordinator: Coordinator = {
           id,
           name: tName.trim(),
-          email: tEmail.toLowerCase().trim(),
+          email: authEmailFor('coordinator', tEmail, id),
           username: tName.trim(), 
           password: tPassword,
           phone: tPhone.trim(),
         };
         setCoordinators([...coordinators, newCoordinator]);
         toast.success("Coordinator profile added successfully!");
+        syncAuthAfterSave('coordinator', newCoordinator.email, newCoordinator.password, id, true);
       } else {
+        const coordEmail = authEmailFor('coordinator', tEmail, currentId);
         setCoordinators(coordinators.map(c => c.id === currentId ? {
           ...c,
           name: tName.trim(),
-          email: tEmail.toLowerCase().trim(),
+          email: coordEmail,
           phone: tPhone.trim(),
           password: tPassword,
           username: tName.trim(),
         } : c));
         toast.success("Coordinator profile updated successfully!");
+        syncAuthAfterSave('coordinator', coordEmail, tPassword, String(currentId), false);
       }
     } 
     
@@ -2526,11 +2574,13 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         };
         setStudents([...students, newStudent]);
         toast.success("Student profile added successfully!");
+        // NOTE: students Supabase Auth se BAHAR hain — login sirf record password se
       } else {
+        const studentEmail = sEmail.toLowerCase().trim();
         setStudents(students.map(s => s.id === currentId ? {
           ...s,
           name: sName.trim(),
-          email: sEmail.toLowerCase().trim(),
+          email: studentEmail,
           classId: sClassId,
           rollNumber: sRoll.trim(),
           parentPhone: sParentPhone.trim(),
@@ -2544,6 +2594,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           photo: sPhoto,
         } : s));
         toast.success("Student profile updated successfully!");
+        // NOTE: students Auth se bahar — koi Auth sync nahi
       }
     }     
     else if (modalType === 'class') {
@@ -2932,6 +2983,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               { id: 'timetable', label: 'Schedules', icon: Calendar },
               { id: 'monthly_report', label: 'Reports', icon: FileText, color: 'text-indigo-600' },
               { id: 'alerts', label: 'Alert Center', icon: AlertCircle, color: 'text-rose-600' },
+              ...(showPapersTab ? [{ id: 'papers', label: 'AI Papers', icon: Sparkles }] : []),
+              ...(showPayrollTab ? [{ id: 'payroll', label: 'Teacher Salary', icon: Banknote }] : []),
               { id: 'settings', label: 'Cloud Config', icon: Sparkles },
             ].map(link => {
               const Icon = link.icon;
@@ -3058,19 +3111,19 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 animate-fade-in pt-8 border-t border-slate-100">
                     
                     {[
-                      { label: 'Today Collection', val: `PKR ${todaysCollection.toLocaleString()}`, icon: <CreditCard size={16} className="text-violet-600" />, chip: 'bg-violet-50 border-violet-100' },
-                      { label: 'Today Attendance', val: `${todayPresent}/${todayAttendance.length}`, icon: <CheckCircle2 size={16} className="text-emerald-600" />, chip: 'bg-emerald-50 border-emerald-100' },
-                      { label: 'Fee Paid Students', val: paidStudentsCount, icon: <User size={16} className="text-blue-600" />, chip: 'bg-blue-50 border-blue-100' },
-                      { label: 'Pending Students', val: pendingStudentsCount, icon: <AlertCircle size={16} className="text-rose-600" />, chip: 'bg-rose-50 border-rose-100' },
-                      { label: 'Teachers', val: teachers.length, icon: <Users size={16} className="text-indigo-600" />, chip: 'bg-indigo-50 border-indigo-100' },
-                      { label: 'Students', val: students.length, icon: <Users size={16} className="text-teal-600" />, chip: 'bg-teal-50 border-teal-100' },
-                      { label: 'Classes', val: classes.length, icon: <Award size={16} className="text-amber-600" />, chip: 'bg-amber-50 border-amber-100' },
-                      { label: 'Attendance Average', val: attendanceAvg, icon: <CheckCircle2 size={16} className="text-sky-600" />, chip: 'bg-sky-50 border-sky-100' },
+                      { label: 'Today Collection', val: `PKR ${todaysCollection.toLocaleString()}`, icon: <CreditCard size={16} className="text-violet-600" />, chip: 'bg-violet-100/70 border-violet-200', cardBg: 'bg-gradient-to-br from-violet-50/70 via-white to-purple-50/40 border-violet-150/80 hover:border-violet-300' },
+                      { label: 'Today Attendance', val: `${todayPresent}/${todayAttendance.length}`, icon: <CheckCircle2 size={16} className="text-emerald-600" />, chip: 'bg-emerald-100/70 border-emerald-200', cardBg: 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-150/80 hover:border-emerald-300' },
+                      { label: 'Fee Paid Students', val: paidStudentsCount, icon: <User size={16} className="text-blue-600" />, chip: 'bg-blue-100/70 border-blue-200', cardBg: 'bg-gradient-to-br from-blue-50/70 via-white to-sky-50/40 border-blue-150/80 hover:border-blue-300' },
+                      { label: 'Pending Students', val: pendingStudentsCount, icon: <AlertCircle size={16} className="text-rose-600" />, chip: 'bg-rose-100/70 border-rose-200', cardBg: 'bg-gradient-to-br from-rose-50/70 via-white to-pink-50/40 border-rose-150/80 hover:border-rose-300' },
+                      { label: 'Teachers', val: teachers.length, icon: <Users size={16} className="text-indigo-600" />, chip: 'bg-indigo-100/70 border-indigo-200', cardBg: 'bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 border-indigo-150/80 hover:border-indigo-300' },
+                      { label: 'Students', val: students.length, icon: <Users size={16} className="text-teal-600" />, chip: 'bg-teal-100/70 border-teal-200', cardBg: 'bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/40 border-teal-150/80 hover:border-teal-300' },
+                      { label: 'Classes', val: classes.length, icon: <Award size={16} className="text-amber-600" />, chip: 'bg-amber-100/70 border-amber-200', cardBg: 'bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/40 border-amber-150/80 hover:border-amber-300' },
+                      { label: 'Attendance Average', val: attendanceAvg, icon: <CheckCircle2 size={16} className="text-sky-600" />, chip: 'bg-sky-100/70 border-sky-200', cardBg: 'bg-gradient-to-br from-sky-50/70 via-white to-cyan-50/40 border-sky-150/80 hover:border-sky-300' },
                     ].map(stat => (
-                      <div key={stat.label} className="p-4 md:p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">
+                      <div key={stat.label} className={`p-4 md:p-5 border rounded-2xl shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all ${stat.cardBg}`}>
                         <div className="flex items-center gap-2.5 mb-2.5">
                           <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${stat.chip}`}>{stat.icon}</div>
-                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 leading-tight">{stat.label}</span>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 leading-tight">{stat.label}</span>
                         </div>
                         <span className="text-xl md:text-2xl font-black tracking-tighter text-slate-900 block tabular-nums">{stat.val}</span>
                       </div>
@@ -3084,42 +3137,42 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 animate-fade-in">
                         <button
                           onClick={() => openFeePaymentCenter()}
-                          className="p-5 bg-white border border-rose-100 rounded-2xl shadow-sm hover:shadow-lg hover:border-rose-300 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
+                          className="p-5 bg-gradient-to-br from-rose-50/80 via-white to-pink-50/30 border border-rose-200/80 rounded-2xl shadow-xs hover:shadow-lg hover:border-rose-400 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
                           title="Click — opens Fee Payment Center"
                         >
                           <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0"><AlertCircle size={18} className="text-rose-500" /></div>
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-500 leading-tight">Remaining Fee<br />(All Months)</span>
+                            <div className="w-10 h-10 rounded-xl bg-rose-100/80 border border-rose-200 flex items-center justify-center shrink-0"><AlertCircle size={18} className="text-rose-600" /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-600 leading-tight">Remaining Fee<br />(All Months)</span>
                           </div>
                           <span className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 block tabular-nums">{totalPendingAll.toLocaleString()}</span>
-                          <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">Pay Now <ArrowRight size={11} /></span>
+                          <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">Pay Now <ArrowRight size={11} /></span>
                         </button>
                         <button
                           onClick={() => { setQuickCollectStudentId(''); setShowQuickCollectModal(true); }}
-                          className="p-5 bg-white border border-violet-100 rounded-2xl shadow-sm hover:shadow-lg hover:border-violet-300 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
+                          className="p-5 bg-gradient-to-br from-violet-50/80 via-white to-purple-50/30 border border-violet-200/80 rounded-2xl shadow-xs hover:shadow-lg hover:border-violet-400 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
                           title="Click — Collect Fee + Receipt form opens"
                         >
                           <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center shrink-0"><CreditCard size={18} className="text-violet-500" /></div>
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-500 leading-tight">{currentMonthName} Fee<br />Total Paid</span>
+                            <div className="w-10 h-10 rounded-xl bg-violet-100/80 border border-violet-200 flex items-center justify-center shrink-0"><CreditCard size={18} className="text-violet-600" /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-600 leading-tight">{currentMonthName} Fee<br />Total Paid</span>
                           </div>
                           <span className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 block tabular-nums">{totalCollectedMonth.toLocaleString()}</span>
                           <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full bg-violet-500 transition-all duration-500" style={{ width: `${monthProgress}%` }}></div>
                           </div>
-                          <span className="text-[10px] font-black text-violet-500 uppercase tracking-widest mt-2 block">{monthProgress}% collected{todaysCollection > 0 ? ` · Today: PKR ${todaysCollection.toLocaleString()}` : ''}</span>
+                          <span className="text-[10px] font-black text-violet-600 uppercase tracking-widest mt-2 block">{monthProgress}% collected{todaysCollection > 0 ? ` · Today: PKR ${todaysCollection.toLocaleString()}` : ''}</span>
                         </button>
                         <button
                           onClick={() => openFeePaymentCenter()}
-                          className="p-5 bg-white border border-amber-100 rounded-2xl shadow-sm hover:shadow-lg hover:border-amber-300 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
+                          className="p-5 bg-gradient-to-br from-amber-50/80 via-white to-yellow-50/30 border border-amber-200/80 rounded-2xl shadow-xs hover:shadow-lg hover:border-amber-400 hover:-translate-y-0.5 text-left transition-all cursor-pointer group"
                           title="Click — opens Fee Payment Center"
                         >
                           <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0"><AlertCircle size={18} className="text-amber-500" /></div>
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500 leading-tight">{currentMonthName} Fee<br />Remaining</span>
+                            <div className="w-10 h-10 rounded-xl bg-amber-100/80 border border-amber-200 flex items-center justify-center shrink-0"><AlertCircle size={18} className="text-amber-600" /></div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 leading-tight">{currentMonthName} Fee<br />Remaining</span>
                           </div>
                           <span className="text-2xl md:text-3xl font-black tracking-tighter text-slate-900 block tabular-nums">{totalPendingMonth.toLocaleString()}</span>
-                          <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">Collect Now <ArrowRight size={11} /></span>
+                          <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">Collect Now <ArrowRight size={11} /></span>
                         </button>
                       </div>
 
@@ -3168,46 +3221,46 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
 
             {/* Quick action grid */}
-            <div className="bg-white border border-slate-200 shadow-sm rounded-none p-6">
+            <div className="bg-gradient-to-br from-slate-50/70 via-white to-indigo-50/20 border border-slate-200/90 shadow-xs rounded-2xl p-6">
               <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2 uppercase tracking-wide font-display">
                 {userSession.role === 'principal' ? 'Principal Fast-Track Actions' : 'Coordinator Fast-Track Actions'}
               </h2>
 
-              <div className="mb-6 bg-slate-50 border-l-4 border-slate-900 py-3 px-4 flex items-center gap-2">
-                <Plus size={16} className="text-slate-900" />
-                <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Add New Entity</span>
+              <div className="mb-6 bg-indigo-50/80 border-l-4 border-indigo-600 py-3 px-4 flex items-center gap-2 rounded-r-xl">
+                <Plus size={16} className="text-indigo-600" />
+                <span className="text-xs font-black uppercase tracking-[0.2em] text-indigo-950">Add New Entity</span>
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <button
                   onClick={() => openAddModal('teacher')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-indigo-150 bg-indigo-50/40 hover:bg-indigo-100/60 hover:border-indigo-300 text-sm font-semibold text-indigo-900 transition-all text-left shadow-2xs"
                 >
-                  <Users size={16} />
+                  <Users size={16} className="text-indigo-600" />
                   Teacher
                 </button>
 
                 <button
                   onClick={() => openAddModal('student')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-emerald-150 bg-emerald-50/40 hover:bg-emerald-100/60 hover:border-emerald-300 text-sm font-semibold text-emerald-900 transition-all text-left shadow-2xs"
                 >
-                  <Users size={16} />
+                  <Users size={16} className="text-emerald-600" />
                   Student
                 </button>
 
                 <button
                   onClick={() => openAddModal('class')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-amber-150 bg-amber-50/40 hover:bg-amber-100/60 hover:border-amber-300 text-sm font-semibold text-amber-900 transition-all text-left shadow-2xs"
                 >
-                  <BookOpen size={16} />
+                  <BookOpen size={16} className="text-amber-600" />
                   Class
                 </button>
 
                 <button
                   onClick={() => openAddModal('timetable')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/25 text-sm font-semibold text-gray-700 hover:text-blue-700 transition-all text-left"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-sky-150 bg-sky-50/40 hover:bg-sky-100/60 hover:border-sky-300 text-sm font-semibold text-sky-900 transition-all text-left shadow-2xs"
                 >
-                  <Calendar size={16} />
+                  <Calendar size={16} className="text-sky-600" />
                   Schedule
                 </button>
               </div>
@@ -3428,7 +3481,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-sm truncate leading-none mb-1">{s.name.split(' ').slice(0, 1).join(' ') || s.name}</h3>
+                                <h3 className="font-black text-slate-900 uppercase tracking-tight text-sm truncate leading-none mb-1">{s.name}</h3>
                                 <div className="flex items-center gap-2">
                                   {s.category === 'Academy' && (
                                     <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Academy</span>
@@ -4280,7 +4333,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                            <User size={18} />
                         </div>
                         <div className="text-left">
-                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name.split(' ').slice(0, 1).join(' ') || student.name}</h3>
+                          <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{student.name}</h3>
                           <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
                             {classObj?.className}-{classObj?.section} • {totalPending}
                           </p>
@@ -5958,7 +6011,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       </div>
                       <div className="flex-1 text-center sm:text-left space-y-1">
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name.split(' ').slice(0, 1).join(' ') || student.name}</h2>
+                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{student.name}</h2>
                           <span className="bg-indigo-100 text-indigo-700 text-xs font-black px-2 py-1 rounded-lg uppercase tracking-widest">Roll: {studentProfile?.rollNumber || 'N/A'}</span>
                         </div>
                         <p className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-2">
@@ -6714,6 +6767,14 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         c.id === userSession.id ? { ...c, username: newID, password: newPass } : c
                       );
                       setCoordinators(updatedCoords);
+                      // Apna password Supabase Auth mein bhi update (self-service allowed)
+                      const coordRec = coordinators.find(c => c.id === userSession.id);
+                      updateAuthPassword({
+                        email: authEmailFor('coordinator', coordRec?.email || userSession.email, userSession.id),
+                        password: newPass,
+                      }).then(ok => {
+                        if (!ok) toast.warning('Local credentials updated — Supabase Auth sync pending. "node scripts/sync-auth-users.cjs" se repair karein.');
+                      });
                       toast.success("Coordinator credentials updated successfully!");
                     } else {
                       // Principal/Developer update (Shared state for this demo)
@@ -7241,6 +7302,55 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ========== AI PAPER GENERATOR (Developer Control toggle) ========== */}
+        {activeTab === 'papers' && showPapersTab && (
+          <div id="panel-principal-papers" className="space-y-6 animate-fade-in pb-24">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-600">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight text-slate-900">AI Paper Generator</h2>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">Gemini se exam paper aur answer key</p>
+                </div>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-full print:hidden">
+                Module Enabled
+              </span>
+            </div>
+            <PaperGenerator classes={classes} appSettings={appSettings} />
+          </div>
+        )}
+
+        {/* ========== TEACHER SALARY / PAYROLL (Developer Control toggle) ========== */}
+        {activeTab === 'payroll' && showPayrollTab && (
+          <div id="panel-principal-payroll" className="space-y-6 animate-fade-in pb-24">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-600">
+                  <Banknote size={18} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight text-slate-900">Teacher Salary</h2>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">Monthly salary set karein, paid mark karein aur history dekhein</p>
+                </div>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-black uppercase tracking-widest text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full">
+                {teachers.length} Staff
+              </span>
+            </div>
+            <TeacherPayrollPanel
+              teachers={teachers}
+              setTeachers={setTeachers}
+              attendance={attendance}
+              appSettings={appSettings}
+              setAppSettings={setAppSettings}
+              markedByName={userSession.name || 'Principal'}
+            />
           </div>
         )}
 
@@ -8137,25 +8247,52 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       <Calendar size={16} className="text-blue-600 print:hidden" /> Monthly Attendance Summary
                     </h3>
                     <div className="space-y-2">
-                      {MONTHS.map(month => {
-                        const monthLogs = attendance.filter(a => {
-                          const aDate = new Date(a.date);
-                          return a.studentId === selectedStudentReport.id && MONTHS[aDate.getMonth()] === month;
-                        });
+                      {attendance.filter(a => a.studentId === selectedStudentReport.id && !!a.date).length === 0 && (
+                        <p className="text-xs text-slate-400 py-4 text-center">No attendance records found for this student.</p>
+                      )}
+                      {Object.entries(groupAttendanceByMonth(
+                        attendance.filter(a => a.studentId === selectedStudentReport.id && !!a.date)
+                      ))
+                        .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
+                        .map(([monthKey, monthLogs]) => {
+                        const month = monthKeyLabel(monthKey);
                         
                         if (monthLogs.length === 0) return null;
 
                         const present = monthLogs.filter(l => l.status === 'present').length;
                         const leave = monthLogs.filter(l => l.status === 'leave').length;
+                        const late = monthLogs.filter(l => l.status === 'late').length;
                         const absent = monthLogs.filter(l => l.status === 'absent').length;
+                        // Month ke andar chronological order: 2 Tue, 3 Fri (chhota date pehle)
+                        const absentDates = attendanceDaysByStatus(monthLogs, 'absent').reverse();
+                        const leaveDates = attendanceDaysByStatus(monthLogs, 'leave').reverse();
+                        const lateDates = attendanceDaysByStatus(monthLogs, 'late').reverse();
 
                         return (
-                          <div key={month} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                            <span className="text-xs font-bold text-slate-800 uppercase">{month}</span>
-                            <div className="flex gap-3 text-xs">
-                              <span className="font-bold text-emerald-600">P: {present}</span>
-                              <span className="font-bold text-amber-600">L: {leave}</span>
-                              <span className="font-bold text-rose-600">A: {absent}</span>
+                          <div key={monthKey} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-800 uppercase">{month}</span>
+                              <div className="flex gap-3 text-xs">
+                                <span className="font-bold text-emerald-600">P: {present}</span>
+                                <span className="font-bold text-amber-600">L: {late}</span>
+                                <span className="font-bold text-blue-600">LV: {leave}</span>
+                                <span className="font-bold text-rose-600">A: {absent}</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-0.5 text-[11px] font-bold text-slate-700 leading-relaxed">
+                              <p>
+                                <span className="font-black uppercase tracking-wider text-rose-600">Absent: </span>
+                                {absentDates.length > 0 ? absentDates.map(formatAttendanceDayShort).join(', ') : 'None'}
+                              </p>
+                              <p>
+                                <span className="font-black uppercase tracking-wider text-blue-600">Leave: </span>
+                                {leaveDates.length > 0 ? leaveDates.map(formatAttendanceDayShort).join(', ') : 'None'}
+                              </p>
+                              <p>
+                                <span className="font-black uppercase tracking-wider text-amber-600">Late: </span>
+                                {lateDates.length > 0 ? lateDates.map(formatAttendanceDayShort).join(', ') : 'None'}
+                              </p>
                             </div>
                           </div>
                         );
@@ -8557,6 +8694,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
             { id: 'management_hub', label: 'Admin', icon: Shield, color: 'indigo' },
             { id: 'monthly_report', label: 'Reports', icon: FileText, color: 'violet' },
             { id: 'registers', label: 'Records', icon: Database, color: 'teal', extraMatch: 'fees' },
+            ...(showPapersTab ? [{ id: 'papers', label: 'Papers', icon: Sparkles, color: 'indigo' }] : []),
+            ...(showPayrollTab ? [{ id: 'payroll', label: 'Salary', icon: Banknote, color: 'emerald' }] : []),
           ].map((item) => {
             const isActive = activeTab === item.id || (item.extraMatch && activeTab === item.extraMatch);
             const Icon = item.icon;

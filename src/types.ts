@@ -9,6 +9,75 @@ export interface Coordinator {
   phone: string;
 }
 
+/** Salary ka poora hisaab (attendance + cuts) — payment ke waqt snapshot save hota hai. */
+export interface SalaryBreakdown {
+  monthKey: string;        // 'YYYY-MM'
+  monthName: string;       // 'Sep'
+  year: number;
+  baseSalary: number;
+  workingDays: number;
+  perDayRate: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  leaveDays: number;
+  halfDays: number;
+  absentCut: number;
+  lateCut: number;
+  leaveCut: number;
+  allowance: number;
+  bonus: number;
+  fixedDeduction: number;
+  netPayable: number;
+}
+
+export interface SalaryPayment {
+  id: string;
+  month: string;
+  year: number;
+  amount: number;
+  paidDate: string;
+  method?: string;
+  notes?: string;
+  /** Us waqt ka hisaab snapshot (attendance + cuts) — history mein dikhta hai. */
+  breakdown?: SalaryBreakdown;
+}
+
+/** Staff (teacher) attendance ke status. */
+export type StaffAttendanceStatus = 'present' | 'absent' | 'late' | 'leave' | 'half';
+
+export interface StaffAttendanceEntry {
+  date: string;                  // YYYY-MM-DD
+  status: StaffAttendanceStatus;
+  note?: string;
+  markedBy?: string;             // jisne mark kiya (principal/coordinator ka naam)
+  markedAt?: string;             // ISO timestamp
+}
+
+/** Per-teacher salary rules (global SalarySettings ko override karte hain). */
+export interface TeacherSalaryConfig {
+  workingDaysPerMonth?: number;
+  perDayRate?: number;
+  absentPenaltyFactor?: number;
+  latePenaltyFactor?: number;
+  paidLeavesPerMonth?: number;
+  allowance?: number;            // monthly allowance (transport etc.)
+  bonus?: number;                // is mahine ka bonus
+  fixedDeduction?: number;       // advance / loan / other deduction
+  notes?: string;
+}
+
+/** Global salary rules (principal customize karta hai). */
+export interface SalarySettings {
+  workingDaysPerMonth: number;         // default 26
+  workingDayMode: 'fixed' | 'calendar';// 'fixed' = upar wali value; 'calendar' = month ke actual working days
+  weekendDays: number[];               // 0 = Sunday … 6 = Saturday
+  absentPenaltyFactor: number;         // 1 = poori daily wage cut
+  latePenaltyFactor: number;           // 0.5 = aadha din
+  paidLeavesPerMonth: number;          // itni leaves paid
+  slipNote?: string;                   // salary slip par footer note
+}
+
 export interface Teacher {
   id: string;
   name: string;
@@ -17,6 +86,12 @@ export interface Teacher {
   password: string; // Added for login
   subject: string;
   phone: string;
+  monthlySalary?: number;
+  salaryPayments?: SalaryPayment[];
+  /** Salary rules (per-teacher override). */
+  salaryConfig?: TeacherSalaryConfig;
+  /** Rozana staff attendance (salary isi se calculate hoti hai). */
+  staffAttendance?: StaffAttendanceEntry[];
 }
 
 export interface Student {
@@ -127,6 +202,30 @@ export interface AppSettings {
   extraPeriods: Record<string, string[]>;
   deletedPeriods: Record<string, string[]>;
   periodColors: Record<string, string>;
+  enablePaperGenerator?: boolean;
+  enableTeacherSalary?: boolean;
+  geminiApiKey?: string;
+  /** Global salary rules (attendance-based calculation). */
+  salary?: Partial<SalarySettings>;
+  /** Notification tone (default ON) — device-wise override bhi hota hai. */
+  notifySound?: boolean;
+  /** Mobile vibration on notification (default ON). */
+  notifyVibration?: boolean;
+  /** Developer Control: portal (school modules) on/off — default ON. */
+  portalEnabled?: boolean;
+  /**
+   * Developer Control: role-wise login switches (default ON).
+   * false = us role ka LOGIN band (Auth attempt se pehle block + logged-in user
+   * ko block screen). Developer ka apna login hamesha ON rehta hai (lockout safety).
+   */
+  loginControl?: {
+    student?: boolean;
+    teacher?: boolean;
+    coordinator?: boolean;
+    principal?: boolean;
+  };
+  /** Monthly subscription expiry date, YYYY-MM-DD. Empty = no expiry set. */
+  subscriptionExpiry?: string;
 }
 
 export interface Assignment {

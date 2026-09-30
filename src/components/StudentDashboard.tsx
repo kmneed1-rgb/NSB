@@ -5,13 +5,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { 
   Award, Calendar, Clock, LogOut, CheckSquare, Sparkles, BookOpen, 
-  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint, ClipboardList
+  Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint, ClipboardList,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { getNotifications, saveNotifications, addNotification, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord, Assignment } from '../types';
-import { loadFromLocalStorage, getStudentFullAccount, StudentFeeData } from '../lib/feeEngine';
+import { loadFromLocalStorage, getStudentFullAccount, getMonthlySummary, MONTHS, StudentFeeData } from '../lib/feeEngine';
+import { parseMonthKey } from './FeePaymentCenter';
+import { toMonthKey, monthKeyLabel, shiftMonthKey, formatAttendanceDay, formatAttendanceDayShort } from '../lib/dateUtils';
 import AttendanceSwipeOverlay from './AttendanceSwipeOverlay';
 
 interface StudentDashboardProps {
@@ -40,6 +43,25 @@ interface StudentDashboardProps {
 type TabType = 'dashboard' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'id_card' | 'assignments';
 
 import { safeStorage } from '../lib/safeStorage';
+
+/** Fee record ka 'YYYY-MM' — pehle paidDate/dueDate se, warna 'June 2026' label se. */
+function feeRecordMonthKey(fee: FeeRecord): string {
+  const fromDate = toMonthKey(fee.paidDate || '') || toMonthKey(fee.dueDate || '');
+  if (fromDate) return fromDate;
+  const { idx, year } = parseMonthKey(fee.month, new Date().getFullYear());
+  return idx >= 0 ? `${year}-${String(idx + 1).padStart(2, '0')}` : '';
+}
+
+/** 'YYYY-MM' → 'Sep' (feeEngine ke MONTHS format mein, getMonthlySummary ke liye). */
+function monthShortFromKey(key: string): string {
+  const m = Number((key || '').split('-')[1]);
+  return m >= 1 && m <= 12 ? MONTHS[m - 1] : '';
+}
+
+/** 'YYYY-MM' → 2026 */
+function yearFromMonthKey(key: string): number {
+  return Number((key || '').split('-')[0]) || new Date().getFullYear();
+}
 
 export default function StudentDashboard({
   userSession,
@@ -274,11 +296,66 @@ export default function StudentDashboard({
   const classTeacherId = assignedClass?.classTeacherId || '';
   const classTeacherObj = teachers.find(t => t.id === classTeacherId);
 
+  // REPORT MONTH FILTER — '' = saare mahine, warna 'YYYY-MM'.
+  // Report (score sheet) + Attendance dono isi ek filter se chalti hain.
+  const [reportMonth, setReportMonth] = useState<string>('');
+
   // FILTERED STUDENT METRICS
   const myAttendance = attendance.filter(a => a.studentId === studentId);
   const totalDays = myAttendance.length;
   const presentDays = myAttendance.filter(a => a.status === 'present').length;
   const attendancePercent = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+
+  // POORA DATA ke status counts — dashboard card + swipe overlay ke liye
+  const absentDays = myAttendance.filter(a => a.status === 'absent').length;
+  const leaveDays = myAttendance.filter(a => a.status === 'leave').length;
+  const lateDays = myAttendance.filter(a => a.status === 'late').length;
+
+  // Student ke apne fee records (fees collection) + ledger account (fee_data collection)
+  const myFeeRecords = fees.filter(f => String(f.studentId) === String(studentId));
+  const myFeeData: StudentFeeData | undefined = feeStudents.find(
+    s => String(s.id) === String(studentId) ||
+         (!!studentProfile?.name && s.name.toLowerCase() === studentProfile.name.toLowerCase())
+  );
+
+  // --- MONTH SCOPE: reportMonth khali ('') = saara data, warna sirf wohi mahina ---
+  const scopedAttendance = reportMonth
+    ? myAttendance.filter(a => toMonthKey(a.date) === reportMonth)
+    : myAttendance;
+
+  const scopedTotalDays = scopedAttendance.length;
+  const scopedPresentDays = scopedAttendance.filter(a => a.status === 'present').length;
+  const scopedAttendancePercent = scopedTotalDays > 0 ? Math.round((scopedPresentDays / scopedTotalDays) * 100) : 0;
+  const scopedAbsentDays = scopedAttendance.filter(a => a.status === 'absent').length;
+  const scopedLeaveDays = scopedAttendance.filter(a => a.status === 'leave').length;
+  const scopedLateDays = scopedAttendance.filter(a => a.status === 'late').length;
+
+  /** Kis kis din kya hua — diye gaye records se (latest day pehle). */
+  const dayListByStatus = (source: Attendance[], status: Attendance['status']) =>
+    source
+      .filter(a => a.status === status && !!a.date)
+      .map(a => a.date)
+      .sort((a, b) => b.localeCompare(a));
+  const absentDayList = dayListByStatus(scopedAttendance, 'absent');
+  const leaveDayList = dayListByStatus(scopedAttendance, 'leave');
+  const lateDayList = dayListByStatus(scopedAttendance, 'late');
+
+  // Attendance journal ke liye latest-first sorted copy (original array mutate nahi hoti)
+  const myAttendanceSorted = [...scopedAttendance].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  /** Jitne mahine ka data mojood hai (attendance + fees) — month dropdown mein dikhane ke liye. */
+  const availableMonths = Array.from(new Set([
+    ...myAttendance.map(a => toMonthKey(a.date)),
+    ...myFeeRecords.map(f => feeRecordMonthKey(f)),
+  ].filter(Boolean))).sort().reverse();
+
+  // Selected month ke fee records + engine summary (due / paid / pending)
+  const scopedFeeRecords = reportMonth
+    ? myFeeRecords.filter(f => feeRecordMonthKey(f) === reportMonth)
+    : myFeeRecords;
+  const reportMonthFeeSummary = reportMonth && myFeeData
+    ? getMonthlySummary(myFeeData, monthShortFromKey(reportMonth), yearFromMonthKey(reportMonth))
+    : null;
 
   const myMarks = marks.filter(m => m.studentId === studentId);
 
@@ -425,6 +502,103 @@ export default function StudentDashboard({
   };
   const PERIODS = getPeriodsList();
 
+  /** 'YYYY-MM' (ya aaj ka mahina) — month arrows ke liye. */
+  const currentMonthKey = () =>
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
+  /** MONTH FILTER control — Report aur Attendance dono tabs mein same control. */
+  const monthFilterControl = (
+    <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs flex flex-wrap items-center gap-3 print:hidden">
+      <div className="flex items-center gap-2">
+        <Calendar size={16} className="text-indigo-600" />
+        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Report Month</span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setReportMonth(shiftMonthKey(reportMonth || currentMonthKey(), -1))}
+          className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          title="Previous month"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <input
+          type="month"
+          value={reportMonth}
+          onChange={(e) => setReportMonth(e.target.value)}
+          className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500"
+        />
+        <button
+          type="button"
+          onClick={() => setReportMonth(shiftMonthKey(reportMonth || currentMonthKey(), 1))}
+          className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          title="Next month"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
+      <select
+        value={reportMonth}
+        onChange={(e) => setReportMonth(e.target.value)}
+        className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-black uppercase outline-none focus:border-indigo-500"
+      >
+        <option value="">All Months</option>
+        {availableMonths.map(m => (
+          <option key={m} value={m}>{monthKeyLabel(m)}</option>
+        ))}
+      </select>
+
+      {reportMonth !== '' && (
+        <button
+          type="button"
+          onClick={() => setReportMonth('')}
+          className="px-3 py-2 text-xs font-black uppercase tracking-wider text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors"
+        >
+          Clear
+        </button>
+      )}
+
+      <span className="text-xs font-bold text-gray-500 ml-auto">
+        {reportMonth ? monthKeyLabel(reportMonth) : 'Showing all months'}
+      </span>
+    </div>
+  );
+
+  /** Month ka AIK hi card — Absent / Leave / Late sab isi ke andar, dates inline (2 Tue, 3 Fri). */
+  const renderDayListCards = () => {
+    const groups = [
+      { key: 'absent', label: 'Absent', list: absentDayList, color: 'text-rose-600' },
+      { key: 'leave', label: 'Leave', list: leaveDayList, color: 'text-blue-600' },
+      { key: 'late', label: 'Late', list: lateDayList, color: 'text-amber-600' },
+    ];
+
+    return (
+      <div className="bg-white border border-gray-200 border-t-4 border-t-indigo-500 rounded-2xl p-5 shadow-xs">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Kis kis din kya hua</span>
+          <span className="text-xs font-bold text-gray-500">
+            {reportMonth ? monthKeyLabel(reportMonth) : 'All Months'}
+          </span>
+        </div>
+        <div className="mt-3 space-y-1.5 text-xs font-bold text-gray-700 leading-relaxed">
+          {groups.map(g => {
+            const days = g.list.slice().reverse(); // chronological: 2 Tue, 3 Fri
+            return (
+              <p key={g.key}>
+                <span className={`font-black uppercase tracking-wider ${g.color}`}>{g.label}: </span>
+                {days.length > 0
+                  ? days.map(d => (reportMonth ? formatAttendanceDayShort(d) : formatAttendanceDay(d))).join(', ')
+                  : <span className="font-medium text-gray-400 normal-case">None</span>}
+              </p>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div id="student-dashboard-root" className="min-h-screen bg-gray-50 flex flex-col md:flex-row pb-16 md:pb-0 relative">
       
@@ -440,7 +614,9 @@ export default function StudentDashboard({
                 <div className="mt-2 text-sm text-gray-700">
                     <p>Total Days: {totalDays}</p>
                     <p className="text-emerald-600">Present Days: {presentDays}</p>
-                    <p className="text-rose-600">Absent Days: {totalDays - presentDays}</p>
+                    <p className="text-rose-600">Absent Days: {absentDays}</p>
+                    <p className="text-blue-600">Leave Days: {leaveDays}</p>
+                    <p className="text-amber-600">Late Days: {lateDays}</p>
                 </div>
             </div>
          </div>
@@ -565,7 +741,7 @@ export default function StudentDashboard({
               <User size={14} />
             </div>
             <div className="truncate">
-              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name.split(' ').slice(0, 1).join(' ') || userSession.name}</p>
+              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
               <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">Roll #{studentProfile?.rollNumber}</p>
             </div>
           </div>
@@ -716,11 +892,11 @@ export default function StudentDashboard({
         {activeTab === 'dashboard' && (
           <div id="panel-student-home" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Greeting Header */}
-            <div className="bg-white rounded-xl p-6 md:p-8 border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
+            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-sky-50/40 rounded-2xl p-6 md:p-8 border border-indigo-150 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
               <div>
                 <span className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">STUDENT ADVISORY</span>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name.split(' ').slice(0, 1).join(' ') || userSession.name}!</h1>
-                <p className="text-sm text-slate-500 mt-1">
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name}!</h1>
+                <p className="text-sm text-slate-600 mt-1">
                   Enrolled in <strong className="text-indigo-800 font-bold">{assignedClass ? `${assignedClass.className} - ${assignedClass.section}` : 'N/A Class'}</strong>.
                   {classTeacherObj && (
                     <span> Advisory Teacher: <strong className="text-slate-800">{classTeacherObj.name}</strong>.</span>
@@ -729,14 +905,14 @@ export default function StudentDashboard({
               </div>
 
               <div className="flex gap-2.5">
-                <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100/60 text-center">
-                  <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Attendance Rate</h4>
+                <div className="p-4 bg-indigo-100/60 rounded-xl border border-indigo-200/80 text-center">
+                  <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Attendance Rate</h4>
                   <p className="text-xl font-bold text-indigo-950 mt-1">{attendancePercent}%</p>
                 </div>
 
-                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100/60 text-center">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Marks Logged</h4>
-                  <p className="text-xl font-bold text-emerald-900 mt-1">{myMarks.length} elements</p>
+                <div className="p-4 bg-emerald-100/60 rounded-xl border border-emerald-200/80 text-center">
+                  <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Marks Logged</h4>
+                  <p className="text-xl font-bold text-emerald-950 mt-1">{myMarks.length} elements</p>
                 </div>
               </div>
             </div>
@@ -755,7 +931,7 @@ export default function StudentDashboard({
                 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.95 }}
-                className="bg-white p-6 border-b-4 border-indigo-500 shadow-sm rounded-xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                className="bg-gradient-to-br from-indigo-50/50 via-white to-blue-50/30 p-6 border border-indigo-150 border-b-4 border-b-indigo-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div onClick={() => handleTabChange('attendance')}>
                   <div className="flex items-center justify-between mb-4">
@@ -793,7 +969,7 @@ export default function StudentDashboard({
               {/* Marks Quick Peek Widget - Geometric style */}
               <div 
                 onClick={() => handleTabChange('marks')}
-                className="bg-white p-6 border-b-4 border-amber-500 shadow-sm rounded-xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                className="bg-gradient-to-br from-amber-50/50 via-white to-yellow-50/30 p-6 border border-amber-150 border-b-4 border-b-amber-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
                   <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-1.5 mb-3">
@@ -923,7 +1099,7 @@ export default function StudentDashboard({
             </div>
 
             {/* ========== ACADEMIC PERFORMANCE TREND CHART ========== */}
-            <div id="academic-performance-trend-block" className="bg-white border border-slate-200 p-6 shadow-sm border-t-4 border-t-indigo-600">
+            <div id="academic-performance-trend-block" className="bg-gradient-to-br from-indigo-50/30 via-white to-slate-50/30 border border-indigo-150 p-6 shadow-xs border-t-4 border-t-indigo-600 rounded-2xl">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-2">
@@ -1025,26 +1201,32 @@ export default function StudentDashboard({
               <p className="text-xs text-gray-500 mt-0.5">Evaluate cumulative presence, date stamps, and verify teacher registers.</p>
             </div>
 
+            {/* Month filter — kisi bhi mahine ka attendance report */}
+            {monthFilterControl}
+
             {/* Attendance Gauge Bar chart summary */}
             <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
               <div className="text-center md:border-r border-gray-100 py-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Total Classes Conducted</span>
-                <h3 className="text-4xl font-black text-gray-900 mt-2">{totalDays} Sessions</h3>
+                <h3 className="text-4xl font-black text-gray-900 mt-2">{scopedTotalDays} Sessions</h3>
               </div>
 
               <div className="text-center md:border-r border-gray-100 py-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Total days Attended</span>
-                <h3 className="text-4xl font-black text-emerald-600 mt-2">{presentDays} Present</h3>
-                <p className="text-xs text-gray-400 mt-0.5">{totalDays - presentDays} absent logs</p>
+                <h3 className="text-4xl font-black text-emerald-600 mt-2">{scopedPresentDays} Present</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{scopedAbsentDays} absent · {scopedLeaveDays} leave · {scopedLateDays} late</p>
               </div>
 
               <div className="text-center py-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Overall Ratio</span>
-                <h3 className={`text-4xl font-black mt-2 ${attendancePercent >= 75 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                  {attendancePercent}%
+                <h3 className={`text-4xl font-black mt-2 ${scopedTotalDays === 0 ? 'text-gray-300' : scopedAttendancePercent >= 75 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                  {scopedTotalDays > 0 ? `${scopedAttendancePercent}%` : '—'}
                 </h3>
               </div>
             </div>
+
+            {/* ========== ABSENT / LEAVE / LATE — KIS KIS DIN ========== */}
+            {renderDayListCards()}
 
             {/* Attendance Days list table */}
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-xs">
@@ -1062,10 +1244,13 @@ export default function StudentDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
-                    {myAttendance.length > 0 ? (
-                      myAttendance.map(log => (
+                    {myAttendanceSorted.length > 0 ? (
+                      myAttendanceSorted.map(log => (
                         <tr key={log.id} className="hover:bg-gray-55/20 transition-colors">
-                          <td className="px-6 py-4 font-bold text-slate-800">{log.date}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800">
+                            <span className="block">{formatAttendanceDay(log.date)}</span>
+                            <span className="block text-[10px] font-mono font-normal text-gray-400">{log.date}</span>
+                          </td>
                           <td className="px-6 py-4 text-sm font-semibold text-gray-500">General Academic Session</td>
                           <td className="px-6 py-4">
                             <div className="flex justify-center text-center">
@@ -1099,6 +1284,85 @@ export default function StudentDashboard({
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Academic Score Sheets</h1>
               <p className="text-xs text-gray-500 mt-0.5">Review scores, max markings, automated letter grades, and subject distributions.</p>
+            </div>
+
+            {/* Month filter — kisi bhi mahine ki report kholne ke liye */}
+            {monthFilterControl}
+
+            {/* ========== MONTHLY REPORT SUMMARY (attendance + fees) ========== */}
+            <div id="panel-monthly-report" className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+              <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600 flex items-center gap-2">
+                  <Calendar size={16} className="text-indigo-600" />
+                  {reportMonth ? `${monthKeyLabel(reportMonth)} Report` : 'Monthly Report'}
+                </h3>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Attendance + Fees</span>
+              </div>
+
+              <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Attendance</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { l: 'Present', v: scopedPresentDays, c: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+                      { l: 'Absent', v: scopedAbsentDays, c: 'text-rose-600 bg-rose-50 border-rose-100' },
+                      { l: 'Leave', v: scopedLeaveDays, c: 'text-blue-600 bg-blue-50 border-blue-100' },
+                      { l: 'Late', v: scopedLateDays, c: 'text-amber-600 bg-amber-50 border-amber-100' },
+                    ].map(s => (
+                      <div key={s.l} className={`px-3 py-2 rounded-xl border ${s.c}`}>
+                        <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">{s.l}</span>
+                        <span className="text-lg font-black leading-none">{s.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Total sessions: <span className="font-black text-slate-700">{scopedTotalDays}</span>
+                    {scopedTotalDays > 0
+                      ? <> · Ratio: <span className="font-black text-slate-700">{scopedAttendancePercent}%</span></>
+                      : <span className="text-slate-400"> · Is mahine ka attendance record nahi hai.</span>}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                    Fees{reportMonth ? ` — ${monthKeyLabel(reportMonth)}` : ''}
+                  </p>
+                  {reportMonth !== '' && reportMonthFeeSummary ? (
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { l: 'Due', v: reportMonthFeeSummary.due, c: 'text-slate-800 bg-slate-50 border-slate-200' },
+                          { l: 'Paid', v: reportMonthFeeSummary.paid, c: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+                          { l: 'Pending', v: reportMonthFeeSummary.pending, c: 'text-rose-600 bg-rose-50 border-rose-100' },
+                        ].map(s => (
+                          <div key={s.l} className={`px-3 py-2 rounded-xl border ${s.c}`}>
+                            <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">{s.l}</span>
+                            <span className="text-lg font-black leading-none">{s.v}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-1.5">
+                        {scopedFeeRecords.length > 0 ? scopedFeeRecords.map(f => (
+                          <div key={f.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
+                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-tight truncate">
+                              {f.feeType || 'School Fee'}{f.paidDate ? ` · paid ${f.paidDate}` : ''}
+                            </span>
+                            <span className={`text-[11px] font-black shrink-0 ${f.status === 'paid' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {f.amount} {f.status}
+                            </span>
+                          </div>
+                        )) : (
+                          <p className="text-[11px] text-slate-400 font-medium">Is mahine ka koi fee record nahi mila.</p>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400 font-medium">
+                      Month select karein — us mahine ki fee summary (due / paid / pending) yahan nazar aayegi.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* ========== ACADEMIC PERFORMANCE TREND CHART ========== */}

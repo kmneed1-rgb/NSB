@@ -22,5 +22,7 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  // Edge functions (supabase/) Deno runtime ke liye hain — app toolchain se exclude
+  "exclude": ["node_modules", "dist", "supabase"]
 }
