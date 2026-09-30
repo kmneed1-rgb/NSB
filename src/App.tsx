@@ -1,9 +1,26 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
-import { Download, X } from 'lucide-react';
+import { Download, Shield, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { sbQueueWrite, sbQueueDelete, flushSupabase, loadAllFromSupabase, subscribeRecords } from './lib/supabaseSync';
+import { sbQueueWrite, sbQueueDelete, flushSupabase, loadAllFromSupabase, subscribeRecords, mergePendingRows, isRowPending, getPendingCount } from './lib/supabaseSync';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, Attendance, Mark, UserSession, FeeRecord, AppSettings, StudentFeeData, Assignment } from './types';
+import { DEFAULT_APP_SETTINGS, withAppControlDefaults, getPortalBlockMessage, getRoleLoginBlockMessage } from './lib/appControl';
+import {
+  absorbNotificationsFromRows,
+  startNotificationSync,
+  filterNotificationsForUser,
+  getDeviceId,
+  deleteCloudNotificationRows,
+  PortalNotification,
+} from './lib/notificationUtils';
+import {
+  playNotifyTone,
+  playBellTone,
+  vibrateDevice,
+  toneEnabledFor,
+  unlockAudioOnFirstGesture,
+} from './lib/notifySound';
+import DeveloperDashboard from './components/DeveloperDashboard';
 import { 
   INITIAL_TEACHERS, 
   INITIAL_CLASSES, 
@@ -35,6 +52,19 @@ function safeParse<T>(key: string, fallback: T): T {
     console.warn(`Error parsing localStorage key "${key}":`, err);
     return fallback;
   }
+}
+
+/**
+ * `app_settings` table mein settings ka asli row id = `global` hota hai.
+ * Baaki rows (`notif_*`) notifications hain — inhe settings samajhna bug tha.
+ */
+function pickSettingsRow(rows: any[] | undefined): any | null {
+  const list = rows || [];
+  return (
+    list.find(r => String(r?.id) === 'global') ||
+    list.find(r => !String(r?.id || '').startsWith('notif_')) ||
+    null
+  );
 }
 
 export default function App() {
@@ -117,19 +147,8 @@ export default function App() {
     }));
   });
 
-  const [appSettings, setAppSettings] = useState<AppSettings>(() => 
-    safeParse('acadamis_app_settings', {
-      absentTemplate: "Greetings, Respected Parent! We noticed that your child {student_name} (Roll: {roll_number}) has been marked ABSENT on date {date}. Kindly clarify the reason or contact the school office. Principal.",
-      feeTemplate: "Dear parent, your child {name}'s fee for {month} is {amount} which is due on {date}. NSB 1 Academy.",
-      resultTemplate: "Greetings, Respected Parent! Result of {student_name} (Roll: {roll_number}, {class_name}) for {exam_name}:\n{subjects}\nTotal: {total_obtained}/{total_max} ({percentage}%). Status: {status}.\n- NSB 1 Academy.",
-      whatsAppAutoFee: true,
-      whatsAppAutoAbsence: true,
-      whatsAppAutoResult: false,
-      autoWhatsAppRedirect: true,
-      extraPeriods: {},
-      deletedPeriods: {},
-      periodColors: {}
-    })
+  const [appSettings, setAppSettings] = useState<AppSettings>(() =>
+    withAppControlDefaults(safeParse('acadamis_app_settings', DEFAULT_APP_SETTINGS))
   );
 
   // --- PWA INSTALL PROMPT LOGIC ---
@@ -201,6 +220,8 @@ export default function App() {
   // Real-time listeners tab hi setup hon jab initial sync complete ho
   const [syncReady, setSyncReady] = useState(false);
   const isSyncComplete = useRef<boolean>(false);
+  // Notification tone callback (realtime closure se call hota hai — stale state se bachne ke liye ref)
+  const playToneForNewNotificationsRef = useRef<(items: PortalNotification[]) => void>(() => {});
   
 
   const prevTeachers = useRef<string>('');
@@ -215,12 +236,113 @@ export default function App() {
   const prevAppSettings = useRef<string>('');
   const prevAssignments = useRef<string>('');
 
-  // --- QUEUED SUPABASE WRITER ---
-  // Har write/delete Supabase queue mein jata hai aur debounce ke baad batched
-  // upsert se flush hota hai. Supabase par koi write quota nahi hai.
+  // --- OFFLINE-FIRST SYNC CORE ---
+  // 1. applyData  → cloud load + pending offline rows protect karke state/cache apply
+  // 2. runSync    → outbox flush + cloud merge (online event, retry timer, manual)
+  // 3. flushBatch → sirf pending writes cloud par (har change ke baad debounced)
+  // Offline par data localStorage (local DB) mein save hota rehta hai; internet
+  // wapas aane par persistent outbox Supabase push hota hai — local copy delete
+  // NAHI hoti (offline read ke liye hamesha bani rahti hai).
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator === 'undefined' || navigator.onLine !== false
+  );
+  const [pendingCount, setPendingCount] = useState<number>(0);
   const [syncPaused, setSyncPaused] = useState(false);
-  const syncPausedUntil = useRef(0);
+  const retryTimer = useRef<any>(null);
+  const retryDelay = useRef(5000);
   const batchTimer = useRef<any>(null);
+
+  const applyData = useCallback(async (reason: string): Promise<boolean> => {
+    const result = await loadAllFromSupabase();
+    if (!result.ok) return false; // offline/partial failure — local data ko chhune nahi
+    const data = result.tables;
+
+    const applyList = <T extends { id: any }>(
+      col: string,
+      list: any[] | undefined,
+      prevRef: React.MutableRefObject<string>,
+      setter: (v: T[]) => void,
+      storeKey: string
+    ) => {
+      if (!list) return;
+      const merged = mergePendingRows(col, list) as T[]; // pending offline rows protect
+      const str = JSON.stringify(merged);
+      if (str === prevRef.current) return;
+      setter(merged);
+      prevRef.current = str;
+      safeStorage.setItem(storeKey, str); // local cache hamesha update, kabhi delete nahi
+    };
+
+    applyList<Teacher>('teachers', data['teachers'], prevTeachers, setTeachers, 'acadamis_teachers');
+    applyList<Class>('classes', data['classes'], prevClasses, setClasses, 'acadamis_classes');
+    applyList<Student>('students', data['students'], prevStudents, setStudents, 'acadamis_students');
+    applyList<TimetableEntry>('timetable', data['timetable'], prevTimetable, setTimetable, 'acadamis_timetable');
+    applyList<Attendance>('attendance', data['attendance'], prevAttendance, setAttendance, 'acadamis_attendance');
+    applyList<Mark>('marks', data['marks'], prevMarks, setMarks, 'acadamis_marks');
+    applyList<FeeRecord>('fees', data['fees'], prevFees, setFees, 'acadamis_fees');
+    applyList<Coordinator>('coordinators', data['coordinators'], prevCoordinators, setCoordinators, 'acadamis_coordinators');
+    applyList<StudentFeeData>('fee_data', data['fee_data'], prevFeeStudents, setFeeStudents, 'school_fee_data');
+    applyList<Assignment>('assignments', data['assignments'], prevAssignments, setAssignments, 'acadamis_assignments');
+
+    const settingsRow = pickSettingsRow(data['app_settings']);
+    if (settingsRow && !isRowPending('app_settings', 'global')) {
+      const s = withAppControlDefaults(settingsRow as AppSettings);
+      const sStr = JSON.stringify(s);
+      if (sStr !== prevAppSettings.current) {
+        setAppSettings(s);
+        prevAppSettings.current = sStr;
+        safeStorage.setItem('acadamis_app_settings', sStr);
+      }
+    }
+
+    // Notifications (`app_settings` ke `notif_*` rows) — cross-device merge + tone
+    const absorbed = absorbNotificationsFromRows(data['app_settings'] || []);
+    if (absorbed.added.length > 0) playToneForNewNotificationsRef.current(absorbed.added);
+    if (absorbed.droppedIds.length > 0) deleteCloudNotificationRows(absorbed.droppedIds);
+    console.log(`[Sync:RT] Supabase update applied (${reason})`);
+    return true;
+  }, []);
+
+  // Retry timer — exponential backoff 5s → 60s, jab tak sync success na ho jaye.
+  const runSyncRef = useRef<() => Promise<boolean>>(async () => true);
+  const scheduleRetry = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => { runSyncRef.current().catch(() => {}); }, retryDelay.current);
+    retryDelay.current = Math.min(retryDelay.current * 2, 60000);
+  }, []);
+
+  // Online par foran: pending offline data Supabase + cloud se latest merge.
+  const runSync = useCallback(async (): Promise<boolean> => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setIsOnline(false);
+      setSyncError('Offline — data saved locally');
+      setSyncPaused(true);
+      setPendingCount(getPendingCount());
+      scheduleRetry();
+      return false;
+    }
+    const flushed = await flushSupabase();
+    const applied = await applyData('sync');
+    const ok = flushed && applied;
+    setPendingCount(getPendingCount());
+    if (ok) {
+      setSyncError(null);
+      setSyncPaused(false);
+      retryDelay.current = 5000;
+      if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
+    } else {
+      setSyncError('Cloud sync failed — changes saved locally, retrying');
+      setSyncPaused(true);
+      scheduleRetry();
+    }
+    return ok;
+  }, [applyData, scheduleRetry]);
+
+  useEffect(() => { runSyncRef.current = runSync; }, [runSync]);
+
+  // --- QUEUED SUPABASE WRITER ---
+  // Har write/delete persistent offline outbox (localStorage) mein jata hai aur
+  // debounce ke baad batched upsert se flush hota hai. Offline = outbox safe.
 
   const queueBatchWrite = (col: string, id: string, data: any) => {
     sbQueueWrite(col, id, data);
@@ -234,11 +356,17 @@ export default function App() {
 
   const flushBatch = async () => {
     const ok = await flushSupabase();
+    setPendingCount(getPendingCount());
     if (ok) {
       setSyncError(null);
       setSyncPaused(false);
+      retryDelay.current = 5000;
+      if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
     } else {
+      // Outbox localStorage mein save hai — retry timer se auto push hoga.
       setSyncError('Cloud sync failed — changes saved locally, retrying');
+      setSyncPaused(true);
+      scheduleRetry();
     }
   };
 
@@ -271,58 +399,17 @@ export default function App() {
 
 
   // --- REALTIME LISTENER — Supabase WebSocket push se live cross-device sync ---
-  // Ek hi channel `records` table par; koi bhi INSERT/UPDATE/DELETE → debounce
-  // ke baad poori state refresh. Prev-ref comparison se echo loop nahi banta.
+  // Ek hi channel SARI tables par; koi bhi INSERT/UPDATE/DELETE → debounce ke
+  // baad applyData() cloud se state refresh karta hai. Pending offline rows
+  // (outbox) cloud ke stale copy se protect rehti hain.
   useEffect(() => {
     if (!userSession || !syncReady) return;
 
     let rtTimer: any = null;
-
-    const applyData = async (reason: string) => {
-      const data = await loadAllFromSupabase();
-      if (!data) return;
-
-      const applyList = <T extends { id: any }>(
-        list: any[] | undefined,
-        prevRef: React.MutableRefObject<string>,
-        setter: (v: T[]) => void,
-        storeKey: string
-      ) => {
-        if (!list) return;
-        const str = JSON.stringify(list);
-        if (str === prevRef.current) return;
-        setter(list as T[]);
-        prevRef.current = str;
-        safeStorage.setItem(storeKey, str);
-      };
-
-      applyList(data['teachers'], prevTeachers, setTeachers, 'acadamis_teachers');
-      applyList(data['classes'], prevClasses, setClasses, 'acadamis_classes');
-      applyList(data['students'], prevStudents, setStudents, 'acadamis_students');
-      applyList(data['timetable'], prevTimetable, setTimetable, 'acadamis_timetable');
-      applyList(data['attendance'], prevAttendance, setAttendance, 'acadamis_attendance');
-      applyList(data['marks'], prevMarks, setMarks, 'acadamis_marks');
-      applyList(data['fees'], prevFees, setFees, 'acadamis_fees');
-      applyList(data['coordinators'], prevCoordinators, setCoordinators, 'acadamis_coordinators');
-      applyList(data['fee_data'], prevFeeStudents, setFeeStudents, 'school_fee_data');
-      applyList(data['assignments'], prevAssignments, setAssignments, 'acadamis_assignments');
-      const settingsArr = data['app_settings'] || [];
-      if (settingsArr.length > 0) {
-        const s = settingsArr[0] as AppSettings;
-        const sStr = JSON.stringify(s);
-        if (sStr !== prevAppSettings.current) {
-          setAppSettings(s);
-          prevAppSettings.current = sStr;
-          safeStorage.setItem('acadamis_app_settings', sStr);
-        }
-      }
-      console.log(`[Sync:RT] Supabase update applied (${reason})`);
-    };
-
     const unsub = subscribeRecords(() => {
       if (!isSyncComplete.current) return;
       if (rtTimer) clearTimeout(rtTimer);
-      rtTimer = setTimeout(() => { applyData('realtime'); }, 400);
+      rtTimer = setTimeout(() => { applyData('realtime').catch(() => {}); }, 400);
     });
 
     console.log('[Sync:RT] Supabase realtime listener active');
@@ -330,19 +417,41 @@ export default function App() {
       unsub();
       if (rtTimer) clearTimeout(rtTimer);
     };
-  }, [userSession, syncReady]);
+  }, [userSession, syncReady, applyData]);
 
 
   useEffect(() => {
     async function initBackendAndSync() {
+      // localStorage-backed initial state (safeParse se aayi) — isi ko offline
+      // fallback ke taur par preserve karna hai; cloud fail hone par yahi rehti hai.
+      const snapshotPrevRefs = () => {
+        prevTeachers.current = JSON.stringify(teachers);
+        prevClasses.current = JSON.stringify(classes);
+        prevStudents.current = JSON.stringify(students);
+        prevTimetable.current = JSON.stringify(timetable);
+        prevAttendance.current = JSON.stringify(attendance);
+        prevMarks.current = JSON.stringify(marks);
+        prevFees.current = JSON.stringify(fees);
+        prevCoordinators.current = JSON.stringify(coordinators);
+        prevFeeStudents.current = JSON.stringify(feeStudents);
+        prevAssignments.current = JSON.stringify(assignments);
+        prevAppSettings.current = JSON.stringify(appSettings);
+      };
+
       try {
         console.log("Checking Supabase connectivity...");
 
-        const timeoutPromise = new Promise((_, reject) =>
+        // Browser already jaanta hai ke network nahi — 15s timeout mat ruko.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw new Error("Offline — data saved locally");
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Supabase connection timeout")), 15000)
         );
 
-        const data = await Promise.race([loadAllFromSupabase(), timeoutPromise]);
+        const result = await Promise.race([loadAllFromSupabase(), timeoutPromise]);
+        const data = result.tables;
         const loadedTeachers = data['teachers'] || [];
         const loadedClasses = data['classes'] || [];
         const loadedStudents = data['students'] || [];
@@ -353,61 +462,55 @@ export default function App() {
         const loadedCoordinators = data['coordinators'] || [];
         const loadedFeeStudents = data['fee_data'] || [];
         const loadedAssignments = data['assignments'] || [];
-        const loadedSettings = (data['app_settings'] || [])[0] as AppSettings | null;
+        const loadedSettings = pickSettingsRow(data['app_settings']) as AppSettings | null;
 
-        if (loadedStudents.length === 0) {
-          // ===== SEED — Supabase khali hai to initial datasets likho =====
-          console.log("Supabase records khali — initial datasets seed kar rahe hain...");
-          try {
-            const seedItems: [string, any[]][] = [
-              ['teachers', INITIAL_TEACHERS],
-              ['classes', INITIAL_CLASSES],
-              ['students', INITIAL_STUDENTS],
-              ['timetable', INITIAL_TIMETABLE],
-              ['attendance', INITIAL_ATTENDANCE],
-              ['marks', INITIAL_MARKS],
-              ['fees', INITIAL_FEES],
-            ];
-            seedItems.forEach(([col, arr]) => {
-              (arr || []).forEach(item => {
-                if (item?.id !== undefined && item?.id !== null) sbQueueWrite(col, String(item.id), item);
-              });
-            });
-            await flushSupabase();
-            console.log("Seeding to Supabase completed successfully.");
-          } catch (seedErr) {
-            console.warn("Seeding to Supabase warning:", seedErr);
-          }
+        if (!result.ok) {
+          // Cloud unreachable / partial failure — LOCAL data ko chhuein mat.
+          console.warn('[Sync] Supabase load failed — offline fallback, local data preserved');
+          snapshotPrevRefs();
+          setSyncError('Cloud unreachable — data saved locally');
+          setPendingCount(getPendingCount());
+          isSyncComplete.current = true;
+          setSyncReady(true);
+          scheduleRetry();
+          return;
+        }
 
-          setTeachers(INITIAL_TEACHERS);
-          setClasses(INITIAL_CLASSES);
-          setStudents(INITIAL_STUDENTS);
-          setTimetable(INITIAL_TIMETABLE);
-          setAttendance(INITIAL_ATTENDANCE);
-          setMarks(INITIAL_MARKS);
-          setFees(INITIAL_FEES);
+        // ===== CLOUD OK =====
+        // Jo column cloud par khali hai use LOCAL cache se lo (seed), aur prev
+        // ref '' rakh kar pehle diff pass mein cloud par push karwa do.
+        const cloudOr = <T,>(col: string, cloud: any[], local: T[]): T[] =>
+          cloud.length > 0 ? (mergePendingRows(col, cloud) as T[]) : local;
 
-          prevTeachers.current = JSON.stringify(INITIAL_TEACHERS);
-          prevClasses.current = JSON.stringify(INITIAL_CLASSES);
-          prevStudents.current = JSON.stringify(INITIAL_STUDENTS);
-          prevTimetable.current = JSON.stringify(INITIAL_TIMETABLE);
-          prevAttendance.current = JSON.stringify(INITIAL_ATTENDANCE);
-          prevMarks.current = JSON.stringify(INITIAL_MARKS);
-          prevFees.current = JSON.stringify(INITIAL_FEES);
-          prevCoordinators.current = JSON.stringify([]);
-          prevFeeStudents.current = JSON.stringify([]);
-          prevAssignments.current = JSON.stringify([]);
-        } else {
-          // ===== LOAD — Supabase se active data =====
+        const finalTeachers = cloudOr<Teacher>('teachers', loadedTeachers, teachers);
+        const finalClasses = cloudOr<Class>('classes', loadedClasses, classes);
+        const finalStudents = cloudOr<Student>('students', loadedStudents, students);
+        const finalTimetable = cloudOr<TimetableEntry>('timetable', loadedTimetable, timetable);
+        const finalAttendance = cloudOr<Attendance>('attendance', loadedAttendance, attendance);
+        const finalMarks = cloudOr<Mark>('marks', loadedMarks, marks);
+        const finalFees = cloudOr<FeeRecord>('fees', loadedFees, fees);
+        const finalCoordinators = cloudOr<Coordinator>('coordinators', loadedCoordinators, coordinators);
+        const finalAssignments = cloudOr<Assignment>('assignments', loadedAssignments, assignments);
+          // ===== APPLY — cloud data + local pending overlay (local cache kabhi delete nahi) =====
           console.log("Loading datasets from Supabase...");
 
-            const finalTeachers = loadedTeachers.length > 0 ? loadedTeachers : INITIAL_TEACHERS;
-          const finalClasses = loadedClasses.length > 0 ? loadedClasses : INITIAL_CLASSES;
-          const finalStudents = loadedStudents.length > 0 ? loadedStudents : INITIAL_STUDENTS;
-          const finalTimetable = loadedTimetable.length > 0 ? loadedTimetable : INITIAL_TIMETABLE;
-          const finalAttendance = loadedAttendance.length > 0 ? loadedAttendance : INITIAL_ATTENDANCE;
-          const finalMarks = loadedMarks.length > 0 ? loadedMarks : INITIAL_MARKS;
-          const finalFees = loadedFees.length > 0 ? loadedFees : INITIAL_FEES;
+          const defaultFeeStudents: StudentFeeData[] = finalStudents.map(s => ({
+            id: s.id,
+            name: s.name,
+            class: s.classId === 'c1' ? 'Grade 10 A' : 'Grade 11 B',
+            monthlyFee: 2500,
+            payments: [],
+            otherFunds: [],
+            dues: []
+          }));
+          const finalFeeStudents = cloudOr<StudentFeeData>('fee_data', loadedFeeStudents,
+            feeStudents.length > 0 ? feeStudents : defaultFeeStudents);
+
+          let finalSettings = appSettings;
+          if (loadedSettings) {
+            const mergedSettings = mergePendingRows('app_settings', [loadedSettings]);
+            finalSettings = withAppControlDefaults((mergedSettings[0] || loadedSettings) as AppSettings);
+          }
 
           setTeachers(finalTeachers);
           setClasses(finalClasses);
@@ -416,87 +519,93 @@ export default function App() {
           setAttendance(finalAttendance);
           setMarks(finalMarks);
           setFees(finalFees);
+          setCoordinators(finalCoordinators);
+          setAssignments(finalAssignments);
+          setFeeStudents(finalFeeStudents);
+          setAppSettings(finalSettings);
 
-          if (loadedCoordinators.length > 0) setCoordinators(loadedCoordinators);
-          if (loadedAssignments.length > 0) setAssignments(loadedAssignments);
-          if (loadedFeeStudents.length > 0) {
-            setFeeStudents(loadedFeeStudents);
-          } else {
-            const defaultFeeStudents = finalStudents.map(s => ({
-              id: s.id,
-              name: s.name,
-              class: s.classId === 'c1' ? 'Grade 10 A' : 'Grade 11 B',
-              monthlyFee: 2500,
-              payments: [],
-              otherFunds: [],
-              dues: []
-            }));
-            setFeeStudents(defaultFeeStudents);
-          }
-          if (loadedSettings) setAppSettings(loadedSettings);
+          // Prev refs: cloud mein data hai → baseline = applied value; cloud khali →
+          // '' taki pehla diff pass LOCAL data cloud par push kare (offline → cloud).
+          prevTeachers.current = loadedTeachers.length > 0 ? JSON.stringify(finalTeachers) : '';
+          prevClasses.current = loadedClasses.length > 0 ? JSON.stringify(finalClasses) : '';
+          prevStudents.current = loadedStudents.length > 0 ? JSON.stringify(finalStudents) : '';
+          prevTimetable.current = loadedTimetable.length > 0 ? JSON.stringify(finalTimetable) : '';
+          prevAttendance.current = loadedAttendance.length > 0 ? JSON.stringify(finalAttendance) : '';
+          prevMarks.current = loadedMarks.length > 0 ? JSON.stringify(finalMarks) : '';
+          prevFees.current = loadedFees.length > 0 ? JSON.stringify(finalFees) : '';
+          prevCoordinators.current = loadedCoordinators.length > 0 ? JSON.stringify(finalCoordinators) : '';
+          prevFeeStudents.current = loadedFeeStudents.length > 0 ? JSON.stringify(finalFeeStudents) : '';
+          prevAssignments.current = loadedAssignments.length > 0 ? JSON.stringify(finalAssignments) : '';
+          prevAppSettings.current = loadedSettings ? JSON.stringify(finalSettings) : '';
 
-          // Background auto-seed if any collection was empty in Supabase
-          if (loadedStudents.length === 0) {
-            INITIAL_STUDENTS.forEach(s => sbQueueWrite("students", String(s.id), s));
-          }
-          if (loadedClasses.length === 0) {
-            INITIAL_CLASSES.forEach(c => sbQueueWrite("classes", String(c.id), c));
-          }
-          if (loadedTeachers.length === 0) {
-            INITIAL_TEACHERS.forEach(t => sbQueueWrite("teachers", String(t.id), t));
-          }
-          if (loadedAttendance.length === 0) {
-            INITIAL_ATTENDANCE.forEach(a => sbQueueWrite("attendance", String(a.id), a));
-          }
-          if (loadedFees.length === 0) {
-            INITIAL_FEES.forEach(f => sbQueueWrite("fees", String(f.id), f));
-          }
-          flushSupabase().catch(() => {});
+          // localStorage cache refresh — local copy hamesha bani rahe (offline read);
+          // yahan SIRF update hoti hai, delete kabhi nahi hoti.
+          safeStorage.setItem('acadamis_teachers', JSON.stringify(finalTeachers));
+          safeStorage.setItem('acadamis_classes', JSON.stringify(finalClasses));
+          safeStorage.setItem('acadamis_students', JSON.stringify(finalStudents));
+          safeStorage.setItem('acadamis_timetable', JSON.stringify(finalTimetable));
+          safeStorage.setItem('acadamis_attendance', JSON.stringify(finalAttendance));
+          safeStorage.setItem('acadamis_marks', JSON.stringify(finalMarks));
+          safeStorage.setItem('acadamis_fees', JSON.stringify(finalFees));
+          safeStorage.setItem('acadamis_coordinators', JSON.stringify(finalCoordinators));
+          safeStorage.setItem('acadamis_assignments', JSON.stringify(finalAssignments));
+          safeStorage.setItem('school_fee_data', JSON.stringify(finalFeeStudents));
+          safeStorage.setItem('acadamis_app_settings', JSON.stringify(finalSettings));
 
-          prevTeachers.current = JSON.stringify(finalTeachers);
-          prevClasses.current = JSON.stringify(finalClasses);
-          prevStudents.current = JSON.stringify(finalStudents);
-          prevTimetable.current = JSON.stringify(finalTimetable);
-          prevAttendance.current = JSON.stringify(finalAttendance);
-          prevMarks.current = JSON.stringify(finalMarks);
-          prevFees.current = JSON.stringify(finalFees);
-          prevCoordinators.current = JSON.stringify(loadedCoordinators.length > 0 ? loadedCoordinators : []);
-          prevFeeStudents.current = JSON.stringify(loadedFeeStudents.length > 0 ? loadedFeeStudents : []);
-          prevAssignments.current = JSON.stringify(loadedAssignments.length > 0 ? loadedAssignments : []);
-          if (loadedSettings) prevAppSettings.current = JSON.stringify(loadedSettings);
-
-          // localStorage cache bhi refresh
-          safeStorage.setItem('acadamis_teachers', prevTeachers.current);
-          safeStorage.setItem('acadamis_classes', prevClasses.current);
-          safeStorage.setItem('acadamis_students', prevStudents.current);
-          safeStorage.setItem('acadamis_timetable', prevTimetable.current);
-          safeStorage.setItem('acadamis_attendance', prevAttendance.current);
-          safeStorage.setItem('acadamis_marks', prevMarks.current);
-          safeStorage.setItem('acadamis_fees', prevFees.current);
-          safeStorage.setItem('acadamis_coordinators', prevCoordinators.current);
-          safeStorage.setItem('school_fee_data', prevFeeStudents.current);
-          safeStorage.setItem('acadamis_assignments', prevAssignments.current);
-        }
         isSyncComplete.current = true;
         setSyncReady(true);
+        setSyncError(null);
+        setPendingCount(getPendingCount());
+        // Pichle session ke offline writes (persistent outbox) + cloud-khali diff pushes
+        flushBatch();
       } catch (err: any) {
         console.warn("Supabase sync running in background/offline fallback mode:", err?.message);
-        setSyncError(err?.message || "Offline fallback");
-
-        setTeachers(prev => prev.length > 0 ? prev : INITIAL_TEACHERS);
-        setClasses(prev => prev.length > 0 ? prev : INITIAL_CLASSES);
-        setStudents(prev => prev.length > 0 ? prev : INITIAL_STUDENTS);
-        setTimetable(prev => prev.length > 0 ? prev : INITIAL_TIMETABLE);
-        setAttendance(prev => prev.length > 0 ? prev : INITIAL_ATTENDANCE);
-        setMarks(prev => prev.length > 0 ? prev : INITIAL_MARKS);
-        setFees(prev => prev.length > 0 ? prev : INITIAL_FEES);
-        // IMPORTANT: Set sync complete even on failure so local changes can still push
+        // Timeout/network fail → LOCAL data (localStorage) ko hi rehne do (wipe nahi).
+        snapshotPrevRefs();
+        setSyncError(err?.message || "Offline — data saved locally");
+        setPendingCount(getPendingCount());
         isSyncComplete.current = true;
         setSyncReady(true);
+        scheduleRetry();
       }
     }
 
     initBackendAndSync();
+  }, []);
+
+  // --- NETWORK STATUS + AUTO-RETRY ---
+  // Internet wapas aaye → foran pending offline data Supabase; gayab → local mode.
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('[Sync] Network online — flushing offline data to Supabase');
+      setIsOnline(true);
+      retryDelay.current = 5000;
+      runSyncRef.current().catch(() => {});
+    };
+    const handleOffline = () => {
+      console.log('[Sync] Network offline — data saving to local DB');
+      setIsOnline(false);
+      setSyncError('Offline — data saved locally');
+      setPendingCount(getPendingCount());
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+  }, []);
+
+  // Pending offline changes ka live count (banner ke liye)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPendingCount(prev => {
+        const n = getPendingCount();
+        return n === prev ? prev : n;
+      });
+    }, 2500);
+    return () => clearInterval(timer);
   }, []);
 
   // --- REALTIME DIFFERENTIAL SYNC ACTIONS ---
@@ -813,6 +922,49 @@ export default function App() {
     sync();
   }, [appSettings]);
 
+  // --- NOTIFICATIONS: naye items par tone/vibration (sirf doosri device se aayi notifications) ---
+  const playToneForNewNotifications = useCallback((items: PortalNotification[]) => {
+    const mine = getDeviceId();
+    const fresh = (items || []).filter(n => n?.origin !== mine);
+    if (fresh.length === 0) return;
+    const myClassId = userSession?.role === 'student'
+      ? students.find(s => String(s.id) === String(userSession?.id))?.classId
+      : undefined;
+    const visible = filterNotificationsForUser(fresh, {
+      role: userSession?.role,
+      userId: userSession?.id,
+      teacherId: userSession?.role === 'teacher' ? userSession?.id : undefined,
+      classId: myClassId,
+    });
+    if (visible.length === 0) return;
+    if (toneEnabledFor(appSettings.notifySound !== false)) {
+      const isBell = visible.some(n => n.sound === 'bell' || n.type === 'period_bell');
+      if (isBell) playBellTone();
+      else playNotifyTone();
+    }
+    vibrateDevice();
+  }, [userSession, students, appSettings.notifySound]);
+
+  useEffect(() => {
+    playToneForNewNotificationsRef.current = playToneForNewNotifications;
+  }, [playToneForNewNotifications]);
+
+  // Ek dafa audio unlock (browser autoplay policy) + cloud se notifications ka pehla merge
+  useEffect(() => {
+    unlockAudioOnFirstGesture();
+  }, []);
+
+  useEffect(() => {
+    if (!syncReady) return;
+    let cancelled = false;
+    startNotificationSync()
+      .then(res => {
+        if (!cancelled && res.added.length > 0) playToneForNewNotifications(res.added);
+      })
+      .catch(() => { /* offline — local cache chalta rahega */ });
+    return () => { cancelled = true; };
+  }, [syncReady, playToneForNewNotifications]);
+
   // Auto-sync students to feeStudents collection
   useEffect(() => {
     if (!isSyncComplete.current) return;
@@ -930,6 +1082,12 @@ export default function App() {
 
   // --- ACTIONS ---
   const handleLogin = (session: UserSession) => {
+    // CHOKE POINT: developer ne is role ka login band kiya ho to session set hi na karo.
+    const blocked = getRoleLoginBlockMessage(appSettings, session.role);
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
     setUserSession(session);
     setViewPortal(true);
   };
@@ -943,13 +1101,14 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
 
-      {/* Cloud sync health banner */}
-      {syncError && (
+      {/* Offline / cloud sync health banner */}
+      {(!isOnline || syncError) && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[10000] bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full shadow-lg print:hidden max-w-[90vw] truncate flex items-center gap-2">
-          Cloud sync issue: {syncError} — data saved locally
+          {!isOnline ? 'Offline — data saved locally' : `Cloud sync issue: ${syncError} — data saved locally`}
+          {pendingCount > 0 && ` · ${pendingCount} pending`}
           {syncPaused && (
             <button
-              onClick={() => { syncPausedUntil.current = 0; setSyncPaused(false); flushBatch(); }}
+              onClick={() => { retryDelay.current = 5000; setSyncPaused(false); runSync(); }}
               className="px-2 py-0.5 bg-white text-amber-700 rounded-full text-[9px] font-black uppercase hover:bg-amber-100 transition-colors cursor-pointer shrink-0"
             >
               Retry Now
@@ -1018,9 +1177,39 @@ export default function App() {
             coordinators={coordinators}
             onLogin={handleLogin} 
             onBackToLanding={() => setViewPortal(false)}
+            portalNotice={getPortalBlockMessage(appSettings)}
+            appSettings={appSettings}
           />
         )
-      ) : (userSession.role === 'principal' || userSession.role === 'coordinator' || userSession.role === 'developer') ? (
+      ) : userSession.role === 'developer' ? (
+        <DeveloperDashboard
+          userSession={userSession}
+          appSettings={appSettings}
+          setAppSettings={setAppSettings}
+          onLogout={handleLogout}
+        />
+      ) : (getPortalBlockMessage(appSettings) || getRoleLoginBlockMessage(appSettings, userSession.role)) ? (
+        // ===== Portal OFF / Subscription expired / Role login band → non-developer users blocked =====
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+          <div className="max-w-md w-full border border-rose-500/40 bg-rose-950/30 p-8 space-y-5 text-center">
+            <div className="w-16 h-16 bg-rose-600/20 border border-rose-500/50 rounded-2xl mx-auto flex items-center justify-center">
+              <Shield size={30} className="text-rose-400" />
+            </div>
+            <h1 className="text-lg font-black uppercase tracking-widest text-rose-300">
+              {getPortalBlockMessage(appSettings) ? 'Portal Offline' : 'Login Disabled'}
+            </h1>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              {getPortalBlockMessage(appSettings) || getRoleLoginBlockMessage(appSettings, userSession.role)}
+            </p>
+            <button
+              onClick={handleLogout}
+              className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-xs font-black uppercase tracking-widest"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      ) : (userSession.role === 'principal' || userSession.role === 'coordinator') ? (
         <PrincipalDashboard
           userSession={userSession}
           teachers={teachers}
@@ -1103,6 +1292,8 @@ export default function App() {
           coordinators={coordinators}
           onLogin={handleLogin} 
           onBackToLanding={() => setViewPortal(false)}
+          portalNotice={getPortalBlockMessage(appSettings)}
+          appSettings={appSettings}
         />
       )}
     </div>
