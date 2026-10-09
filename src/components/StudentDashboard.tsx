@@ -1,4 +1,4 @@
-import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, flushSupabase } from '../lib/supabaseSync';
+import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -16,6 +16,7 @@ import { loadFromLocalStorage, getStudentFullAccount, getMonthlySummary, MONTHS,
 import { parseMonthKey } from './FeePaymentCenter';
 import { toMonthKey, monthKeyLabel, shiftMonthKey, formatAttendanceDay, formatAttendanceDayShort } from '../lib/dateUtils';
 import AttendanceSwipeOverlay from './AttendanceSwipeOverlay';
+import UserAvatar from './UserAvatar';
 
 interface StudentDashboardProps {
   userSession: UserSession;
@@ -137,35 +138,53 @@ export default function StudentDashboard({
           loadCollectionFromSupabase('assignments'),
         ]);
         let changed = false;
-        if (studentsData && listChanged(studentsRef.current, studentsData)) {
-          studentsRef.current = studentsData;
-          setStudents(studentsData);
-          changed = true;
+        if (studentsData) {
+          const merged = mergePendingRows('students', studentsData);
+          if (listChanged(studentsRef.current, merged)) {
+            studentsRef.current = merged;
+            setStudents(merged);
+            changed = true;
+          }
         }
-        if (classesData && listChanged(classesRef.current, classesData)) {
-          classesRef.current = classesData;
-          setClasses(classesData);
-          changed = true;
+        if (classesData) {
+          const merged = mergePendingRows('classes', classesData);
+          if (listChanged(classesRef.current, merged)) {
+            classesRef.current = merged;
+            setClasses(merged);
+            changed = true;
+          }
         }
-        if (timetableData && listChanged(timetableRef.current, timetableData)) {
-          timetableRef.current = timetableData;
-          setTimetable(timetableData);
-          changed = true;
+        if (timetableData) {
+          const merged = mergePendingRows('timetable', timetableData);
+          if (listChanged(timetableRef.current, merged)) {
+            timetableRef.current = merged;
+            setTimetable(merged);
+            changed = true;
+          }
         }
-        if (attendanceData && listChanged(attendanceRef.current, attendanceData)) {
-          attendanceRef.current = attendanceData;
-          setAttendance(attendanceData);
-          changed = true;
+        if (attendanceData) {
+          const merged = mergePendingRows('attendance', attendanceData);
+          if (listChanged(attendanceRef.current, merged)) {
+            attendanceRef.current = merged;
+            setAttendance(merged);
+            changed = true;
+          }
         }
-        if (marksData && listChanged(marksRef.current, marksData)) {
-          marksRef.current = marksData;
-          setMarks(marksData);
-          changed = true;
+        if (marksData) {
+          const merged = mergePendingRows('marks', marksData);
+          if (listChanged(marksRef.current, merged)) {
+            marksRef.current = merged;
+            setMarks(merged);
+            changed = true;
+          }
         }
-        if (assignmentsData && listChanged(assignmentsRef.current, assignmentsData)) {
-          assignmentsRef.current = assignmentsData;
-          setAssignments(assignmentsData);
-          changed = true;
+        if (assignmentsData) {
+          const merged = mergePendingRows('assignments', assignmentsData);
+          if (listChanged(assignmentsRef.current, merged)) {
+            assignmentsRef.current = merged;
+            setAssignments(merged);
+            changed = true;
+          }
         }
         if (changed) console.log('[Sync:RT] StudentDashboard reloaded from Supabase');
       } catch (e: any) {
@@ -737,9 +756,7 @@ export default function StudentDashboard({
         {/* Minimalist Account Section */}
         <div className="p-6 border-t border-slate-50">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white font-black text-xs ">
-              <User size={14} />
-            </div>
+            <UserAvatar photo={studentProfile?.photo} name={userSession.name} size={32} />
             <div className="truncate">
               <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
               <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">Roll #{studentProfile?.rollNumber}</p>

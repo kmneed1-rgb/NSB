@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarClock, FileText, KeyRound, LogOut, Power, Shield, ToggleLeft, ToggleRight, Wallet, Wifi } from 'lucide-react';
+import { CalendarClock, FileText, KeyRound, LogOut, Power, Shield, ToggleLeft, ToggleRight, Upload, Wallet, Wifi } from 'lucide-react';
 import { AppSettings, Role, UserSession } from '../types';
 import {
   getGeminiApiKey, isPortalEnabled, isSubscriptionActive,
   isRoleLoginEnabled, LOGIN_CONTROL_ROLES, LOGIN_CONTROL_LABELS, LoginControlRole,
 } from '../lib/appControl';
 import { testGeminiConnection } from '../lib/geminiPaper';
+import { convertToWebP } from '../lib/imageUtils';
+import UserAvatar from './UserAvatar';
 
 interface DeveloperDashboardProps {
   userSession: UserSession;
@@ -24,6 +26,28 @@ export default function DeveloperDashboard({
   const [keyDraft, setKeyDraft] = useState(appSettings.geminiApiKey || '');
   const [testing, setTesting] = useState(false);
   const [expiryDraft, setExpiryDraft] = useState(appSettings.subscriptionExpiry || '');
+  const [isConvertingPhoto, setIsConvertingPhoto] = useState(false);
+
+  /** Developer ka profile photo — app_settings/global mein save (auto cloud sync). */
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+    try {
+      setIsConvertingPhoto(true);
+      const webpData = await convertToWebP(file);
+      setAppSettings(prev => ({ ...prev, developerPhoto: webpData }));
+      toast.success('Profile photo updated!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to process image');
+    } finally {
+      setIsConvertingPhoto(false);
+    }
+  };
 
   const paperOn = appSettings.enablePaperGenerator !== false;
   const salaryOn = appSettings.enableTeacherSalary !== false;
@@ -106,8 +130,12 @@ export default function DeveloperDashboard({
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-amber-500/10 border border-amber-500/30">
-            <Shield size={18} className="text-amber-400" />
+          <div className="relative group">
+            <UserAvatar photo={appSettings.developerPhoto} name={userSession.name} size={44} className="border-2 border-amber-500/40" />
+            <label className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 p-1 rounded-lg cursor-pointer shadow-lg hover:bg-amber-400 transition-all border border-slate-950" title="Upload photo">
+              <Upload size={10} strokeWidth={3} />
+              <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" disabled={isConvertingPhoto} />
+            </label>
           </div>
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.35em] text-amber-400">Developer Control</p>
@@ -301,7 +329,7 @@ export default function DeveloperDashboard({
                 {salaryOn ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-slate-600" />}
               </button>
             </div>
-            <p className="text-xs text-slate-400">Principal aur coordinator ka payroll view (teacher salary).</p>
+            <p className="text-xs text-slate-400">Principal ka payroll view (teacher salary) — coordinator ko nahi dikhata.</p>
             <p className={`text-[10px] font-black uppercase tracking-widest ${salaryOn ? 'text-emerald-400' : 'text-slate-500'}`}>
               {salaryOn ? 'Enabled' : 'Disabled'}
             </p>

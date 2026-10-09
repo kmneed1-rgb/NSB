@@ -11,6 +11,7 @@ deploy-auth-out.txt
 auth-sync-out.txt
 supabase/.temp/
 supa-cli-out.txt
+dev-out.txt
 _v.txt
 _hist.txt
 *.bak

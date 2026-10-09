@@ -1,5 +1,5 @@
 import { testSupabaseConnection } from '../supabase';
-import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase } from '../lib/supabaseSync';
+import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
 import { toMonthKey, monthKeyLabel, formatAttendanceDayShort, attendanceDaysByStatus, groupAttendanceByMonth } from '../lib/dateUtils';
 import React, { useState, useEffect, useRef } from 'react';
@@ -15,6 +15,8 @@ import { FeePaymentCenter } from './FeePaymentCenter';
 import PaperGenerator from './PaperGenerator';
 import TeacherPayrollPanel from './TeacherPayrollPanel';
 import { isPaperGeneratorEnabled, isTeacherSalaryEnabled } from '../lib/appControl';
+import { convertToWebP } from '../lib/imageUtils';
+import UserAvatar from './UserAvatar';
 import { useLongPress } from '../lib/longPress';
 import { syncAuthAccount, updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { 
@@ -171,7 +173,8 @@ interface PrincipalDashboardProps {
 }
 
 type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll';
-type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll';
+// Coordinator ko Teacher Salary (payroll) tab NAHI milta — sirf principal ke liye.
+type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers';
 type TabType = PrincipalTabType | CoordinatorTabType;
 
 const STANDARD_SUBJECTS_LIST = [
@@ -224,10 +227,10 @@ export default function PrincipalDashboard({
 
   // ===== Developer Control Portal se on/off hone wale modules =====
   // (toggles DeveloperDashboard mein hain; settings Supabase 'app_settings/global' se sync hoti hain)
-  // Papers + Payroll: Principal AUR Coordinator dono ke liye (jab developer ne module ON rakha ho)
+  // Papers: Principal AUR Coordinator dono; Payroll (Teacher Salary): SIRF Principal.
   const canUseFeatureModules = userSession.role === 'principal' || userSession.role === 'coordinator';
   const showPapersTab = canUseFeatureModules && isPaperGeneratorEnabled(appSettings);
-  const showPayrollTab = canUseFeatureModules && isTeacherSalaryEnabled(appSettings);
+  const showPayrollTab = userSession.role === 'principal' && isTeacherSalaryEnabled(appSettings);
 
   // Agar developer ne module band kar diya aur user usi tab par mojood hai → dashboard par wapas
   useEffect(() => {
@@ -382,39 +385,57 @@ export default function PrincipalDashboard({
           loadCollectionFromSupabase('timetable'),
         ]);
         let changed = false;
-        if (classesData && listChanged(classesRef.current, classesData)) {
-          classesRef.current = classesData;
-          setClasses(classesData);
-          toast.info('Class assignments updated from Principal portal');
-          changed = true;
+        if (classesData) {
+          const merged = mergePendingRows('classes', classesData);
+          if (listChanged(classesRef.current, merged)) {
+            classesRef.current = merged;
+            setClasses(merged);
+            toast.info('Class assignments updated from Principal portal');
+            changed = true;
+          }
         }
-        if (teachersData && listChanged(teachersRef.current, teachersData)) {
-          teachersRef.current = teachersData;
-          setTeachers(teachersData);
-          toast.info('Teacher list updated from Principal portal');
-          changed = true;
+        if (teachersData) {
+          const merged = mergePendingRows('teachers', teachersData);
+          if (listChanged(teachersRef.current, merged)) {
+            teachersRef.current = merged;
+            setTeachers(merged);
+            toast.info('Teacher list updated from Principal portal');
+            changed = true;
+          }
         }
-        if (studentsData && listChanged(studentsRef.current, studentsData)) {
-          studentsRef.current = studentsData;
-          setStudents(studentsData);
-          toast.info('Student list updated from Principal portal');
-          changed = true;
+        if (studentsData) {
+          const merged = mergePendingRows('students', studentsData);
+          if (listChanged(studentsRef.current, merged)) {
+            studentsRef.current = merged;
+            setStudents(merged);
+            toast.info('Student list updated from Principal portal');
+            changed = true;
+          }
         }
-        if (feeData && listChanged(feeStudentsRef.current, feeData)) {
-          feeStudentsRef.current = feeData;
-          setFeeStudents(feeData);
-          changed = true;
+        if (feeData) {
+          const merged = mergePendingRows('fee_data', feeData);
+          if (listChanged(feeStudentsRef.current, merged)) {
+            feeStudentsRef.current = merged;
+            setFeeStudents(merged);
+            changed = true;
+          }
         }
-        if (attendanceData && listChanged(attendanceRef.current, attendanceData)) {
-          attendanceRef.current = attendanceData;
-          setAttendance(attendanceData);
-          changed = true;
+        if (attendanceData) {
+          const merged = mergePendingRows('attendance', attendanceData);
+          if (listChanged(attendanceRef.current, merged)) {
+            attendanceRef.current = merged;
+            setAttendance(merged);
+            changed = true;
+          }
         }
-        if (timetableData && listChanged(timetableRef.current, timetableData)) {
-          timetableRef.current = timetableData;
-          setTimetable(timetableData);
-          toast.info('Timetable updated from Principal portal');
-          changed = true;
+        if (timetableData) {
+          const merged = mergePendingRows('timetable', timetableData);
+          if (listChanged(timetableRef.current, merged)) {
+            timetableRef.current = merged;
+            setTimetable(merged);
+            toast.info('Timetable updated from Principal portal');
+            changed = true;
+          }
         }
         if (changed) console.log('[Sync:RT] PrincipalDashboard reloaded from Supabase');
       } catch (e: any) {
@@ -1413,37 +1434,63 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       return;
     }
 
-    const newRecords: Attendance[] = markAttRecords.map(rec => ({
-      id: Date.now() + Math.random().toString(36).substr(2, 9),
-      studentId: rec.studentId,
-      status: rec.status,
-      date: attendanceFilterDate,
-    }));
+    const studentIdSet = new Set(markAttRecords.map(r => String(r.studentId)));
+    const existingByStudent = new Map<string, Attendance>();
+    attendance.forEach(a => {
+      if (a.date === attendanceFilterDate && studentIdSet.has(String(a.studentId))) {
+        existingByStudent.set(String(a.studentId), a);
+      }
+    });
 
-    // Remove existing records for same date/students to avoid duplicates
-    const studentIds = markAttRecords.map(r => r.studentId);
+    const newRecords: Attendance[] = markAttRecords.map((rec, index) => {
+      const sid = String(rec.studentId);
+      const existing = existingByStudent.get(sid);
+      return {
+        id: existing?.id || `at_gen_${Date.now()}_${index}`,
+        studentId: rec.studentId,
+        status: rec.status,
+        date: attendanceFilterDate,
+        markedBy: userSession.name,
+      };
+    });
+
     setAttendance(prev => [
-      ...prev.filter(a => !(a.date === attendanceFilterDate && studentIds.includes(a.studentId))),
+      ...prev.filter(a => !(a.date === attendanceFilterDate && studentIdSet.has(String(a.studentId)))),
       ...newRecords
     ]);
+
+    const keepIds = new Set(newRecords.map(l => String(l.id)));
+    existingByStudent.forEach(old => {
+      if (old?.id && !keepIds.has(String(old.id))) sbQueueDelete('attendance', String(old.id));
+    });
+    newRecords.forEach(l => sbQueueWrite('attendance', String(l.id), l));
+    flushSupabase().then(ok => {
+      if (!ok) toast.error('Saved on this device; cloud sync failed');
+    });
     
     setShowMarkAttendanceModal(false);
     toast.success(`Attendance marked for ${markAttendanceClassId} on ${attendanceFilterDate}`);
   };
 
   const handleRosterAttendanceChange = (student: Student, status: 'present' | 'absent' | 'late' | 'leave') => {
+    const existing = attendance.find(a => String(a.studentId) === String(student.id) && a.date === attendanceFilterDate);
+    const saved: Attendance = existing
+      ? { ...existing, status, markedBy: userSession.name }
+      : {
+          id: `at_gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          studentId: student.id,
+          status,
+          date: attendanceFilterDate,
+          markedBy: userSession.name,
+        };
     setAttendance(prev => {
-      const existing = prev.find(a => String(a.studentId) === String(student.id) && a.date === attendanceFilterDate);
-      if (existing) {
-        return prev.map(a => a.id === existing.id ? { ...a, status, markedBy: userSession.name } : a);
-      }
-      return [...prev, {
-        id: Date.now() + Math.random().toString(36).substr(2, 9),
-        studentId: student.id,
-        status,
-        date: attendanceFilterDate,
-        markedBy: userSession.name,
-      }];
+      const match = prev.find(a => String(a.studentId) === String(student.id) && a.date === attendanceFilterDate);
+      if (match) return prev.map(a => a.id === match.id ? { ...match, status, markedBy: userSession.name } : a);
+      return [...prev, saved];
+    });
+    sbQueueWrite('attendance', String(saved.id), saved);
+    flushSupabase().then(ok => {
+      if (!ok) toast.error('Saved on this device; cloud sync failed');
     });
     toast.success(`Marked ${student.name} as ${status.toUpperCase()} for ${attendanceFilterDate}`);
   };
@@ -2092,34 +2139,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     return appSettings.periodColors[key] || '#4f46e5'; // default Indigo color
   };
 
-  const convertToWebP = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return reject('Failed to get canvas context');
-
-          // Balanced size to save sync bandwidth while maintaining clarity
-          const maxWidth = 400;
-          const scale = Math.min(1, maxWidth / img.width);
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          // 0.8 quality provides high fidelity for portrait photos
-          const webpBase64 = canvas.toDataURL('image/webp', 0.8);
-          resolve(webpBase64);
-        };
-        img.onerror = () => reject('Image load error');
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = () => reject('File read error');
-      reader.readAsDataURL(file);
-    });
-  };
+  // convertToWebP ab shared hai — src/lib/imageUtils.ts (student + staff photos dono)
 
   // Upload all current local state data to Cloud (Supabase)
   const handleUploadToCloud = async () => {
@@ -2191,6 +2211,35 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       
       setSPhoto(webpData);
       toast.success(`Photo compressed successfully! (~${sizeInKB} KB)`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to process image");
+    } finally {
+      setIsConvertingPhoto(false);
+    }
+  };
+
+  // ===== LOGGED-IN USER (principal/coordinator) ka profile photo =====
+  // Coordinator ka photo uske Coordinator record se; principal ka app_settings se.
+  const myProfilePhoto = userSession.role === 'coordinator'
+    ? (coordinators.find(c => String(c.id) === String(userSession.id) || (!!userSession.email && c.email?.toLowerCase() === userSession.email.toLowerCase()))?.photo)
+    : appSettings.principalPhoto;
+
+  const myProfileRoleLabel = userSession.role === 'coordinator' ? 'Coordinator' : 'Principal';
+
+  /** Principal ka photo — app_settings/global mein save (auto cloud sync). */
+  const handleOwnPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB");
+      return;
+    }
+    try {
+      setIsConvertingPhoto(true);
+      const webpData = await convertToWebP(file);
+      setAppSettings(prev => ({ ...prev, principalPhoto: webpData }));
+      toast.success("Profile photo updated!");
     } catch (err) {
       console.error(err);
       toast.error("Failed to process image");
@@ -2341,6 +2390,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         setTPhone(match.phone);
         setTPassword(match.password || 'nsb123');
         setTUsername(match.username || '');
+        setSPhoto(match.photo);
       }
     } else if (type === 'coordinator') {
       const match = coordinators.find(c => c.id === id);
@@ -2351,6 +2401,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         setTPhone(match.phone || '');
         setTPassword(match.password || 'nsb123');
         setTUsername(match.username || '');
+        setSPhoto(match.photo);
       }
     } else if (type === 'student') {
       const match = students.find(s => s.id === id);
@@ -2504,6 +2555,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           password: tPassword,
           subject: tSubject.trim(),
           phone: tPhone.trim(),
+          photo: sPhoto,
         };
         setTeachers([...teachers, newTeacher]);
         toast.success("Teacher profile added successfully!");
@@ -2518,6 +2570,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           phone: tPhone.trim(),
           password: tPassword,
           username: tName.trim(),
+          photo: sPhoto,
         } : t));
         toast.success("Teacher profile updated successfully!");
         syncAuthAfterSave('teacher', teacherEmail, tPassword, String(currentId), false);
@@ -2534,6 +2587,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           username: tName.trim(), 
           password: tPassword,
           phone: tPhone.trim(),
+          photo: sPhoto,
         };
         setCoordinators([...coordinators, newCoordinator]);
         toast.success("Coordinator profile added successfully!");
@@ -2547,6 +2601,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           phone: tPhone.trim(),
           password: tPassword,
           username: tName.trim(),
+          photo: sPhoto,
         } : c));
         toast.success("Coordinator profile updated successfully!");
         syncAuthAfterSave('coordinator', coordEmail, tPassword, String(currentId), false);
@@ -2852,9 +2907,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       <div id="mobile-top-bar" className={`md:hidden sticky top-0 z-30 flex items-center justify-between px-3 py-2 bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm ${selectedStudentReport ? 'print:hidden' : ''}`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <img src="/logo.png" alt="NSB1 Logo" className="h-9 w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
+          <UserAvatar photo={myProfilePhoto} name={userSession.name} size={30} />
           <div className="min-w-0 flex flex-col leading-none">
-            <h1 className="font-black text-gray-900 tracking-tight uppercase text-sm truncate">NSB1 School</h1>
-            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em]">Principal Office</span>
+            <h1 className="font-black text-gray-900 tracking-tight uppercase text-sm truncate">{userSession.name}</h1>
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em]">{myProfileRoleLabel}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -2970,7 +3026,16 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           </div>
           <div className="flex flex-col items-center gap-1 mt-2">
             <h1 className="text-slate-900 font-black text-sm tracking-[0.2em] uppercase">NSB1 School</h1>
-            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">Principal Office</span>
+            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">{myProfileRoleLabel} Portal</span>
+          </div>
+
+          {/* Logged-in user: naam + photo */}
+          <div className="flex items-center gap-3 mt-4 p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+            <UserAvatar photo={myProfilePhoto} name={userSession.name} size={40} />
+            <div className="min-w-0">
+              <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
+              <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest truncate">{myProfileRoleLabel}</p>
+            </div>
           </div>
         </div>
 
@@ -5287,7 +5352,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                       const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave' | 'unmarked';
                                       if (newStatus === 'unmarked') return;
                                       if (record && !isRoster) {
-                                        setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                        const updated = { ...record, status: newStatus };
+                                        setAttendance(prev => prev.map(a => a.id === record.id ? updated : a));
+                                        sbQueueWrite('attendance', String(record.id), updated);
+                                        flushSupabase().then(ok => { if (!ok) toast.error('Saved on this device; cloud sync failed'); });
                                         toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
                                       } else if (student) {
                                         handleRosterAttendanceChange(student, newStatus);
@@ -5401,7 +5469,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                           const newStatus = e.target.value as 'present' | 'absent' | 'late' | 'leave' | 'unmarked';
                                           if (newStatus === 'unmarked') return;
                                           if (record && !isRoster) {
-                                            setAttendance(prev => prev.map(a => a.id === record.id ? { ...a, status: newStatus } : a));
+                                            const updated = { ...record, status: newStatus };
+                                            setAttendance(prev => prev.map(a => a.id === record.id ? updated : a));
+                                            sbQueueWrite('attendance', String(record.id), updated);
+                                            flushSupabase().then(ok => { if (!ok) toast.error('Saved on this device; cloud sync failed'); });
                                             toast.success(`Updated attendance for ${sName} to ${newStatus.toUpperCase()}`);
                                           } else if (student) {
                                             handleRosterAttendanceChange(student, newStatus);
@@ -6541,6 +6612,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         {activeTab === 'settings' && (
           <div id="panel-principal-settings" className="space-y-8 animate-fade-in font-sans bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
             
+            {/* ========== PROFILE PHOTO (Principal) ========== */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative group">
+                  <UserAvatar photo={appSettings.principalPhoto} name={userSession.name} size={56} />
+                  <label className="absolute -bottom-1.5 -right-1.5 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all border-2 border-white">
+                    <Upload size={11} strokeWidth={3} />
+                    <input type="file" accept="image/*" onChange={handleOwnPhotoChange} className="hidden" disabled={isConvertingPhoto} />
+                  </label>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    Your Profile Photo
+                    {isConvertingPhoto && <span className="text-[10px] font-black uppercase text-indigo-500">Processing…</span>}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Sidebar aur mobile header mein dikhega</p>
+                </div>
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{userSession.name} · Principal</p>
+            </div>
+
             {/* ========== MANUAL CLOUD DATA SYNC ========== */}
             <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 my-6">
               <div className="flex items-center gap-4">
@@ -7394,6 +7486,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               {/* ============ TEACHER FORM FIELDS ============ */}
               {modalType === 'teacher' && (
                 <div className="space-y-4">
+                  <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-center gap-4">
+                    <div className="relative group">
+                      <div className="w-16 h-16 bg-white rounded-2xl border-2 border-dashed border-indigo-200 flex items-center justify-center overflow-hidden shadow-sm transition-all group-hover:border-indigo-400">
+                        {sPhoto ? (
+                          <img src={sPhoto} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={24} className="text-indigo-300" />
+                        )}
+                      </div>
+                      <label className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all border-2 border-white">
+                        <Upload size={12} strokeWidth={3} />
+                        <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      </label>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Teacher Profile Image</h4>
+                      <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">Dikhega teacher portal ke sidebar mein</p>
+                    </div>
+                  </div>
+
                   <div className="space-y-1">
                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Teacher Name</label>
                     <input
@@ -7460,6 +7572,26 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               {/* ============ COORDINATOR FORM FIELDS ============ */}
               {modalType === 'coordinator' && (
                 <div className="space-y-4">
+                  <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl flex items-center gap-4">
+                    <div className="relative group">
+                      <div className="w-16 h-16 bg-white rounded-2xl border-2 border-dashed border-indigo-200 flex items-center justify-center overflow-hidden shadow-sm transition-all group-hover:border-indigo-400">
+                        {sPhoto ? (
+                          <img src={sPhoto} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={24} className="text-indigo-300" />
+                        )}
+                      </div>
+                      <label className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all border-2 border-white">
+                        <Upload size={12} strokeWidth={3} />
+                        <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      </label>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Coordinator Profile Image</h4>
+                      <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">Dikhega coordinator portal ke sidebar mein</p>
+                    </div>
+                  </div>
+
                   <div className="space-y-1">
                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Coordinator Name</label>
                     <input

@@ -7,6 +7,8 @@ export interface Coordinator {
   username: string;
   password: string;
   phone: string;
+  /** Profile photo (compressed base64 WebP) — Admin Hub upload se. */
+  photo?: string;
 }
 
 /** Salary ka poora hisaab (attendance + cuts) — payment ke waqt snapshot save hota hai. */
@@ -92,6 +94,8 @@ export interface Teacher {
   salaryConfig?: TeacherSalaryConfig;
   /** Rozana staff attendance (salary isi se calculate hoti hai). */
   staffAttendance?: StaffAttendanceEntry[];
+  /** Profile photo (compressed base64 WebP) — Admin Hub upload se. */
+  photo?: string;
 }
 
 export interface Student {
@@ -226,6 +230,10 @@ export interface AppSettings {
   };
   /** Monthly subscription expiry date, YYYY-MM-DD. Empty = no expiry set. */
   subscriptionExpiry?: string;
+  /** Principal ka profile photo (compressed base64 WebP) — Settings tab upload se. */
+  principalPhoto?: string;
+  /** Developer ka profile photo (compressed base64 WebP) — Developer portal upload se. */
+  developerPhoto?: string;
 }
 
 export interface Assignment {

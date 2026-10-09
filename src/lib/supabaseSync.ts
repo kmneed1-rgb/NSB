@@ -229,6 +229,37 @@ if (typeof window !== 'undefined') {
 
 export type SupabaseLoadResult = { ok: boolean; tables: Record<string, any[]> };
 
+/** PostgREST default max-rows = 1000 — page through until a short batch. */
+const FETCH_PAGE = 1000;
+
+function unwrapTableRow(r: any): any {
+  let rowData = r?.data;
+  if (typeof rowData === 'string') { try { rowData = JSON.parse(rowData); } catch { rowData = {}; } }
+  rowData = rowData || {};
+  return { ...rowData, id: rowData.id !== undefined ? rowData.id : r.id };
+}
+
+async function fetchAllRows(table: string): Promise<{ rows: any[]; error: any | null }> {
+  const rows: any[] = [];
+  let offset = 0;
+  let pages = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('id,data')
+      .range(offset, offset + FETCH_PAGE - 1);
+    if (error) return { rows, error };
+    const batch = data || [];
+    for (const r of batch) rows.push(unwrapTableRow(r));
+    pages++;
+    if (batch.length < FETCH_PAGE) break;
+    offset += FETCH_PAGE;
+  }
+  // PostgREST 1000-row cap ke cross hone ka proof — attendance aksar 1000+ hoti hai.
+  if (pages > 1) console.log(`[Supabase] "${table}" paginated load: ${rows.length} rows (${pages} pages)`);
+  return { rows, error: null };
+}
+
 /**
  * Sari known tables load karke collection ke hisaab se group karta hai (App init + realtime merge).
  *
@@ -246,7 +277,7 @@ export async function loadAllFromSupabase(): Promise<SupabaseLoadResult> {
   let ok = true;
   try {
     await Promise.all(KNOWN_TABLES.map(async (table) => {
-      const { data, error } = await supabase.from(table).select('id,data');
+      const { rows, error } = await fetchAllRows(table);
       if (error) {
         if ((error as any)?.code === 'PGRST205') {
           console.warn(`[Supabase] table "${table}" missing — SQL Editor mein scripts/supabase-schema.sql chalayein.`);
@@ -259,12 +290,7 @@ export async function loadAllFromSupabase(): Promise<SupabaseLoadResult> {
         }
         return;
       }
-      out[table] = (data || []).map((r: any) => {
-        let rowData = r.data;
-        if (typeof rowData === 'string') { try { rowData = JSON.parse(rowData); } catch { rowData = {}; } }
-        rowData = rowData || {};
-        return { ...rowData, id: rowData.id !== undefined ? rowData.id : r.id };
-      });
+      out[table] = rows;
     }));
     supabaseHealthy = ok;
     supabaseLastError = ok ? null : 'Supabase load failed (partial/network)';
@@ -280,16 +306,9 @@ export async function loadAllFromSupabase(): Promise<SupabaseLoadResult> {
 /** Kisi ek collection (= apni table) ka data load karo (null agar fail). */
 export async function loadCollectionFromSupabase(col: string): Promise<any[] | null> {
   try {
-    const { data, error } = await supabase
-      .from(col)
-      .select('id,data');
+    const { rows, error } = await fetchAllRows(col);
     if (error) throw error;
-    return (data || []).map((r: any) => {
-      let rowData = r.data;
-      if (typeof rowData === 'string') { try { rowData = JSON.parse(rowData); } catch { rowData = {}; } }
-      rowData = rowData || {};
-      return { ...rowData, id: rowData.id !== undefined ? rowData.id : r.id } as any;
-    });
+    return rows;
   } catch (e: any) {
     supabaseHealthy = false;
     supabaseLastError = e?.message || 'Supabase load failed';

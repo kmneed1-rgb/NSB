@@ -9,10 +9,11 @@ import {
 import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
-import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase } from '../lib/supabaseSync';
+import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
 import { updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { HoldActionWrapper } from './HoldActionWrapper';
+import UserAvatar from './UserAvatar';
 
 interface TeacherDashboardProps {
   userSession: UserSession;
@@ -112,32 +113,47 @@ export default function TeacherDashboard({
           loadCollectionFromSupabase('attendance'),
         ]);
         let changed = false;
-        if (classesData && listChanged(classesRef.current, classesData)) {
-          classesRef.current = classesData;
-          setClasses(classesData);
-          toast.info('Class assignments updated from Principal portal');
-          changed = true;
+        if (classesData) {
+          const merged = mergePendingRows('classes', classesData);
+          if (listChanged(classesRef.current, merged)) {
+            classesRef.current = merged;
+            setClasses(merged);
+            toast.info('Class assignments updated from Principal portal');
+            changed = true;
+          }
         }
-        if (teachersData && listChanged(teachersRef.current, teachersData)) {
-          teachersRef.current = teachersData;
-          setTeachers(teachersData);
-          changed = true;
+        if (teachersData) {
+          const merged = mergePendingRows('teachers', teachersData);
+          if (listChanged(teachersRef.current, merged)) {
+            teachersRef.current = merged;
+            setTeachers(merged);
+            changed = true;
+          }
         }
-        if (studentsData && listChanged(studentsRef.current, studentsData)) {
-          studentsRef.current = studentsData;
-          setStudents(studentsData);
-          changed = true;
+        if (studentsData) {
+          const merged = mergePendingRows('students', studentsData);
+          if (listChanged(studentsRef.current, merged)) {
+            studentsRef.current = merged;
+            setStudents(merged);
+            changed = true;
+          }
         }
-        if (timetableData && listChanged(timetableRef.current, timetableData)) {
-          timetableRef.current = timetableData;
-          setTimetable(timetableData);
-          toast.info('Timetable updated from Principal portal');
-          changed = true;
+        if (timetableData) {
+          const merged = mergePendingRows('timetable', timetableData);
+          if (listChanged(timetableRef.current, merged)) {
+            timetableRef.current = merged;
+            setTimetable(merged);
+            toast.info('Timetable updated from Principal portal');
+            changed = true;
+          }
         }
-        if (attendanceData && listChanged(attendanceRef.current, attendanceData)) {
-          attendanceRef.current = attendanceData;
-          setAttendance(attendanceData);
-          changed = true;
+        if (attendanceData) {
+          const merged = mergePendingRows('attendance', attendanceData);
+          if (listChanged(attendanceRef.current, merged)) {
+            attendanceRef.current = merged;
+            setAttendance(merged);
+            changed = true;
+          }
         }
         if (changed) console.log('[Sync:RT] TeacherDashboard reloaded from Supabase');
       } catch (e: any) {
@@ -597,7 +613,7 @@ export default function TeacherDashboard({
 
   // Initialize attendance scratchpad for selected class & date
   const loadAttendanceForDate = (date: string, cId: string) => {
-    const classStudents = students.filter(s => s.classId === cId);
+    const classStudents = students.filter(s => String(s.classId) === String(cId));
     
     // Optimization: Index attendance for the specific date by studentId for O(1) lookup
     const dateAttendanceMap = new Map();
@@ -632,23 +648,42 @@ export default function TeacherDashboard({
   };
 
   const handleSaveAttendance = () => {
-    const studentsToSave = students.filter(s => s.classId === activeClassId);
-    
-    // Filter out existing entries for this date & students in this class
-    const cleanLogs = attendance.filter(a => 
-      !(a.date === attendanceDate && studentsToSave.some(s => s.id === a.studentId))
+    const studentsToSave = students.filter(s => String(s.classId) === String(activeClassId));
+    const classStudentIds = new Set(studentsToSave.map(s => String(s.id)));
+
+    const existingByStudent = new Map<string, Attendance>();
+    attendance.forEach(a => {
+      if (a.date === attendanceDate && classStudentIds.has(String(a.studentId))) {
+        existingByStudent.set(String(a.studentId), a);
+      }
+    });
+
+    const newLogs: Attendance[] = studentsToSave.map((s, index) => {
+      const sid = String(s.id);
+      const existing = existingByStudent.get(sid);
+      const status = scratchAttendance[s.id] || scratchAttendance[sid] || 'present';
+      return {
+        id: existing?.id || `at_gen_${Date.now()}_${index}`,
+        studentId: s.id,
+        date: attendanceDate,
+        status,
+        markedBy: userSession.name
+      };
+    });
+
+    const keepLogs = attendance.filter(a =>
+      !(a.date === attendanceDate && classStudentIds.has(String(a.studentId)))
     );
+    setAttendance([...keepLogs, ...newLogs]);
 
-    // Build new logs
-    const newLogs: Attendance[] = studentsToSave.map((s, index) => ({
-      id: `at_gen_${Date.now()}_${index}`,
-      studentId: s.id,
-      date: attendanceDate,
-      status: scratchAttendance[s.id] || 'present',
-      markedBy: userSession.name
-    }));
-
-    setAttendance([...cleanLogs, ...newLogs]);
+    const keepIds = new Set(newLogs.map(l => String(l.id)));
+    existingByStudent.forEach(old => {
+      if (old?.id && !keepIds.has(String(old.id))) sbQueueDelete('attendance', String(old.id));
+    });
+    newLogs.forEach(l => sbQueueWrite('attendance', String(l.id), l));
+    flushSupabase().then(ok => {
+      if (!ok) toast.error('Saved on this device; cloud sync failed');
+    });
 
     const classNameStr = viewClass ? `${viewClass.className}-${viewClass.section}` : activeClassId;
     const presentCount = newLogs.filter(l => l.status === 'present').length;
@@ -1057,9 +1092,14 @@ export default function TeacherDashboard({
         {/* Minimalist Profile section */}
         <div className="p-6 border-t border-slate-100">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-xs shadow-md shadow-indigo-100">
-              <User size={14} />
-            </div>
+            <UserAvatar
+              photo={(
+                teachers.find(t => String(t.id) === String(userSession.id)) ||
+                teachers.find(t => !!userSession.email && (t.email || '').toLowerCase() === userSession.email.toLowerCase())
+              )?.photo}
+              name={userSession.name}
+              size={36}
+            />
             <div className="truncate">
               <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
               <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">{teacherSubject}</p>
