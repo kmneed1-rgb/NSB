@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi, Banknote } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
-import { addNotification, getNotifications, saveNotifications, PortalNotification } from '../lib/notificationUtils';
+import { addNotification, getNotifications, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, DueEntry, Assignment, getStudentPhoto } from '../types';
 import { HoldActionWrapper } from './HoldActionWrapper';
@@ -281,14 +281,16 @@ export default function PrincipalDashboard({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
 
-  // Notification feed for Principal / Coordinator
-  const [portalNotifications, setPortalNotifications] = useState<PortalNotification[]>(() => getNotifications());
+  // Notification feed for Principal / Coordinator (clear = per-user clearedAt view-filter — wapas nahi aate)
+  const notifUserKey = getUserKey(userSession);
+  const [portalNotifications, setPortalNotifications] = useState<PortalNotification[]>(() => visibleForUser(getNotifications(), notifUserKey));
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
 
   useEffect(() => {
-    const syncNotifs = () => setPortalNotifications(getNotifications());
+    const syncNotifs = () => setPortalNotifications(visibleForUser(getNotifications(), notifUserKey));
     window.addEventListener('acadamis_new_notification', syncNotifs);
     return () => window.removeEventListener('acadamis_new_notification', syncNotifs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const relevantNotifications = React.useMemo(() => {
@@ -305,8 +307,11 @@ export default function PrincipalDashboard({
   };
 
   const handleClearNotifications = () => {
-    saveNotifications([]);
+    // Per-user clearedAt timestamp — local cache/Cloud rows safe, is view se
+    // hamesha ke liye gayab (realtime/absorb merge wapas nahi laata).
+    clearNotificationsForUser(notifUserKey);
     setPortalNotifications([]);
+    setShowNotifDropdown(false);
     toast.success("Notification history cleared.");
   };
 

@@ -6,7 +6,7 @@ import {
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
   Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer
 } from 'lucide-react';
-import { getNotifications, addNotification, saveNotifications, PortalNotification } from '../lib/notificationUtils';
+import { getNotifications, addNotification, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
 import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
@@ -445,8 +445,9 @@ export default function TeacherDashboard({
   // Unique list of class IDs taught today
   const classesTaughtToday = Array.from(new Set(todayClasses.map(tt => tt.classId)));
 
-  // Notifications local states
-  const [notifications, setNotifications] = useState<PortalNotification[]>(() => getNotifications());
+  // Notifications local states (clear = per-user clearedAt view-filter — wapas nahi aate)
+  const notifUserKey = getUserKey(userSession);
+  const [notifications, setNotifications] = useState<PortalNotification[]>(() => visibleForUser(getNotifications(), notifUserKey));
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const notifiedPeriodsRef = useRef<string[]>([]);
 
@@ -474,10 +475,11 @@ export default function TeacherDashboard({
   // Update notifications from global state on external events
   useEffect(() => {
     const updateNotifs = () => {
-      setNotifications(getNotifications());
+      setNotifications(visibleForUser(getNotifications(), notifUserKey));
     };
     window.addEventListener('acadamis_new_notification', updateNotifs);
     return () => window.removeEventListener('acadamis_new_notification', updateNotifs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Real-time period detection interval (runs every 10 seconds)
@@ -565,8 +567,11 @@ export default function TeacherDashboard({
   };
 
   const handleClearNotifications = () => {
-    saveNotifications([]);
+    // Per-user clearedAt timestamp — local cache/Cloud rows safe, is view se
+    // hamesha ke liye gayab (realtime/absorb merge wapas nahi laata).
+    clearNotificationsForUser(notifUserKey);
     setNotifications([]);
+    setShowNotifDropdown(false);
     toast.success("Notification history cleared.");
   };
 

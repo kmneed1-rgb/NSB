@@ -8,7 +8,7 @@ import {
   Menu, X, TrendingUp, Info, User, CheckCircle2, AlertCircle, CreditCard, Bell, Sun, Moon, Download, Fingerprint, ClipboardList,
   ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { getNotifications, saveNotifications, addNotification, PortalNotification } from '../lib/notificationUtils';
+import { getNotifications, saveNotifications, addNotification, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord, Assignment } from '../types';
@@ -212,8 +212,9 @@ export default function StudentDashboard({
   const studentId = studentProfile?.id || '';
   const currentClassId = studentProfile?.classId || '';
 
-  // Notifications local states
-  const [notifications, setNotifications] = useState<PortalNotification[]>(() => getNotifications());
+  // Notifications local states (clear = per-user clearedAt view-filter — wapas nahi aate)
+  const notifUserKey = getUserKey(userSession);
+  const [notifications, setNotifications] = useState<PortalNotification[]>(() => visibleForUser(getNotifications(), notifUserKey));
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const notifiedPeriodsRef = useRef<string[]>([]);
 
@@ -241,10 +242,11 @@ export default function StudentDashboard({
   // Update notifications from global state on external events
   useEffect(() => {
     const updateNotifs = () => {
-      setNotifications(getNotifications());
+      setNotifications(visibleForUser(getNotifications(), notifUserKey));
     };
     window.addEventListener('acadamis_new_notification', updateNotifs);
     return () => window.removeEventListener('acadamis_new_notification', updateNotifs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Real-time period checking for students
@@ -305,8 +307,11 @@ export default function StudentDashboard({
   };
 
   const handleClearNotifications = () => {
-    saveNotifications([]);
+    // Per-user clearedAt timestamp — local cache/Cloud rows safe, is view se
+    // hamesha ke liye gayab (realtime/absorb merge wapas nahi laata).
+    clearNotificationsForUser(notifUserKey);
     setNotifications([]);
+    setShowNotifDropdown(false);
     toast.success("Notification history cleared.");
   };
 
