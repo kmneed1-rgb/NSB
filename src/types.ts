@@ -1,5 +1,7 @@
 export type Role = 'principal' | 'teacher' | 'student' | 'coordinator' | 'developer';
 
+import type { BroadcastMessage } from './lib/broadcast';
+
 export interface Coordinator {
   id: string;
   name: string;
@@ -234,6 +236,12 @@ export interface AppSettings {
   principalPhoto?: string;
   /** Developer ka profile photo (compressed base64 WebP) — Developer portal upload se. */
   developerPhoto?: string;
+  /**
+   * Developer (admin) ki full-screen broadcast announcement.
+   * app_settings/global row ke andar rehti hai → existing realtime sync se
+   * SAB devices par foran pohanchti hai. Sirf target role ko dikhti hai.
+   */
+  broadcast?: BroadcastMessage;
 }
 
 export interface Assignment {

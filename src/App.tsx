@@ -21,6 +21,8 @@ import {
   unlockAudioOnFirstGesture,
 } from './lib/notifySound';
 import DeveloperDashboard from './components/DeveloperDashboard';
+import BroadcastOverlay from './components/BroadcastOverlay';
+import SplashScreen from './components/SplashScreen';
 import { 
   INITIAL_TEACHERS, 
   INITIAL_CLASSES, 
@@ -219,6 +221,8 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   // Real-time listeners tab hi setup hon jab initial sync complete ho
   const [syncReady, setSyncReady] = useState(false);
+  // Boot loading splash — initial sync ke doran dikhta hai (safety timeout ke saath).
+  const [showSplash, setShowSplash] = useState(true);
   const isSyncComplete = useRef<boolean>(false);
   // Notification tone callback (realtime closure se call hota hai — stale state se bachne ke liye ref)
   const playToneForNewNotificationsRef = useRef<(items: PortalNotification[]) => void>(() => {});
@@ -954,6 +958,22 @@ export default function App() {
     unlockAudioOnFirstGesture();
   }, []);
 
+  // --- BOOT SPLASH — initial sync complete hone par (ya safety timeout) ghayab ---
+  // App render peeche chalta rehta hai (overlay style), is liye kisi feature mein
+  // dakhal nahi daalta — sirf fresh data ke saath smooth intro deta hai.
+  useEffect(() => {
+    if (syncReady) {
+      const t = setTimeout(() => setShowSplash(false), 400);
+      return () => clearTimeout(t);
+    }
+  }, [syncReady]);
+
+  // Safety: net bahut slow / hang ho to bhi splash 6s baad khud hat jaye (app phir bhi khule).
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 6000);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (!syncReady) return;
     let cancelled = false;
@@ -1100,6 +1120,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
       <Toaster position="top-right" richColors />
+
+      {/* Boot loading splash (school logo + spinner) — initial sync ke doran */}
+      {showSplash && <SplashScreen />}
+
+      {/* Developer (admin) ki full-screen broadcast — sirf target role ko, ek dafa */}
+      {userSession && (
+        <BroadcastOverlay userSession={userSession} broadcast={appSettings.broadcast || null} />
+      )}
 
       {/* Offline / cloud sync health banner */}
       {(!isOnline || syncError) && (

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarClock, FileText, KeyRound, LogOut, Power, Shield, ToggleLeft, ToggleRight, Upload, Wallet, Wifi } from 'lucide-react';
+import { CalendarClock, FileText, KeyRound, LogOut, Megaphone, Power, Shield, ToggleLeft, ToggleRight, Upload, Wallet, Wifi } from 'lucide-react';
 import { AppSettings, Role, UserSession } from '../types';
 import {
   getGeminiApiKey, isPortalEnabled, isSubscriptionActive,
   isRoleLoginEnabled, LOGIN_CONTROL_ROLES, LOGIN_CONTROL_LABELS, LoginControlRole,
 } from '../lib/appControl';
+import { BroadcastTarget, BROADCAST_AUDIENCE_OPTIONS } from '../lib/broadcast';
 import { testGeminiConnection } from '../lib/geminiPaper';
 import { convertToWebP } from '../lib/imageUtils';
 import UserAvatar from './UserAvatar';
@@ -27,6 +28,10 @@ export default function DeveloperDashboard({
   const [testing, setTesting] = useState(false);
   const [expiryDraft, setExpiryDraft] = useState(appSettings.subscriptionExpiry || '');
   const [isConvertingPhoto, setIsConvertingPhoto] = useState(false);
+  // Broadcast (full-screen announcement) composer state
+  const [bcTitle, setBcTitle] = useState('');
+  const [bcMessage, setBcMessage] = useState('');
+  const [bcTarget, setBcTarget] = useState<BroadcastTarget>('principal');
 
   /** Developer ka profile photo — app_settings/global mein save (auto cloud sync). */
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,6 +130,44 @@ export default function DeveloperDashboard({
       setTesting(false);
     }
   };
+
+  // --- BROADCAST (full-screen announcement) ---
+  const sendBroadcast = () => {
+    const title = bcTitle.trim();
+    const message = bcMessage.trim();
+    if (!message) {
+      toast.error('Message likhna zaroori hai.');
+      return;
+    }
+    const id = 'bc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    setAppSettings(prev => ({
+      ...prev,
+      broadcast: {
+        id,
+        active: true,
+        target: bcTarget,
+        title: title || 'Announcement',
+        message,
+        sentByName: userSession.name,
+        createdAt: new Date().toISOString(),
+      },
+    }));
+    setBcTitle('');
+    setBcMessage('');
+    toast.success('Broadcast bhej diya — target users ko full-screen par dikhega.');
+  };
+
+  const stopBroadcast = () => {
+    setAppSettings(prev =>
+      prev.broadcast ? { ...prev, broadcast: { ...prev.broadcast, active: false } } : prev
+    );
+    toast.success('Broadcast band kar diya — sab jagah se ghayab.');
+  };
+
+  const broadcastActive = !!appSettings.broadcast?.active;
+  const broadcastTargetLabel =
+    BROADCAST_AUDIENCE_OPTIONS.find(o => o.value === appSettings.broadcast?.target)?.label ||
+    (appSettings.broadcast?.target || '');
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -290,6 +333,69 @@ export default function DeveloperDashboard({
           <p className="text-[10px] uppercase tracking-widest text-slate-500">
             Developer login: always allowed (lockout safety)
           </p>
+        </article>
+
+        {/* ===== BROADCAST — full-screen announcement (send + stop) ===== */}
+        <article className="border border-amber-500/40 bg-slate-900 p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Megaphone size={16} className="text-amber-400" />
+              <h2 className="text-sm font-black uppercase tracking-widest">Broadcast Announcement</h2>
+            </div>
+            {broadcastActive && (
+              <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase tracking-widest">
+                Active → {broadcastTargetLabel}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400">
+            Yeh message target users ko <span className="text-white font-bold">poori screen kaali, safed text</span> wali
+            alert ki tarah dikhega. OK dabane par ghayab — sirf ek dafa. Naya broadcast bhejne par dobara dikhega.
+          </p>
+
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={bcTitle}
+              onChange={(e) => setBcTitle(e.target.value)}
+              placeholder="Title (optional)"
+              className="w-full p-3 bg-slate-950 border border-slate-700 text-sm outline-none focus:border-amber-500"
+            />
+            <textarea
+              value={bcMessage}
+              onChange={(e) => setBcMessage(e.target.value)}
+              rows={3}
+              placeholder="Message yahan likhein…"
+              className="w-full p-3 bg-slate-950 border border-slate-700 text-sm outline-none focus:border-amber-500 resize-none"
+            />
+            <select
+              value={bcTarget}
+              onChange={(e) => setBcTarget(e.target.value as BroadcastTarget)}
+              className="w-full p-3 bg-slate-950 border border-slate-700 text-sm outline-none focus:border-amber-500"
+            >
+              {BROADCAST_AUDIENCE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={sendBroadcast}
+              className="px-4 py-2 bg-amber-500 text-slate-950 text-xs font-black uppercase tracking-widest hover:bg-amber-400 cursor-pointer"
+            >
+              Send Broadcast
+            </button>
+            <button
+              type="button"
+              onClick={stopBroadcast}
+              disabled={!broadcastActive}
+              className="px-4 py-2 border border-rose-500/60 text-rose-300 text-xs font-black uppercase tracking-widest disabled:opacity-40 hover:bg-rose-500/10 cursor-pointer disabled:cursor-not-allowed"
+            >
+              Stop
+            </button>
+          </div>
         </article>
 
         <section className="grid md:grid-cols-2 gap-4">

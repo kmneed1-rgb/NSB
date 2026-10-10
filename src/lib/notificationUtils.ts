@@ -23,7 +23,8 @@ export type NotificationType =
   | 'attendance_alert'
   | 'attendance_complete'
   | 'salary_paid'
-  | 'staff_attendance';
+  | 'staff_attendance'
+  | 'announcement';
 
 export interface PortalNotification {
   id: string;
@@ -367,6 +368,7 @@ export function notifEmoji(type: NotificationType | string): string {
     case 'attendance_alert': return '⚠️';
     case 'attendance_complete': return '✅';
     case 'staff_attendance': return '🗓️';
+    case 'announcement': return '📢';
     default: return '📅';
   }
 }

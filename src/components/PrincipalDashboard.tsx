@@ -285,6 +285,10 @@ export default function PrincipalDashboard({
   const notifUserKey = getUserKey(userSession);
   const [portalNotifications, setPortalNotifications] = useState<PortalNotification[]>(() => visibleForUser(getNotifications(), notifUserKey));
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  // "Send Notification" composer (Alert Center) — bell button mein chala jata hai
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifMessage, setNotifMessage] = useState('');
+  const [notifTarget, setNotifTarget] = useState<'teacher' | 'student' | 'coordinator' | 'principal' | 'all'>('teacher');
 
   useEffect(() => {
     const syncNotifs = () => setPortalNotifications(visibleForUser(getNotifications(), notifUserKey));
@@ -313,6 +317,25 @@ export default function PrincipalDashboard({
     setPortalNotifications([]);
     setShowNotifDropdown(false);
     toast.success("Notification history cleared.");
+  };
+
+  // Principal → target role ka notification (bell button mein live jaata hai).
+  const handleSendNotification = () => {
+    const title = notifTitle.trim();
+    const message = notifMessage.trim();
+    if (!message) {
+      toast.error("Message likhna zaroori hai.");
+      return;
+    }
+    addNotification({
+      type: 'announcement',
+      title: title || 'Announcement',
+      message,
+      role: notifTarget,
+    });
+    setNotifTitle('');
+    setNotifMessage('');
+    toast.success("Notification bhej diya — target users ke bell mein aa jayega.");
   };
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
@@ -4256,6 +4279,53 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   <span className="text-lg font-black leading-none">{broadcastLogs.length}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Send Notification → target users ke bell button mein jaata hai */}
+            <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h2 className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                  <Send size={14} className="text-indigo-600" /> Send Notification
+                </h2>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-3">
+                Yeh message target users ke <span className="font-bold text-slate-600">bell (notification)</span> mein
+                chala jayega — unke device par live, bina refresh.
+              </p>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={notifTitle}
+                  onChange={(e) => setNotifTitle(e.target.value)}
+                  placeholder="Title (optional)"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 text-sm outline-none focus:border-indigo-400"
+                />
+                <textarea
+                  value={notifMessage}
+                  onChange={(e) => setNotifMessage(e.target.value)}
+                  rows={3}
+                  placeholder="Message yahan likhein…"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 text-sm outline-none focus:border-indigo-400 resize-none"
+                />
+                <select
+                  value={notifTarget}
+                  onChange={(e) => setNotifTarget(e.target.value as typeof notifTarget)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 text-sm outline-none focus:border-indigo-400"
+                >
+                  <option value="teacher">Teachers</option>
+                  <option value="student">Students</option>
+                  <option value="coordinator">Coordinator</option>
+                  <option value="principal">Principal</option>
+                  <option value="all">Everyone (All)</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={handleSendNotification}
+                className="mt-3 w-full py-3 bg-indigo-600 text-white text-xs font-black uppercase tracking-widest hover:bg-indigo-500 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Send size={14} /> Send
+              </button>
             </div>
 
             {/* Attendance Completion / Office Alerts Feed */}
