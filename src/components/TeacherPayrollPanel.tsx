@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Banknote, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, Printer, Settings2, Undo2,
+  Banknote, CalendarDays, CheckCircle2, ChevronDown, ChevronUp, MapPin, Printer, Settings2, Undo2,
 } from 'lucide-react';
 import {
   AppSettings, Attendance, SalaryBreakdown, SalaryPayment, StaffAttendanceStatus, Teacher, TeacherSalaryConfig,
@@ -13,6 +13,7 @@ import {
   summarizeStaffAttendance, todayIso,
 } from '../lib/salaryEngine';
 import { addNotification } from '../lib/notificationUtils';
+import TeacherSalaryDetail from './TeacherSalaryDetail';
 
 interface TeacherPayrollPanelProps {
   teachers: Teacher[];
@@ -53,6 +54,7 @@ export default function TeacherPayrollPanel({
   const [attDate, setAttDate] = useState(todayIso());
   const [payDrafts, setPayDrafts] = useState<Record<string, string>>({});
   const [slipTeacherId, setSlipTeacherId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const settings = useMemo(() => salarySettingsFromApp(appSettings), [appSettings]);
 
@@ -110,9 +112,10 @@ export default function TeacherPayrollPanel({
     toast.success(`All staff marked present (${date}).`);
   };
 
-  const markPaid = (teacher: Teacher, bd: SalaryBreakdown) => {
+  const markPaid = (teacher: Teacher, bd: SalaryBreakdown, amountOverride?: number, methodOverride?: string) => {
     const draft = payDrafts[teacher.id];
-    const amount = draft !== undefined && draft !== '' ? Math.max(0, Number(draft) || 0) : bd.netPayable;
+    const amount = amountOverride ?? (draft !== undefined && draft !== '' ? Math.max(0, Number(draft) || 0) : bd.netPayable);
+    const useMethod = methodOverride ?? method;
     if (amount <= 0) {
       toast.error('Amount 0 hai — pehle monthly salary set karein.');
       return;
@@ -123,7 +126,7 @@ export default function TeacherPayrollPanel({
       year: bd.year,
       amount,
       paidDate: todayIso(),
-      method,
+      method: useMethod,
       breakdown: bd,
     };
     setTeachers(prev => prev.map(t => (
@@ -136,9 +139,20 @@ export default function TeacherPayrollPanel({
       teacherId: teacher.id,
       sound: 'ding',
       title: `${bd.monthName} ${bd.year} Salary Paid 💵`,
-      message: `${formatPKR(amount)} (${method}) pay kar di gayi hai. Attendance: ${bd.presentDays} present, ${bd.absentDays} absent, ${bd.lateDays} late. Net payable ${formatPKR(bd.netPayable)}.`,
+      message: `${formatPKR(amount)} (${useMethod}) pay kar di gayi hai. Attendance: ${bd.presentDays} present, ${bd.absentDays} absent, ${bd.lateDays} late. Net payable ${formatPKR(bd.netPayable)}.`,
     });
     toast.success(`${teacher.name} — ${bd.monthName} ${bd.year}: ${formatPKR(amount)} paid.`);
+  };
+
+  // Detail screen se salary + config save (single call).
+  const saveDetail = (id: string, patch: { monthlySalary?: number; salaryConfig?: TeacherSalaryConfig }) => {
+    if (patch.monthlySalary !== undefined) {
+      updateTeacher(id, { monthlySalary: Math.max(0, Number(patch.monthlySalary) || 0) });
+    }
+    if (patch.salaryConfig) {
+      const t = teachers.find(x => x.id === id);
+      updateTeacher(id, { salaryConfig: { ...(t?.salaryConfig || {}), ...patch.salaryConfig } });
+    }
   };
 
   const undoPaid = (teacher: Teacher, bd: SalaryBreakdown) => {
@@ -163,6 +177,7 @@ export default function TeacherPayrollPanel({
   const slipTeacher = teachers.find(t => t.id === slipTeacherId) || null;
   const slipBreakdown = slipTeacher ? computeSalary(slipTeacher, monthKey, settings) : null;
   const slipPaid = slipTeacher ? findSalaryPayment(slipTeacher, monthKey) : undefined;
+  const detailTeacher = teachers.find(t => t.id === detailId) || null;
 
   const renderTeacherConfig = (t: Teacher) => {
     const cfg = t.salaryConfig || {};
@@ -286,6 +301,9 @@ export default function TeacherPayrollPanel({
               </div>
             )}
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              <button type="button" onClick={() => setDetailId(t.id)} className="px-3 py-1.5 bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-700 inline-flex items-center gap-1">
+                <Banknote size={11} /> View / Edit
+              </button>
               {paid && (
                 <button type="button" onClick={() => undoPaid(t, bd)} className="text-[10px] font-black uppercase text-rose-600 inline-flex items-center gap-1">
                   <Undo2 size={11} /> Undo
@@ -410,7 +428,8 @@ export default function TeacherPayrollPanel({
               <tbody>
                 {teachers.map(t => {
                   const map = monthAttendanceMap(t.staffAttendance, monthKey);
-                  const todayStatus = (t.staffAttendance || []).find(e => e.date === attDate)?.status;
+                  const attEntry = (t.staffAttendance || []).find(e => e.date === attDate);
+                  const todayStatus = attEntry?.status;
                   const loggedToday = attendanceNamesToday.has((t.name || '').trim().toLowerCase());
                   const s = summarizeStaffAttendance(t.staffAttendance, monthKey);
                   return (
@@ -419,6 +438,11 @@ export default function TeacherPayrollPanel({
                         <p className="font-bold text-slate-900">{t.name}</p>
                         {loggedToday && (
                           <span className="text-[9px] font-black uppercase text-emerald-600">Class attendance li ✔ present?</span>
+                        )}
+                        {attEntry?.selfMarked && (
+                          <span className="text-[9px] font-black uppercase text-sky-600 flex items-center gap-1 mt-0.5">
+                            <MapPin size={9} /> self · {attEntry.distanceM != null ? `${attEntry.distanceM}m` : 'geo'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -685,6 +709,19 @@ export default function TeacherPayrollPanel({
       {historyId && renderHistory()}
 
       {slipTeacher && slipBreakdown && renderSlip(slipTeacher, slipBreakdown, slipPaid)}
+
+      {detailTeacher && (
+        <TeacherSalaryDetail
+          teacher={detailTeacher}
+          settings={settings}
+          monthKey={monthKey}
+          onSave={(patch) => saveDetail(detailTeacher.id, patch)}
+          onMarkPaid={(amount, methodStr, bd) => markPaid(detailTeacher, bd, amount, methodStr)}
+          onUndoPaid={(bd) => undoPaid(detailTeacher, bd)}
+          onSlip={() => { setDetailId(null); setSlipTeacherId(detailTeacher.id); }}
+          onClose={() => setDetailId(null)}
+        />
+      )}
     </div>
   );
 }

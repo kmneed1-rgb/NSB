@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarClock, FileText, KeyRound, LogOut, Megaphone, Power, Shield, ToggleLeft, ToggleRight, Upload, Wallet, Wifi } from 'lucide-react';
+import { CalendarClock, FileText, KeyRound, LogOut, MapPin, Megaphone, Power, Shield, ToggleLeft, ToggleRight, Upload, Wallet, Wifi } from 'lucide-react';
 import { AppSettings, Role, UserSession } from '../types';
 import {
   getGeminiApiKey, isPortalEnabled, isSubscriptionActive,
   isRoleLoginEnabled, LOGIN_CONTROL_ROLES, LOGIN_CONTROL_LABELS, LoginControlRole,
 } from '../lib/appControl';
 import { BroadcastTarget, BROADCAST_AUDIENCE_OPTIONS } from '../lib/broadcast';
+import { getCurrentPosition } from '../lib/geo';
 import { testGeminiConnection } from '../lib/geminiPaper';
 import { convertToWebP } from '../lib/imageUtils';
 import UserAvatar from './UserAvatar';
@@ -32,6 +33,11 @@ export default function DeveloperDashboard({
   const [bcTitle, setBcTitle] = useState('');
   const [bcMessage, setBcMessage] = useState('');
   const [bcTarget, setBcTarget] = useState<BroadcastTarget>('principal');
+  // Geo-attendance (school location) state
+  const [geoLocating, setGeoLocating] = useState(false);
+  const [geoLatDraft, setGeoLatDraft] = useState(appSettings.geoFence?.lat != null ? String(appSettings.geoFence.lat) : '');
+  const [geoLngDraft, setGeoLngDraft] = useState(appSettings.geoFence?.lng != null ? String(appSettings.geoFence.lng) : '');
+  const [geoRadiusDraft, setGeoRadiusDraft] = useState(appSettings.geoFence?.radiusM != null ? String(appSettings.geoFence.radiusM) : '100');
 
   /** Developer ka profile photo — app_settings/global mein save (auto cloud sync). */
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,6 +174,53 @@ export default function DeveloperDashboard({
   const broadcastTargetLabel =
     BROADCAST_AUDIENCE_OPTIONS.find(o => o.value === appSettings.broadcast?.target)?.label ||
     (appSettings.broadcast?.target || '');
+
+  // --- GEO-ATTENDANCE (school location set karna) ---
+  const geoOn = !!appSettings.geoFence?.enabled;
+
+  const saveGeoFence = (lat: number, lng: number, radiusM: number, enabled: boolean) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      toast.error('Lat/Lng sahi nahi. "Use my location" dabayein ya manual values daalein.');
+      return;
+    }
+    setAppSettings(prev => ({
+      ...prev,
+      geoFence: { enabled, lat, lng, radiusM: Math.max(10, Math.round(radiusM) || 100) },
+    }));
+    toast.success(enabled
+      ? `Geo-attendance ON — school location set (radius ${Math.round(radiusM)}m).`
+      : 'Geo-attendance OFF — teacher bina location mark kar saktay hain.');
+  };
+
+  const useMyLocation = async () => {
+    setGeoLocating(true);
+    try {
+      const pos = await getCurrentPosition();
+      setGeoLatDraft(String(pos.lat));
+      setGeoLngDraft(String(pos.lng));
+      const radius = Math.max(10, Number(geoRadiusDraft) || 100);
+      saveGeoFence(pos.lat, pos.lng, radius, geoOn);
+      toast.success(`Location mil gayi (±${Math.round(pos.accuracy)}m). Agar theek nahi to radius barhayein.`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Location hasil nahi ho saki.');
+    } finally {
+      setGeoLocating(false);
+    }
+  };
+
+  const saveGeoManual = () => {
+    const lat = Number(geoLatDraft);
+    const lng = Number(geoLngDraft);
+    const radius = Math.max(10, Number(geoRadiusDraft) || 100);
+    saveGeoFence(lat, lng, radius, geoOn);
+  };
+
+  const toggleGeo = (value: boolean) => {
+    const lat = Number(geoLatDraft);
+    const lng = Number(geoLngDraft);
+    const radius = Math.max(10, Number(geoRadiusDraft) || 100);
+    saveGeoFence(lat, lng, radius, value);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -396,6 +449,91 @@ export default function DeveloperDashboard({
               Stop
             </button>
           </div>
+        </article>
+
+        {/* ===== GEO-ATTENDANCE — school location set karna ===== */}
+        <article className="border border-sky-500/40 bg-slate-900 p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <MapPin size={16} className="text-sky-400" />
+              <h2 className="text-sm font-black uppercase tracking-widest">Geo Attendance</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => toggleGeo(!geoOn)}
+              className={geoOn ? 'text-emerald-300' : 'text-rose-300'}
+              aria-label="Toggle geo attendance"
+            >
+              {geoOn ? <ToggleRight size={32} /> : <ToggleLeft size={32} className="text-slate-600" />}
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">
+            School ki location set karein. Jab <span className="text-white font-bold">ON</span> ho, teacher apni attendance
+            <span className="text-white font-bold"> sirf is radius ke andar</span> ho kar mark kar sakta hai — bahar hote hi block ho jayega.
+          </p>
+          <p className={`text-[10px] font-black uppercase tracking-widest ${geoOn ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {geoOn ? 'Enabled' : 'Disabled'}
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Latitude</span>
+              <input
+                type="number"
+                step="any"
+                value={geoLatDraft}
+                onChange={(e) => setGeoLatDraft(e.target.value)}
+                placeholder="e.g. 24.8607"
+                className="w-full mt-1 p-3 bg-slate-950 border border-slate-700 text-sm font-mono outline-none focus:border-sky-500"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Longitude</span>
+              <input
+                type="number"
+                step="any"
+                value={geoLngDraft}
+                onChange={(e) => setGeoLngDraft(e.target.value)}
+                placeholder="e.g. 67.0011"
+                className="w-full mt-1 p-3 bg-slate-950 border border-slate-700 text-sm font-mono outline-none focus:border-sky-500"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Radius (meters)</span>
+            <input
+              type="number"
+              min={10}
+              value={geoRadiusDraft}
+              onChange={(e) => setGeoRadiusDraft(e.target.value)}
+              className="w-full mt-1 p-3 bg-slate-950 border border-slate-700 text-sm font-mono outline-none focus:border-sky-500"
+            />
+            <span className="text-[9px] text-slate-500 uppercase">Jitna bara radius, utni door se attendance mark hogi.</span>
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={useMyLocation}
+              disabled={geoLocating}
+              className="px-4 py-2 bg-sky-500 text-slate-950 text-xs font-black uppercase tracking-widest hover:bg-sky-400 disabled:opacity-50 cursor-pointer inline-flex items-center gap-2"
+            >
+              <MapPin size={14} /> {geoLocating ? 'Locating…' : 'Use my location'}
+            </button>
+            <button
+              type="button"
+              onClick={saveGeoManual}
+              className="px-4 py-2 border border-slate-600 text-xs font-black uppercase tracking-widest hover:bg-slate-800 cursor-pointer"
+            >
+              Save location
+            </button>
+          </div>
+          {appSettings.geoFence && Number.isFinite(appSettings.geoFence.lat) && (
+            <p className="text-[10px] text-slate-500 font-mono">
+              Set: {appSettings.geoFence.lat.toFixed(5)}, {appSettings.geoFence.lng.toFixed(5)} · radius {appSettings.geoFence.radiusM}m · {geoOn ? 'ON' : 'OFF'}
+            </p>
+          )}
         </article>
 
         <section className="grid md:grid-cols-2 gap-4">

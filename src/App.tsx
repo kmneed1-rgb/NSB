@@ -1289,6 +1289,7 @@ export default function App() {
           onLogout={handleLogout}
           installPromptEvent={installPromptEvent}
           onInstallApp={handleInstallClick}
+          appSettings={appSettings}
         />
       ) : userSession.role === 'student' ? (
         <StudentDashboard

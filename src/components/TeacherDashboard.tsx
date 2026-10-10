@@ -4,14 +4,17 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX, User,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer, MapPin
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
-import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto } from '../types';
+import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto, AppSettings, StaffAttendanceEntry } from '../types';
 import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
 import { updateAuthPassword, authEmailFor } from '../lib/authAdmin';
+import { getCurrentPosition, isWithinFence } from '../lib/geo';
+import { setStaffAttendance, pruneStaffAttendance, monthAttendanceMap, summarizeStaffAttendance, STAFF_STATUS_LABEL, todayIso, currentMonthKey } from '../lib/salaryEngine';
+import { monthKeyLabel } from '../lib/dateUtils';
 import { HoldActionWrapper } from './HoldActionWrapper';
 import UserAvatar from './UserAvatar';
 
@@ -36,9 +39,10 @@ interface TeacherDashboardProps {
   onLogout: () => void;
   installPromptEvent: any;
   onInstallApp: () => void;
+  appSettings?: AppSettings;
 }
 
-type TabType = 'dashboard' | 'students' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'settings' | 'diary';
+type TabType = 'dashboard' | 'students' | 'attendance' | 'marks' | 'timetable' | 'fees' | 'settings' | 'diary' | 'my_attendance';
 
 import { safeStorage } from '../lib/safeStorage';
 
@@ -62,7 +66,8 @@ export default function TeacherDashboard({
   setAssignments,
   onLogout,
   installPromptEvent,
-  onInstallApp
+  onInstallApp,
+  appSettings
 }: TeacherDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
@@ -203,6 +208,58 @@ export default function TeacherDashboard({
   const teacherProfile = teachers.find(t => t.id === userSession.id);
   const teacherId = teacherProfile?.id || '';
   const teacherSubject = teacherProfile?.subject || 'All Subjects';
+
+  // --- GEO SELF-ATTENDANCE state ---
+  const [geoLocating, setGeoLocating] = useState(false);
+  const geoFence = appSettings?.geoFence;
+
+  // Teacher apni attendance location ke saath mark karta hai (geo-fenced).
+  const markMyAttendance = async (status: 'present' | 'late' = 'present') => {
+    if (!teacherId) { toast.error('Teacher profile nahi mila.'); return; }
+    setGeoLocating(true);
+    try {
+      const pos = await getCurrentPosition();
+      const check = isWithinFence({ lat: pos.lat, lng: pos.lng }, geoFence);
+      // Bahar ho to BLOCK (koi attendance record nahi).
+      if (!check.ok) {
+        toast.error(
+          `Aap school location se ${check.distanceM}m door hain — yahan se attendance mark nahi hogi. School par aakar koshish karein.`
+        );
+        return;
+      }
+      const entry: StaffAttendanceEntry = {
+        date: todayIso(),
+        status,
+        markedBy: userSession.name || 'Self',
+        markedAt: new Date().toISOString(),
+        lat: pos.lat,
+        lng: pos.lng,
+        accuracy: pos.accuracy,
+        distanceM: check.distanceM,
+        geoOk: true,
+        selfMarked: true,
+      };
+      setTeachers(prev => prev.map(t => (
+        t.id === teacherId
+          ? { ...t, staffAttendance: pruneStaffAttendance(
+              setStaffAttendance(t.staffAttendance, entry.date, entry.status, {
+                markedBy: entry.markedBy,
+                note: `Geo self-attendance · ${entry.distanceM}m · ±${Math.round(entry.accuracy || 0)}m`,
+              }).map(e => e.date === entry.date ? { ...e, ...entry } : e)
+            ) }
+          : t
+      )));
+      toast.success(
+        status === 'present'
+          ? `Attendance mark ho gayi ✔ (school se ${check.distanceM}m).`
+          : `Late mark ho gayi (school se ${check.distanceM}m).`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Location hasil nahi ho saki.');
+    } finally {
+      setGeoLocating(false);
+    }
+  };
 
   // Find all classes where this teacher is either the class teacher or teaches a subject
   const myClasses = classes.filter(c => 
@@ -1027,7 +1084,7 @@ export default function TeacherDashboard({
       {/* Teacher Sidebar Drawer */}
       <div 
         id="sidebar-teacher" 
-        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col z-40 transition-transform duration-300 transform md:transform-none ${
+        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-white border-r border-slate-100 flex flex-col overflow-y-auto z-40 transition-transform duration-300 transform md:transform-none ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } font-sans`}
         onTouchStart={(e) => { touchStartX.current = e.touches[0]?.clientX ?? null; }}
@@ -1056,13 +1113,14 @@ export default function TeacherDashboard({
         </div>
 
         {/* Nav groups - Minimalist List */}
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1 mt-2">
+        <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-1 mt-2">
             {[
               { id: 'dashboard', label: 'Overview', icon: Sparkles },
               { id: 'students', label: 'Roster', icon: Users },
               { id: 'attendance', label: 'Attendance', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || myClasses[0]?.id || '', attendanceDate) },
               { id: 'marks', label: 'Marks', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
               { id: 'diary', label: 'Diary', icon: ClipboardList },
+              { id: 'my_attendance', label: 'My Attendance', icon: MapPin },
               { id: 'timetable', label: 'Time Table', icon: Calendar },
               { id: 'settings', label: 'Settings', icon: Sparkles }
             ].map((item) => (
@@ -4012,6 +4070,106 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
           </div>
         )}
 
+        {activeTab === 'my_attendance' && (
+          <div id="panel-teacher-my-attendance" className="space-y-8 animate-fade-in bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
+            <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm border-t-4 border-t-emerald-600">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <MapPin size={24} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">My Attendance</h2>
+                  <p className="text-xs text-slate-500">Apni hazri school location par ho kar mark karein.</p>
+                </div>
+              </div>
+
+              <div className={`mt-4 p-3 rounded-xl border text-xs font-bold ${geoFence?.enabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
+                {geoFence?.enabled
+                  ? `Geo-attendance ON — school location set hai (radius ${geoFence.radiusM}m). Aapko school ke andar hona zaroori hai.`
+                  : 'Geo-attendance abhi OFF hai (developer ne location set nahi ki) — aap bina location mark kar saktay hain.'}
+              </div>
+
+              {(() => {
+                const today = todayIso();
+                const todayEntry = (teacherProfile?.staffAttendance || []).find(e => e.date === today);
+                return (
+                  <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Aaj ({today})</p>
+                      {todayEntry ? (
+                        <p className="text-sm font-black text-emerald-700 uppercase flex items-center gap-1.5">
+                          <CheckCircle2 size={16} /> {STAFF_STATUS_LABEL[todayEntry.status]}
+                          {todayEntry.selfMarked && <span className="text-[9px] text-slate-400 font-bold">· self</span>}
+                          {todayEntry.distanceM != null && <span className="text-[9px] text-slate-400 font-bold">· {todayEntry.distanceM}m</span>}
+                        </p>
+                      ) : (
+                        <p className="text-sm font-black text-amber-600 uppercase">Abhi mark nahi hui</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={geoLocating}
+                        onClick={() => markMyAttendance('present')}
+                        className="px-5 py-3 bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer"
+                      >
+                        <MapPin size={16} /> {geoLocating ? 'Locating…' : 'Mark Present'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={geoLocating}
+                        onClick={() => markMyAttendance('late')}
+                        className="px-5 py-3 bg-amber-500 text-white text-xs font-black uppercase tracking-widest hover:bg-amber-600 disabled:opacity-50 inline-flex items-center gap-2 cursor-pointer"
+                      >
+                        <Clock size={16} /> Mark Late
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            {(() => {
+              const mk = currentMonthKey();
+              const s = summarizeStaffAttendance(teacherProfile?.staffAttendance, mk);
+              const map = monthAttendanceMap(teacherProfile?.staffAttendance, mk);
+              const [y, m] = mk.split('-').map(Number);
+              const dayCount = new Date(y, m, 0).getDate();
+              const monthDates = Array.from({ length: dayCount }, (_, i) => `${mk}-${String(i + 1).padStart(2, '0')}`);
+              const chip = (st?: string) => st === 'present' ? 'bg-emerald-500 text-white border-emerald-500'
+                : st === 'absent' ? 'bg-rose-500 text-white border-rose-500'
+                : st === 'late' ? 'bg-amber-500 text-white border-amber-500'
+                : st === 'leave' ? 'bg-indigo-500 text-white border-indigo-500'
+                : st === 'half' ? 'bg-slate-600 text-white border-slate-600'
+                : 'bg-white text-slate-400 border-slate-200';
+              return (
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">{monthKeyLabel(mk)} — Summary</h3>
+                  <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase mb-4">
+                    <span className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full">Present {s.present}</span>
+                    <span className="px-3 py-1.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-full">Absent {s.absent}</span>
+                    <span className="px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-full">Late {s.late}</span>
+                    <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full">Leave {s.leave}</span>
+                    {s.half > 0 && <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full">Half {s.half}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {monthDates.map(d => {
+                      const st = map[d];
+                      return (
+                        <span key={d} title={`${d} — ${st ? STAFF_STATUS_LABEL[st] : 'not marked'}`} className={`w-7 h-7 flex items-center justify-center text-[9px] font-black border rounded ${chip(st)}`}>
+                          {Number(d.slice(-2))}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-400 uppercase font-bold mt-3">Yeh attendance aapki salary ke hisaab mein count hoti hai.</p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+
+
         {activeTab === 'settings' && (
           <div id="panel-teacher-settings" className="space-y-8 animate-fade-in bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
             <div className="bg-white rounded-xl p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
@@ -4117,7 +4275,7 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
       </main>
 
       {/* ========== MOBILE RESPONSIVE BOTTOM FOOTER NAVIGATION ========== */}
-      <div id="teacher-mobile-footer-nav" className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-2 pb-safe select-none">
+      <div id="teacher-mobile-footer-nav" className={`md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 text-white z-50 shadow-2xl px-2 pb-safe select-none transition-all duration-300 ${sidebarOpen ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
         <div className="flex justify-around items-center h-16 relative">
           
           <div className={`flex-1 flex justify-center transition-all duration-300 ${activeTab === 'dashboard' ? '-translate-y-4' : 'translate-y-0'}`}>

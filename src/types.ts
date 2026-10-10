@@ -56,6 +56,13 @@ export interface StaffAttendanceEntry {
   note?: string;
   markedBy?: string;             // jisne mark kiya (principal/coordinator ka naam)
   markedAt?: string;             // ISO timestamp
+  /** Geo self-attendance (teacher apni attendance location ke saath mark kare). */
+  lat?: number;                  // latitude jab mark kiya gaya
+  lng?: number;                  // longitude
+  accuracy?: number;             // GPS accuracy (meters)
+  distanceM?: number;            // school location se fasla (meters)
+  geoOk?: boolean;               // school fence ke andar tha?
+  selfMarked?: boolean;          // teacher ne khud mark kiya (vs principal)
 }
 
 /** Per-teacher salary rules (global SalarySettings ko override karte hain). */
@@ -242,6 +249,17 @@ export interface AppSettings {
    * SAB devices par foran pohanchti hai. Sirf target role ko dikhti hai.
    */
   broadcast?: BroadcastMessage;
+  /**
+   * Geo-attendance: school ki set location + radius.
+   * Teacher apni attendance SIRF is radius ke andar ho kar mark kar sakta hai.
+   * Admin (Developer panel) se set hota hai — app_settings/global mein sync.
+   */
+  geoFence?: {
+    enabled: boolean;
+    lat: number;
+    lng: number;
+    radiusM: number;   // meters
+  };
 }
 
 export interface Assignment {
