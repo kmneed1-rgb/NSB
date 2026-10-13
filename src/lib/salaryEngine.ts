@@ -82,34 +82,79 @@ export function countWorkingDays(year: number, monthIndex: number, weekendDays: 
   return count;
 }
 
-/** Kisi mahine ke staff attendance counts. */
+/** ISO date (YYYY-MM-DD) ka weekday — Sunday (0) par true. */
+export function isSundayDate(iso: string): boolean {
+  const [y, m, d] = (iso || '').split('-').map(Number);
+  if (!y || !m || !d) return false;
+  return new Date(y, m - 1, d).getDay() === 0;
+}
+
+/** ISO date ko ±delta days shift (month/year overflow auto handle). */
+const shiftIsoDate = (iso: string, delta: number): string => {
+  const [y, m, d] = (iso || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(y, m - 1, d + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * Kisi din ka EFFECTIVE staff status — SUNDAY RULE:
+ *   • Sunday ki khud ki manual entry ho → wahi status (manual override).
+ *   • Sunday khali ho → agar Sat (pichla din) ya Mon (agla din) absent hai
+ *     to Sunday = 'absent', warna Sunday = 'present'.
+ *   • Non-Sunday din → entry ka status (undefined = not marked).
+ *
+ * Derived hai — data mein koi entry write nahi hoti, sirf read/calc apply hoti hai.
+ */
+export function resolveStaffStatus(
+  entries: StaffAttendanceEntry[] | undefined,
+  date: string
+): StaffAttendanceStatus | undefined {
+  const list = entries || [];
+  const own = list.find(e => e?.date === date);
+  if (own) return own.status;
+  if (!isSundayDate(date)) return undefined;
+  const sat = list.find(e => e?.date === shiftIsoDate(date, -1))?.status;
+  const mon = list.find(e => e?.date === shiftIsoDate(date, 1))?.status;
+  return sat === 'absent' || mon === 'absent' ? 'absent' : 'present';
+}
+
+/** Kisi mahine ke staff attendance counts (Sunday rule apply karke). */
 export function summarizeStaffAttendance(
   entries: StaffAttendanceEntry[] | undefined,
   monthKey: string
 ): { present: number; absent: number; late: number; leave: number; half: number; marked: number } {
   const out = { present: 0, absent: 0, late: 0, leave: 0, half: 0, marked: 0 };
-  (entries || []).forEach(e => {
-    if (!e?.date || toMonthKey(e.date) !== monthKey) return;
-    if (e.status === 'present') out.present++;
-    else if (e.status === 'absent') out.absent++;
-    else if (e.status === 'late') out.late++;
-    else if (e.status === 'leave') out.leave++;
-    else if (e.status === 'half') out.half++;
-    else return;
+  const [y, m] = (monthKey || '').split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return out;
+  const dayCount = new Date(y, m, 0).getDate();
+  for (let d = 1; d <= dayCount; d++) {
+    const status = resolveStaffStatus(entries, `${monthKey}-${String(d).padStart(2, '0')}`);
+    if (status === 'present') out.present++;
+    else if (status === 'absent') out.absent++;
+    else if (status === 'late') out.late++;
+    else if (status === 'leave') out.leave++;
+    else if (status === 'half') out.half++;
+    else continue;
     out.marked++;
-  });
+  }
   return out;
 }
 
-/** Mahine ka date → status map (calendar grid ke liye). */
+/** Mahine ka date → status map (calendar grid ke liye, Sunday rule apply karke). */
 export function monthAttendanceMap(
   entries: StaffAttendanceEntry[] | undefined,
   monthKey: string
 ): Record<string, StaffAttendanceStatus> {
   const map: Record<string, StaffAttendanceStatus> = {};
-  (entries || []).forEach(e => {
-    if (e?.date && toMonthKey(e.date) === monthKey) map[e.date] = e.status;
-  });
+  const [y, m] = (monthKey || '').split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return map;
+  const dayCount = new Date(y, m, 0).getDate();
+  for (let d = 1; d <= dayCount; d++) {
+    const iso = `${monthKey}-${String(d).padStart(2, '0')}`;
+    const st = resolveStaffStatus(entries, iso);
+    if (st) map[iso] = st;
+  }
   return map;
 }
 

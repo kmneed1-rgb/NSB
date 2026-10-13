@@ -9,8 +9,8 @@ import {
 import { formatAttendanceDay, monthKeyLabel, shiftMonthKey, toMonthKey } from '../lib/dateUtils';
 import {
   STAFF_STATUS_LABEL, computeSalary, currentMonthKey, findSalaryPayment, formatPKR,
-  monthAttendanceMap, pruneStaffAttendance, salarySettingsFromApp, setStaffAttendance,
-  summarizeStaffAttendance, todayIso,
+  isSundayDate, monthAttendanceMap, pruneStaffAttendance, resolveStaffStatus,
+  salarySettingsFromApp, setStaffAttendance, summarizeStaffAttendance, todayIso,
 } from '../lib/salaryEngine';
 import { addNotification } from '../lib/notificationUtils';
 import TeacherSalaryDetail from './TeacherSalaryDetail';
@@ -408,6 +408,11 @@ export default function TeacherPayrollPanel({
             Mark all present
           </button>
           <span className="text-[10px] text-slate-500 uppercase font-bold">{formatAttendanceDay(attDate)}</span>
+          {isSundayDate(attDate) && (
+            <span className="px-2 py-1 bg-rose-50 border border-rose-200 text-[10px] font-black uppercase text-rose-600">
+              ☀ Sunday (holiday) — Sat/Mon absent ho to Sunday auto-absent · warna present
+            </span>
+          )}
           {toMonthKey(attDate) !== monthKey && (
             <span className="text-[10px] font-black uppercase text-amber-600">
               ⚠ Yeh date {monthKeyLabel(monthKey)} mein nahi hai
@@ -429,7 +434,8 @@ export default function TeacherPayrollPanel({
                 {teachers.map(t => {
                   const map = monthAttendanceMap(t.staffAttendance, monthKey);
                   const attEntry = (t.staffAttendance || []).find(e => e.date === attDate);
-                  const todayStatus = attEntry?.status;
+                  // Sunday rule resolved status — Sat/Mon absent ho to Sunday bhi absent (manual entry override)
+                  const todayStatus = resolveStaffStatus(t.staffAttendance, attDate);
                   const loggedToday = attendanceNamesToday.has((t.name || '').trim().toLowerCase());
                   const s = summarizeStaffAttendance(t.staffAttendance, monthKey);
                   return (
@@ -492,7 +498,7 @@ export default function TeacherPayrollPanel({
           </div>
         </div>
         <p className="text-[10px] text-slate-400 uppercase font-bold">
-          Tip: din par left-click = Present, right-click = Absent. Record teachers collection ke saath cloud sync hota hai.
+          Tip: din par left-click = Present, right-click = Absent. Sunday rule: Sat/Mon absent → Sunday bhi auto-absent, warna present (khud Sunday par manually mark karke override bhi kar sakte hain). Record teachers collection ke saath cloud sync hota hai.
         </p>
       </div>
     );

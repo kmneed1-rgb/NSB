@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { 
   Users, Calendar, Award, CheckSquare, LogOut, Save, UserCheck, UserX, User,
   Clock, AlertCircle, Sparkles, BookOpen, Menu, X, ArrowLeft, ClipboardList, Info, CreditCard,
-  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer, MapPin
+  Bell, CheckCircle2, ListTodo, CalendarDays, ArrowRight, Search, PlusCircle, AlertTriangle, ChevronDown, Sun, Moon, Phone, Trash2, Plus, Send, Download, Fingerprint, School, RefreshCw, Printer, MapPin, Upload
 } from 'lucide-react';
 import { getNotifications, addNotification, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
@@ -13,9 +13,10 @@ import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDele
 import { listChanged } from '../lib/dataUtils';
 import { updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { getCurrentPosition, isWithinFence } from '../lib/geo';
-import { setStaffAttendance, pruneStaffAttendance, monthAttendanceMap, summarizeStaffAttendance, STAFF_STATUS_LABEL, todayIso, currentMonthKey } from '../lib/salaryEngine';
+import { setStaffAttendance, pruneStaffAttendance, monthAttendanceMap, summarizeStaffAttendance, resolveStaffStatus, isSundayDate, STAFF_STATUS_LABEL, todayIso, currentMonthKey } from '../lib/salaryEngine';
 import { monthKeyLabel } from '../lib/dateUtils';
 import { HoldActionWrapper } from './HoldActionWrapper';
+import { convertToWebP } from '../lib/imageUtils';
 import UserAvatar from './UserAvatar';
 
 interface TeacherDashboardProps {
@@ -208,6 +209,31 @@ export default function TeacherDashboard({
   const teacherProfile = teachers.find(t => t.id === userSession.id);
   const teacherId = teacherProfile?.id || '';
   const teacherSubject = teacherProfile?.subject || 'All Subjects';
+
+  // ===== LOGGED-IN TEACHER ka profile photo (principal portal jaisa hi) =====
+  const myTeacherRecord =
+    teachers.find(t => String(t.id) === String(userSession.id)) ||
+    teachers.find(t => !!userSession.email && (t.email || '').toLowerCase() === userSession.email.toLowerCase());
+  const myProfilePhoto = myTeacherRecord?.photo;
+  const [isConvertingPhoto, setIsConvertingPhoto] = useState(false);
+
+  /** Teacher ka photo - teachers record mein save hota hai (auto cloud sync), bilkul principal jaisa. */
+  const handleOwnPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!myTeacherRecord?.id) { toast.error('Teacher profile nahi mila.'); return; }
+    try {
+      setIsConvertingPhoto(true);
+      const webpData = await convertToWebP(file);
+      const targetId = myTeacherRecord.id;
+      setTeachers(prev => prev.map(t => (t.id === targetId ? { ...t, photo: webpData } : t)));
+      toast.success('Profile photo updated!');
+    } catch (err) {
+      toast.error('Failed to process image');
+    } finally {
+      setIsConvertingPhoto(false);
+    }
+  };
 
   // --- GEO SELF-ATTENDANCE state ---
   const [geoLocating, setGeoLocating] = useState(false);
@@ -1112,34 +1138,61 @@ export default function TeacherDashboard({
           </div>
         </div>
 
-        {/* Nav groups - Minimalist List */}
-        <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-1 mt-2">
-            {[
-              { id: 'dashboard', label: 'Overview', icon: Sparkles },
-              { id: 'students', label: 'Roster', icon: Users },
-              { id: 'attendance', label: 'Attendance', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || myClasses[0]?.id || '', attendanceDate) },
-              { id: 'marks', label: 'Marks', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
-              { id: 'diary', label: 'Diary', icon: ClipboardList },
-              { id: 'my_attendance', label: 'My Attendance', icon: MapPin },
-              { id: 'timetable', label: 'Time Table', icon: Calendar },
-              { id: 'settings', label: 'Settings', icon: Sparkles }
-            ].map((item) => (
-              <button
-                key={item.id}
-                onClick={() => { 
-                  if (item.action) item.action();
-                  handleTabChange(item.id as TabType); 
-                  setSidebarOpen(false); 
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-black uppercase tracking-widest text-left transition-all rounded-xl ${
-                  activeTab === item.id 
-                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 shadow-lg shadow-indigo-100 text-white' 
-                    : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                <item.icon size={14} className={activeTab === item.id ? 'text-white' : 'text-slate-300'} />
-                {item.label}
-              </button>
+        {/* Nav groups - Sectioned Minimalist List */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5 mt-2">
+            {([
+              {
+                title: 'Main Menu',
+                items: [
+                  { id: 'dashboard', label: 'Overview', icon: Sparkles },
+                ],
+              },
+              {
+                title: 'Academics',
+                items: [
+                  { id: 'students', label: 'Roster', icon: Users },
+                  { id: 'attendance', label: 'Attendance', icon: CheckSquare, action: () => handleEnterAttendanceTab(activeClassId || myClasses[0]?.id || '', attendanceDate), badge: pendingCount },
+                  { id: 'marks', label: 'Marks', icon: Award, action: () => handleEnterMarksTab(selectedMarkClassId || classes[0]?.id || '', selectedSubject, selectedExamType) },
+                  { id: 'diary', label: 'Diary', icon: ClipboardList },
+                ],
+              },
+              {
+                title: 'My Space',
+                items: [
+                  { id: 'my_attendance', label: 'My Attendance', icon: MapPin },
+                  { id: 'timetable', label: 'Time Table', icon: Calendar },
+                  { id: 'settings', label: 'Settings', icon: Sparkles },
+                ],
+              },
+            ] as { title: string; items: { id: string; label: string; icon: typeof Sparkles; action?: () => void; badge?: number }[] }[]).map(group => (
+              <div key={group.title}>
+                <p className="px-4 mb-1.5 text-[9px] font-black uppercase tracking-[0.25em] text-slate-300">{group.title}</p>
+                <div className="space-y-1">
+                  {group.items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        if (item.action) item.action();
+                        handleTabChange(item.id as TabType);
+                        setSidebarOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-xs font-black uppercase tracking-widest text-left transition-all rounded-xl ${
+                        activeTab === item.id
+                          ? 'bg-gradient-to-r from-indigo-600 to-violet-600 shadow-lg shadow-indigo-100 text-white'
+                          : 'text-slate-400 hover:text-slate-900 hover:bg-slate-50'
+                      }`}
+                    >
+                      <item.icon size={14} className={activeTab === item.id ? 'text-white' : 'text-slate-300'} />
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge ? (
+                        <span className={`min-w-[18px] px-1.5 py-0.5 text-[9px] font-black rounded-full text-center ${activeTab === item.id ? 'bg-white/25 text-white' : 'bg-rose-500 text-white'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
 
             {/* Install Button in Teacher Sidebar */}
@@ -1152,23 +1205,16 @@ export default function TeacherDashboard({
             </button>
           </nav>
 
-        {/* Minimalist Profile section */}
-        <div className="p-6 border-t border-slate-100">
-          <div className="flex items-center gap-3 mb-6">
-            <UserAvatar
-              photo={(
-                teachers.find(t => String(t.id) === String(userSession.id)) ||
-                teachers.find(t => !!userSession.email && (t.email || '').toLowerCase() === userSession.email.toLowerCase())
-              )?.photo}
-              name={userSession.name}
-              size={36}
-            />
+        {/* Profile section — soft card */}
+        <div className="p-4 border-t border-slate-100">
+          <div className="flex items-center gap-3 mb-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl">
+            <UserAvatar photo={myProfilePhoto} name={userSession.name} size={40} />
             <div className="truncate">
               <p className="text-slate-900 text-xs font-black uppercase tracking-tight truncate">{userSession.name}</p>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest truncate">{teacherSubject}</p>
+              <p className="text-indigo-500 text-[10px] font-bold uppercase tracking-widest truncate">{teacherSubject}</p>
             </div>
           </div>
-          
+
           <button
             onClick={onLogout}
             className="w-full py-3.5 bg-rose-600 text-white hover:bg-rose-700 transition-all text-xs font-black uppercase tracking-widest text-center cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-rose-100 rounded-xl"
@@ -1185,9 +1231,13 @@ export default function TeacherDashboard({
         {/* Global Desktop Top Bar with Real-time Period Alert & Notification Bell */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-6 z-30 relative font-sans">
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="NSB1 Logo" className="h-14 w-auto object-contain sm:block hidden" referrerPolicy="no-referrer" />
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight sm:block hidden select-none">NSB1 School</h2>
+            <div className="sm:block hidden">
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight select-none leading-none">
+                {(({ dashboard: 'Overview', students: 'My Roster', attendance: 'Attendance', marks: 'Marks & Grades', diary: 'Diary', my_attendance: 'My Attendance', timetable: 'Time Table', fees: 'Fees', settings: 'Settings' } as Record<TabType, string>)[activeTab]) || 'Overview'}
+              </h2>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mt-1.5">
+                {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
             </div>
             
             {/* Real-time active period locator */}
@@ -1327,11 +1377,15 @@ export default function TeacherDashboard({
         {activeTab === 'dashboard' && (
           <div id="panel-teacher-home" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Header Block */}
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl shadow-xl shadow-indigo-100 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden relative">
+            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-950 rounded-3xl shadow-xl shadow-indigo-100 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 overflow-hidden relative">
               <div className="absolute -top-16 -right-16 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
               <div className="absolute -bottom-20 -left-10 w-64 h-64 bg-violet-500/20 rounded-full blur-3xl pointer-events-none"></div>
               <div className="relative z-10">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300 mb-1">Welcome back, Faculty</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-300 mb-1">
+                  {(() => { const h = new Date().getHours(); return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening'; })()}
+                  {' · '}
+                  {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
                 <h1 className="text-xl md:text-2xl font-black text-white tracking-tight font-display uppercase">{userSession.name}</h1>
                 <div className="flex flex-wrap items-center gap-3 mt-3">
                   <div className="px-2.5 py-1 bg-white/10 text-emerald-300 text-xs font-bold uppercase tracking-wider border border-white/10 rounded-full backdrop-blur-sm">
@@ -1352,22 +1406,81 @@ export default function TeacherDashboard({
                 </div>
               </div>
 
-              {myClasses.some(c => c.classTeacherId === teacherId) && (
+              <div className="relative z-10 flex flex-wrap items-center gap-3">
+                {/* Aaj ki attendance pill + avatar */}
+                <div className="p-3 bg-white/10 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center gap-3">
+                  <UserAvatar photo={myProfilePhoto} name={userSession.name} size={44} />
+                  {(() => {
+                    const tIso = todayIso();
+                    const resolved = resolveStaffStatus(teacherProfile?.staffAttendance, tIso);
+                    const cls = resolved === 'present' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
+                      : resolved === 'absent' ? 'bg-rose-500/20 text-rose-300 border-rose-400/30'
+                      : resolved === 'late' ? 'bg-amber-500/20 text-amber-300 border-amber-400/30'
+                      : 'bg-slate-500/20 text-slate-300 border-white/10';
+                    return (
+                      <div className={`px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${cls}`}>
+                        Aaj: {resolved ? STAFF_STATUS_LABEL[resolved] : 'Not Marked'}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {myClasses.some(c => c.classTeacherId === teacherId) && (
+                  (() => {
+                    const mc = myClasses.find(c => c.classTeacherId === teacherId);
+                    return (
+                      <div className="p-4 bg-white/10 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                          <UserCheck className="text-emerald-300 shrink-0" size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider">My Designated Class</h4>
+                          <p className="text-sm text-white font-bold mt-0.5">{mc?.className} - {mc?.section}</p>
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
+
+            {/* ========== KPI STATS ROW ========== */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              {[
+                { label: 'My Students', value: String(students.filter(s => myClasses.some(c => c.id === s.classId)).length), sub: 'Meri classes ka total', icon: Users, tile: 'from-violet-500 to-violet-600', ring: 'border-violet-100' },
+                { label: 'My Classes', value: String(myClasses.length), sub: myClasses.some(c => c.classTeacherId === teacherId) ? 'Class incharge bhi' : 'Assigned classes', icon: BookOpen, tile: 'from-sky-500 to-sky-600', ring: 'border-sky-100' },
+                { label: 'Pending Roll Calls', value: String(pendingCount), sub: pendingCount > 0 ? 'Aaj ki attendance baqi' : 'Sab complete ✓', icon: AlertTriangle, tile: 'from-amber-500 to-orange-500', ring: 'border-amber-100' },
                 (() => {
-                  const mc = myClasses.find(c => c.classTeacherId === teacherId);
-                  return (
-                    <div className="relative z-10 p-4 bg-white/10 rounded-2xl border border-white/10 backdrop-blur-sm flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                        <UserCheck className="text-emerald-300 shrink-0" size={20} />
-                      </div>
-                      <div>
-                        <h4 className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider">My Designated Class</h4>
-                        <p className="text-sm text-white font-bold mt-0.5">{mc?.className} - {mc?.section}</p>
-                      </div>
+                  const resolved = resolveStaffStatus(teacherProfile?.staffAttendance, todayIso());
+                  const isAbsent = resolved === 'absent';
+                  return {
+                    label: 'Aaj ki Attendance',
+                    value: resolved ? STAFF_STATUS_LABEL[resolved] : 'Not Marked',
+                    sub: isSundayDate(todayIso()) ? 'Sunday rule apply' : 'Apni hazri',
+                    icon: isAbsent ? UserX : CheckCircle2,
+                    tile: isAbsent ? 'from-rose-500 to-rose-600' : 'from-emerald-500 to-emerald-600',
+                    ring: isAbsent ? 'border-rose-100' : 'border-emerald-100',
+                  };
+                })(),
+              ].map((card, i) => {
+                const Icon = card.icon;
+                return (
+                  <motion.div
+                    key={card.label}
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.07, duration: 0.35 }}
+                    className={`bg-white p-4 sm:p-5 rounded-2xl border ${card.ring} shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all`}
+                  >
+                    <div className={`h-9 w-9 rounded-xl bg-gradient-to-br ${card.tile} text-white flex items-center justify-center mb-3 shadow-md`}>
+                      <Icon size={16} />
                     </div>
-                  );
-                })()
-              )}
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">{card.label}</p>
+                    <p className={`mt-1 font-black text-slate-900 leading-tight ${card.value.length > 8 ? 'text-sm sm:text-base uppercase' : 'text-xl sm:text-2xl'}`}>{card.value}</p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">{card.sub}</p>
+                  </motion.div>
+                );
+              })}
             </div>
 
             {/* ========== DAILY REMINDER & AGENDA PORTAL ========== */}
@@ -1639,20 +1752,22 @@ export default function TeacherDashboard({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6">
-              
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-3 px-1">Quick Actions</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+
               <div 
                 onClick={() => {
                   handleEnterAttendanceTab(classId || myClasses[0]?.id || '', attendanceDate);
                   handleTabChange('attendance');
                 }}
-                className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+                className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
               >
-                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white flex items-center justify-center mb-4 shadow-lg shadow-emerald-100 group-hover:scale-110 transition-transform">
-                  <CheckSquare size={20} />
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-emerald-100 group-hover:scale-110 transition-transform">
+                  <CheckSquare size={19} />
                 </div>
-                <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display">Mark Attendance</h3>
-                <p className="text-xs text-slate-500 mt-1">Log present or absent indices for pupils on a selected calendar day.</p>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">Mark Attendance</h3>
+                <p className="text-[11px] text-slate-500 mt-1">Log present/absent for pupils on a selected day.</p>
               </div>
 
               <div 
@@ -1660,15 +1775,60 @@ export default function TeacherDashboard({
                   handleEnterMarksTab(classId || myClasses[0]?.id || '', selectedSubject, selectedExamType);
                   handleTabChange('marks');
                 }}
-                className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md hover:border-indigo-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+                className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md hover:border-indigo-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
               >
-                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center mb-4 shadow-lg shadow-indigo-100 group-hover:scale-110 transition-transform">
-                  <Award size={20} />
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-indigo-100 group-hover:scale-110 transition-transform">
+                  <Award size={19} />
                 </div>
-                <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display">Configure Scores</h3>
-                <p className="text-xs text-slate-500 mt-1">Commend academic marks for Unit Tests, Mid-Year cycle, and Final exams.</p>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">Configure Scores</h3>
+                <p className="text-[11px] text-slate-500 mt-1">Enter marks for unit tests, mid-year & finals.</p>
               </div>
 
+              <div
+                onClick={() => handleTabChange('diary')}
+                className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+              >
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-teal-100 group-hover:scale-110 transition-transform">
+                  <ClipboardList size={19} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">New Diary Entry</h3>
+                <p className="text-[11px] text-slate-500 mt-1">Assign homework & share daily class diary.</p>
+              </div>
+
+              <div
+                onClick={() => handleTabChange('students')}
+                className="bg-white p-5 rounded-2xl border border-violet-100 shadow-sm hover:shadow-md hover:border-violet-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+              >
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-violet-100 group-hover:scale-110 transition-transform">
+                  <Users size={19} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">My Roster</h3>
+                <p className="text-[11px] text-slate-500 mt-1">View enrolled students & parent contacts.</p>
+              </div>
+
+              <div
+                onClick={() => handleTabChange('my_attendance')}
+                className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md hover:border-rose-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+              >
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center mb-3 shadow-lg shadow-rose-100 group-hover:scale-110 transition-transform">
+                  <MapPin size={19} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">My Attendance</h3>
+                <p className="text-[11px] text-slate-500 mt-1">Mark your own hazri with school location.</p>
+              </div>
+
+              <div
+                onClick={() => handleTabChange('timetable')}
+                className="bg-white p-5 rounded-2xl border border-amber-100 shadow-sm hover:shadow-md hover:border-amber-300 hover:-translate-y-0.5 transition-all cursor-pointer group"
+              >
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center mb-3 shadow-lg shadow-amber-100 group-hover:scale-110 transition-transform">
+                  <Calendar size={19} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide font-display">Time Table</h3>
+                <p className="text-[11px] text-slate-500 mt-1">Weekly period schedule — all days view.</p>
+              </div>
+
+              </div>
             </div>
 
             {/* Password Modal */}
@@ -1859,11 +2019,14 @@ export default function TeacherDashboard({
         {/* ========== STUDENTS ROSTER VIEW ========== */}
         {activeTab === 'students' && (
           <div id="panel-teacher-students" className="space-y-6 animate-fade-in bg-violet-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-violet-100 shadow-inner">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-gradient-to-r from-violet-600 to-purple-700 p-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-2 shadow-lg border-b border-violet-700/50 rounded-b-2xl text-white flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">My Students Roster</h1>
+                <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight">My Students Roster</h1>
+                <p className="text-xs text-violet-200 mt-1 font-bold uppercase tracking-widest">Enrolled pupils & parent contacts</p>
               </div>
-              
+              <Users size={32} className="text-white/40 shrink-0" />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-4">
               {/* Select Classroom */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-gray-500">Classroom:</span>
@@ -1948,11 +2111,14 @@ export default function TeacherDashboard({
         {/* ========== MARK DAILY ATTENDANCE ========== */}
         {activeTab === 'attendance' && (
           <div id="panel-teacher-attendance" className="space-y-6 animate-fade-in bg-rose-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-rose-100 shadow-inner">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-gradient-to-r from-rose-600 to-red-700 p-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 shadow-lg border-b border-rose-700/50 rounded-b-2xl text-white flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Mark Daily Attendance</h1>
+                <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight">Mark Daily Attendance</h1>
+                <p className="text-xs text-rose-200 mt-1 font-bold uppercase tracking-widest">Roll call — present · absent · late · leave</p>
               </div>
-
+              <CheckSquare size={32} className="text-white/40 shrink-0" />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-4">
               {/* Class & Date Controls */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
@@ -2657,6 +2823,14 @@ export default function TeacherDashboard({
         {/* ========== SUBJECT GRADES MANAGMENT ========== */}
         {activeTab === 'marks' && (
           <div id="panel-teacher-marks" className="space-y-6 animate-fade-in bg-indigo-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-indigo-100 shadow-inner">
+            {/* Banner Header */}
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-700 p-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 shadow-lg border-b border-indigo-700/50 rounded-b-2xl text-white flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight">Marks & Grades</h1>
+                <p className="text-xs text-indigo-200 mt-1 font-bold uppercase tracking-widest">Exam entry + report card builder</p>
+              </div>
+              <Award size={32} className="text-white/40 shrink-0" />
+            </div>
             {/* Sub-tab Switcher */}
             <div className="flex flex-wrap bg-white p-1 rounded-xl border border-indigo-200 shadow-sm w-fit gap-1">
               <button
@@ -4072,18 +4246,16 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
 
         {activeTab === 'my_attendance' && (
           <div id="panel-teacher-my-attendance" className="space-y-8 animate-fade-in bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
-            <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm border-t-4 border-t-emerald-600">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">
-                  <MapPin size={24} className="text-emerald-600" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">My Attendance</h2>
-                  <p className="text-xs text-slate-500">Apni hazri school location par ho kar mark karein.</p>
-                </div>
+            {/* Banner Header */}
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 shadow-lg border-b border-emerald-700/50 rounded-b-2xl text-white flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight">My Attendance</h1>
+                <p className="text-xs text-emerald-200 mt-1 font-bold uppercase tracking-widest">Apni hazri school location par mark karein</p>
               </div>
-
-              <div className={`mt-4 p-3 rounded-xl border text-xs font-bold ${geoFence?.enabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
+              <MapPin size={32} className="text-white/40 shrink-0" />
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm border-t-4 border-t-emerald-600">
+              <div className={`p-3 rounded-xl border text-xs font-bold ${geoFence?.enabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
                 {geoFence?.enabled
                   ? `Geo-attendance ON — school location set hai (radius ${geoFence.radiusM}m). Aapko school ke andar hona zaroori hai.`
                   : 'Geo-attendance abhi OFF hai (developer ne location set nahi ki) — aap bina location mark kar saktay hain.'}
@@ -4092,18 +4264,31 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
               {(() => {
                 const today = todayIso();
                 const todayEntry = (teacherProfile?.staffAttendance || []).find(e => e.date === today);
+                // Sunday rule: Sat/Mon absent ho to Sunday bhi absent (entry na bhi ho) — manual entry override
+                const resolvedToday = resolveStaffStatus(teacherProfile?.staffAttendance, today);
+                const todayIsSunday = isSundayDate(today);
+                const statusLabel = todayEntry ? STAFF_STATUS_LABEL[todayEntry.status]
+                  : resolvedToday ? STAFF_STATUS_LABEL[resolvedToday] : null;
                 return (
                   <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Aaj ({today})</p>
-                      {todayEntry ? (
+                      {statusLabel ? (
                         <p className="text-sm font-black text-emerald-700 uppercase flex items-center gap-1.5">
-                          <CheckCircle2 size={16} /> {STAFF_STATUS_LABEL[todayEntry.status]}
-                          {todayEntry.selfMarked && <span className="text-[9px] text-slate-400 font-bold">· self</span>}
-                          {todayEntry.distanceM != null && <span className="text-[9px] text-slate-400 font-bold">· {todayEntry.distanceM}m</span>}
+                          <CheckCircle2 size={16} /> {statusLabel}
+                          {!todayEntry && todayIsSunday && resolvedToday && (
+                            <span className="text-[9px] text-slate-400 font-bold">· auto (Sunday rule)</span>
+                          )}
+                          {todayEntry?.selfMarked && <span className="text-[9px] text-slate-400 font-bold">· self</span>}
+                          {todayEntry?.distanceM != null && <span className="text-[9px] text-slate-400 font-bold">· {todayEntry.distanceM}m</span>}
                         </p>
                       ) : (
                         <p className="text-sm font-black text-amber-600 uppercase">Abhi mark nahi hui</p>
+                      )}
+                      {todayIsSunday && (
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">
+                          Sunday rule: Sat/Mon absent → Sunday bhi absent · warna present
+                        </p>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -4172,6 +4357,35 @@ const sRoll = student?.rollNumber ? ('Roll #' + student.rollNumber) : 'Student R
 
         {activeTab === 'settings' && (
           <div id="panel-teacher-settings" className="space-y-8 animate-fade-in bg-slate-50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-slate-200 shadow-inner">
+            {/* Banner Header */}
+            <div className="bg-gradient-to-r from-slate-700 to-slate-900 p-6 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 shadow-lg rounded-b-2xl text-white flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight">Settings</h1>
+                <p className="text-xs text-slate-300 mt-1 font-bold uppercase tracking-widest">Profile photo, ID & password</p>
+              </div>
+              <Sparkles size={30} className="text-white/40 shrink-0" />
+            </div>
+            {/* ========== PROFILE PHOTO (Teacher) ========== */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative group">
+                  <UserAvatar photo={myProfilePhoto} name={userSession.name} size={56} />
+                  <label className="absolute -bottom-1.5 -right-1.5 bg-indigo-600 text-white p-1.5 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all border-2 border-white">
+                    <Upload size={11} strokeWidth={3} />
+                    <input type="file" accept="image/*" onChange={handleOwnPhotoChange} className="hidden" disabled={isConvertingPhoto} />
+                  </label>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    Your Profile Photo
+                    {isConvertingPhoto && <span className="text-[10px] font-black uppercase text-indigo-500">Processing...</span>}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Sidebar aur mobile header mein dikhega</p>
+                </div>
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{userSession.name} - Teacher</p>
+            </div>
+
             <div className="bg-white rounded-xl p-8 border border-slate-200 shadow-sm border-t-4 border-t-indigo-600">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100">
