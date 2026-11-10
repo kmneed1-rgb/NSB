@@ -12,7 +12,7 @@ import { getNotifications, saveNotifications, addNotification, getUserKey, clear
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, UserSession, DayOfWeek, FeeRecord, Assignment } from '../types';
-import { loadFromLocalStorage, getStudentFullAccount, getMonthlySummary, MONTHS, StudentFeeData } from '../lib/feeEngine';
+import { loadFromLocalStorage, getStudentFullAccount, getMonthlySummary, MONTHS, StudentFeeData, sameSiblingGroup } from '../lib/feeEngine';
 import { parseMonthKey } from './FeePaymentCenter';
 import { toMonthKey, monthKeyLabel, shiftMonthKey, formatAttendanceDay, formatAttendanceDayShort } from '../lib/dateUtils';
 import AttendanceSwipeOverlay from './AttendanceSwipeOverlay';
@@ -336,7 +336,11 @@ export default function StudentDashboard({
   const lateDays = myAttendance.filter(a => a.status === 'late').length;
 
   // Student ke apne fee records (fees collection) + ledger account (fee_data collection)
-  const myFeeRecords = fees.filter(f => String(f.studentId) === String(studentId));
+  const studentObj = students.find(s => String(s.id) === String(studentId));
+  const myFeeRecords = fees.filter(f => 
+    String(f.studentId) === String(studentId) || 
+    (f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, studentObj?.siblingGroupId))
+  );
   const myFeeData: StudentFeeData | undefined = feeStudents.find(
     s => String(s.id) === String(studentId) ||
          (!!studentProfile?.name && s.name.toLowerCase() === studentProfile.name.toLowerCase())

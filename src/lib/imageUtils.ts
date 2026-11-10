@@ -1,9 +1,11 @@
 /**
- * PROFILE PHOTO helpers — file ko compressed base64 WebP mein badalta hai
- * (max 400px width, 0.8 quality) taake jsonb column mein chhoti rahe.
+ * PROFILE PHOTO helpers — file ko compressed WebP mein badalta hai
+ * (max 400px width, 0.8 quality), phir Supabase Storage par upload karke
+ * public URL deta hai (fallback: base64 — agar upload fail ho).
  * Student ke saath-saath Teacher/Coordinator/Principal/Developer photos bhi
  * isi se aati hain (Admin Hub / Settings / Developer portal upload se).
  */
+import { uploadPhotoDataUrl, type PhotoFolder } from './photoStorage';
 export function convertToWebP(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -33,10 +35,14 @@ export function convertToWebP(file: File): Promise<string> {
   });
 }
 
-/** Common validation + conversion for photo uploads (5MB cap, toast-friendly errors). */
-export async function processPhotoFile(file: File): Promise<string> {
+/** Common validation + conversion + Storage upload for photo uploads (5MB cap). */
+export async function processPhotoFile(
+  file: File,
+  opts: { folder?: PhotoFolder; id?: string } = {}
+): Promise<string> {
   if (file.size > 5 * 1024 * 1024) {
     throw new Error('Image size must be less than 5MB');
   }
-  return convertToWebP(file);
+  const webpData = await convertToWebP(file);
+  return uploadPhotoDataUrl(webpData, opts.folder || 'students', opts.id);
 }

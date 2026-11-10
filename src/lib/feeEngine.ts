@@ -6,6 +6,8 @@ export interface Payment {
   amount: number;
   date: string;
   feeType?: string;
+  /** Sibling/joint account ki copy — cash stats mein double count na ho isliye. */
+  shared?: boolean;
 }
 
 export interface OtherFund {
@@ -28,6 +30,8 @@ export interface DueEntry {
   paidDate?: string;
   paymentMethod?: string;
 }
+
+import type { Student } from '../types';
 
 export interface StudentFeeData {
   id: string | number;
@@ -186,8 +190,11 @@ export const getTotalPending = (student: StudentFeeData) => {
 };
 
 // 5. getTotalCollected - total wusooli
+// NOTE: joint/sibling account mein ek hi wasooli har sibling ke ledger mein copy hoti hai
+// (pending clear karne ke liye). Cash stats mein usse sirf EK dafa ginna hai, warna
+// group ki wasooli siblings ki tadaad ke barabar inflate ho jati hai.
 export const getTotalCollected = (student: StudentFeeData) => {
-  return student.payments.reduce((sum, p) => sum + p.amount, 0);
+  return student.payments.reduce((sum, p) => sum + (p.shared ? 0 : p.amount), 0);
 };
 
 // 6. addOtherFund
@@ -239,6 +246,56 @@ export const editOtherFund = (students: StudentFeeData[], studentId: string | nu
 // 7. getTotalOtherFunds
 export const getTotalOtherFunds = (student: StudentFeeData) => {
   return student.otherFunds.reduce((sum, f) => sum + f.amount, 0);
+};
+
+// 7.1 getSiblingGroupId - helper to get group id from student record
+export const getStudentSiblingGroupId = (student: Student | undefined | null): string | undefined => {
+  return student?.siblingGroupId;
+};
+
+// 7.1.1 normalizeSiblingGroupId - group id ko case/space insensitive compare karne ke liye
+// ('GRP_123' aur 'grp_123 ' ek hi group hain)
+export const normalizeSiblingGroupId = (id?: string | null): string =>
+  String(id ?? '').trim().toLowerCase();
+
+export const sameSiblingGroup = (a?: string | null, b?: string | null): boolean => {
+  const na = normalizeSiblingGroupId(a);
+  const nb = normalizeSiblingGroupId(b);
+  return na !== '' && na === nb;
+};
+
+// 7.2 getGroupPending - combined pending for all siblings in same group
+export const getGroupPending = (
+  feeStudents: StudentFeeData[],
+  allStudents: Student[],
+  targetStudentId: string | number
+): number => {
+  const target = allStudents.find(s => String(s.id) === String(targetStudentId));
+  const groupId = target?.siblingGroupId;
+  if (!groupId) return 0;
+
+  const groupStudents = allStudents.filter(s => sameSiblingGroup(s.siblingGroupId, groupId));
+  return groupStudents.reduce((sum, st) => {
+    const fs = feeStudents.find(f => String(f.id) === String(st.id));
+    return sum + (fs ? getTotalPending(fs) + getTotalOtherFunds(fs) : 0);
+  }, 0);
+};
+
+// 7.3 getGroupOtherFunds - combined other funds for all siblings in same group
+export const getGroupOtherFunds = (
+  feeStudents: StudentFeeData[],
+  allStudents: Student[],
+  targetStudentId: string | number
+): number => {
+  const target = allStudents.find(s => String(s.id) === String(targetStudentId));
+  const groupId = target?.siblingGroupId;
+  if (!groupId) return 0;
+
+  const groupStudents = allStudents.filter(s => sameSiblingGroup(s.siblingGroupId, groupId));
+  return groupStudents.reduce((sum, st) => {
+    const fs = feeStudents.find(f => String(f.id) === String(st.id));
+    return sum + (fs ? getTotalOtherFunds(fs) : 0);
+  }, 0);
 };
 
 // 8. getStudentFullAccount

@@ -9,7 +9,7 @@ export interface Coordinator {
   username: string;
   password: string;
   phone: string;
-  /** Profile photo (compressed base64 WebP) — Admin Hub upload se. */
+  /** Profile photo (Storage URL — fallback: compressed base64 WebP) — Admin Hub upload se. */
   photo?: string;
 }
 
@@ -103,7 +103,7 @@ export interface Teacher {
   salaryConfig?: TeacherSalaryConfig;
   /** Rozana staff attendance (salary isi se calculate hoti hai). */
   staffAttendance?: StaffAttendanceEntry[];
-  /** Profile photo (compressed base64 WebP) — Admin Hub upload se. */
+  /** Profile photo (Storage URL — fallback: compressed base64 WebP) — Admin Hub upload se. */
   photo?: string;
 }
 
@@ -125,6 +125,8 @@ export interface Student {
   photo?: string;
   idCardTheme?: string;
   idCardColor?: string;
+  /** Sibling group id — same group ke sab bhaiyon ki fee ek saath add hogi (Tareeqa B). */
+  siblingGroupId?: string;
 }
 
 export interface ClassFeeConfig {
@@ -173,6 +175,8 @@ export interface FeeRecord {
   description?: string;
   /** Agar yeh payment kisi due (khata) ke collection se bani hai to us due ka id (double-count guard). */
   dueId?: string;
+  /** Joint/Sibling account — agar yeh set hai to is fee ka record same siblingGroupId wale sab students ke liye shared hai (True Joint Account). */
+  siblingGroupId?: string;
 }
 
 export interface DueEntry {
@@ -239,9 +243,9 @@ export interface AppSettings {
   };
   /** Monthly subscription expiry date, YYYY-MM-DD. Empty = no expiry set. */
   subscriptionExpiry?: string;
-  /** Principal ka profile photo (compressed base64 WebP) — Settings tab upload se. */
+  /** Principal ka profile photo (Storage URL — fallback: compressed base64 WebP) — Settings tab upload se. */
   principalPhoto?: string;
-  /** Developer ka profile photo (compressed base64 WebP) — Developer portal upload se. */
+  /** Developer ka profile photo (Storage URL — fallback: compressed base64 WebP) — Developer portal upload se. */
   developerPhoto?: string;
   /**
    * Developer (admin) ki full-screen broadcast announcement.
@@ -287,6 +291,8 @@ export interface StudentFeeData {
     amount: number;
     date: string;
     feeType?: string;
+    /** Sibling/joint account ki copy — cash stats mein double count na ho isliye. */
+    shared?: boolean;
   }[];
   otherFunds: {
     id: string;

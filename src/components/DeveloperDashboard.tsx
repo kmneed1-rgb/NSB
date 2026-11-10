@@ -10,6 +10,7 @@ import { BroadcastTarget, BROADCAST_AUDIENCE_OPTIONS } from '../lib/broadcast';
 import { getCurrentPosition } from '../lib/geo';
 import { testGeminiConnection } from '../lib/geminiPaper';
 import { convertToWebP } from '../lib/imageUtils';
+import { uploadPhotoDataUrl } from '../lib/photoStorage';
 import UserAvatar from './UserAvatar';
 
 interface DeveloperDashboardProps {
@@ -50,7 +51,8 @@ export default function DeveloperDashboard({
     try {
       setIsConvertingPhoto(true);
       const webpData = await convertToWebP(file);
-      setAppSettings(prev => ({ ...prev, developerPhoto: webpData }));
+      const photoUrl = await uploadPhotoDataUrl(webpData, 'staff', 'developer');
+      setAppSettings(prev => ({ ...prev, developerPhoto: photoUrl }));
       toast.success('Profile photo updated!');
     } catch (err) {
       console.error(err);

@@ -16,6 +16,7 @@ import PaperGenerator from './PaperGenerator';
 import TeacherPayrollPanel from './TeacherPayrollPanel';
 import { isPaperGeneratorEnabled, isTeacherSalaryEnabled } from '../lib/appControl';
 import { convertToWebP } from '../lib/imageUtils';
+import { uploadPhotoDataUrl } from '../lib/photoStorage';
 import UserAvatar from './UserAvatar';
 import { useLongPress } from '../lib/longPress';
 import { syncAuthAccount, updateAuthPassword, authEmailFor } from '../lib/authAdmin';
@@ -27,7 +28,10 @@ import {
   getTotalCollected, 
   addOtherFund, 
   getTotalOtherFunds, 
-  getStudentFullAccount, 
+  sameSiblingGroup,
+  getGroupPending,
+  getGroupOtherFunds,
+  getStudentFullAccount,
   getGlobalStats, 
   deleteOtherFund,
   editOtherFund,
@@ -525,7 +529,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   // Quick Collect modal — monthly/school fee section collapsed by default (form ab DUES-first hai)
   const [showMainFeeSection, setShowMainFeeSection] = useState(false);
   const [qcSearch, setQcSearch] = useState('');
-  const [qcReceipt, setQcReceipt] = useState<null | { receiptId: string; studentName: string; total: number; months: string; collected: string; charged: string; method: string; date: string }>(null);
+  const [qcReceipt, setQcReceipt] = useState<null | { receiptId: string; studentName: string; total: number; months: string; collected: string; charged: string; method: string; date: string; isJointAccount: boolean; siblingNames: string[]; groupPending: number }>(null);
   const [collectDueMonths, setCollectDueMonths] = useState<Record<string, string>>({});
   const [expandedStudentFeeId, setExpandedStudentFeeId] = useState<string | null>(null);
 
@@ -657,6 +661,79 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     }).slice().reverse();
   }, [attendance, studentsMap, attendanceFilterClass, attendanceFilterDate, attendanceShowAllDates, attendanceSearch]);
 
+  // Har student ka fee status (green = full paid, orange = pending/partial, red = unpaid).
+  // Sibling/joint account mein bhi har student apne ledger ke hisaab se compute hota hai.
+  // currentMonthPaid: is mahine ki fee pura ho gaya hai ya nahi (partial par extra green dot).
+  const getStudentFeeState = React.useCallback((student: Student): { status: 'paid' | 'partial' | 'unpaid'; pending: number; currentMonthPaid: boolean } => {
+    const now = new Date();
+    const currentMonth = MONTHS[now.getMonth()];
+    const currentYear = now.getFullYear();
+    const fs = feeStudents.find(f => String(f.id) === String(student.id));
+    if (!fs) {
+      const recs = fees.filter(f =>
+        String(f.studentId) === String(student.id) ||
+        (f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, student.siblingGroupId))
+      );
+      const paid = recs.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+      const monthlyFee = Number(student.baseFee) || 5500;
+      const pending = Math.max(0, monthlyFee - paid);
+      return { status: pending <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid', pending, currentMonthPaid: false };
+    }
+    const pending = getTotalPending(fs) + getTotalOtherFunds(fs);
+    const currentMonthSummary = getMonthlySummary(fs, currentMonth, currentYear);
+    const currentMonthPaid = currentMonthSummary.due > 0 && currentMonthSummary.pending <= 0;
+    if (pending <= 0) return { status: 'paid', pending: 0, currentMonthPaid };
+    const collected = (fs.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    return { status: collected > 0 ? 'partial' : 'unpaid', pending, currentMonthPaid };
+  }, [feeStudents, fees]);
+
+  // Linked (sibling/joint) account ka combined amount — jo raqam dot wale student ke account
+  // mein show hoti hai wo poore group ka sum hota hai.
+  const getLinkedAccountInfo = React.useCallback((student: Student) => {
+    const members = student.siblingGroupId
+      ? students.filter(s => sameSiblingGroup(s.siblingGroupId, student.siblingGroupId))
+      : [student];
+    const isLinked = !!student.siblingGroupId && members.length > 1;
+    if (!isLinked) return { members, isLinked, linkedPending: 0, linkedBaseFee: 0 };
+    let linkedPending = 0;
+    let linkedBaseFee = 0;
+    members.forEach(m => {
+      linkedPending += getStudentFeeState(m).pending;
+      linkedBaseFee += Number(m.baseFee) || 0;
+    });
+    return { members, isLinked, linkedPending, linkedBaseFee };
+  }, [students, getStudentFeeState]);
+
+  // Collect modal ka default amount — linked account ke liye poore group ka
+  // combined pending (current month, phir total pending, phir base fee sum).
+  const collectDefaultAmount = React.useCallback((student: Student): number => {
+    const members = student.siblingGroupId
+      ? students.filter(s => sameSiblingGroup(s.siblingGroupId, student.siblingGroupId))
+      : [student];
+    if (members.length <= 1) return Number(student.baseFee) || 5500;
+    const now = new Date();
+    const currentMonth = MONTHS[now.getMonth()];
+    const currentYear = now.getFullYear();
+    let monthPending = 0;
+    let totalPending = 0;
+    let baseSum = 0;
+    members.forEach(m => {
+      const base = Number(m.baseFee) || 0;
+      baseSum += base;
+      const fs = feeStudents.find(f => String(f.id) === String(m.id));
+      if (fs) {
+        monthPending += Math.max(0, getMonthlySummary(fs, currentMonth, currentYear).pending);
+        totalPending += getTotalPending(fs) + getTotalOtherFunds(fs);
+      } else {
+        monthPending += base;
+        totalPending += base;
+      }
+    });
+    if (monthPending > 0) return monthPending;
+    if (totalPending > 0) return totalPending;
+    return baseSum > 0 ? baseSum : 5500;
+  }, [students, feeStudents]);
+
   const filteredFeesRoster = React.useMemo(() => {
     return students.filter(s => {
       if (recordsFeeClassFilter !== 'all' && s.classId !== recordsFeeClassFilter) return false;
@@ -667,19 +744,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         if (!s.name.toLowerCase().includes(q) && !(s.rollNumber && s.rollNumber.toLowerCase().includes(q)) && !classNameStr.includes(q)) return false;
       }
       if (recordsFeeStatusFilter !== 'all') {
-        const fStudent = feeStudents.find(fs => String(fs.id) === String(s.id));
-        if (fStudent) {
-          const pending = getTotalPending(fStudent) + getTotalOtherFunds(fStudent);
-          const collected = fStudent.payments.reduce((sum, p) => sum + p.amount, 0);
-          const status = pending <= 0 ? 'paid' : collected > 0 ? 'partial' : 'unpaid';
-          if (status !== recordsFeeStatusFilter) return false;
-        } else {
-          if (recordsFeeStatusFilter !== 'unpaid') return false;
-        }
+        if (getStudentFeeState(s).status !== recordsFeeStatusFilter) return false;
       }
       return true;
     });
-  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch, recordsFeeStatusFilter, feeStudents]);
+  }, [students, classesMap, recordsFeeClassFilter, recordsFeeSearch, recordsFeeStatusFilter, getStudentFeeState]);
 
   const visibleAttendance = React.useMemo(() => {
     return filteredAttendance.slice(0, attendanceDisplayLimit);
@@ -783,6 +852,14 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     const year = parseMonthKey(month, new Date().getFullYear()).year;
     const today = new Date().toISOString().split('T')[0];
 
+    // ===== LINKED (SIBLING) ACCOUNT =====
+    // Agar selected student kisi sibling group ka hissa hai to ek hi collection se
+    // group ke TAMAM students ki fee collect hogi (amount un ke pending par split hoga).
+    const groupMembers = studentObj?.siblingGroupId
+      ? students.filter(s => sameSiblingGroup(s.siblingGroupId, studentObj.siblingGroupId))
+      : [];
+    const isJointGroup = !!(studentObj?.siblingGroupId && groupMembers.length > 1);
+
     type FeeEntry = { feeType: string; amount: number };
     const entries: FeeEntry[] = [];
 
@@ -817,6 +894,22 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     const monthsCovered = new Set<string>();
     let recSeq = 0;
     const makeId = () => 'REC_' + Date.now().toString(36).toUpperCase() + '_' + (recSeq++).toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+
+    // Group collection ke liye per-student payment buckets
+    type MemberPay = { id: string; month: string; year: number; amount: number; date: string; feeType: string };
+    const memberPayMap = new Map<string, MemberPay[]>();
+    const memberFeeRecords: { memberId: string; feeType: string; month: string; year: number; amount: number }[] = [];
+    let usedGroupSplit = false;
+    const pushMemberPay = (memberId: string, feeType: string, amount: number, recMonth: string, recYear: number) => {
+      if (!(amount > 0)) return;
+      const id = makeId();
+      const key = String(memberId);
+      const list = memberPayMap.get(key) || [];
+      list.push({ id, month: recMonth, year: recYear, amount, date: today, feeType });
+      memberPayMap.set(key, list);
+      memberFeeRecords.push({ memberId: key, feeType, month: recMonth, year: recYear, amount });
+      monthsCovered.add(`${recMonth} ${recYear}`);
+    };
     const pushForMonth = (feeType: string, amount: number, recMonth: string, recYear: number) => {
       const id = makeId();
       newFeeRecords.push({
@@ -856,7 +949,70 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       // us month ke pending dues/paper fund bhi amount se auto-collect hon.
       if (isTuitionFeeType(entry.feeType)) {
         const baseFee = Math.max(0, Number(studentObj?.baseFee ?? feeStudentObj?.monthlyFee ?? 0));
-        if (quickCollectTargetMonth) {
+        if (isJointGroup) {
+          // --- GROUP MODE: ek hi collection se poore linked account ki fee ---
+          // Amount group members ke pending months par pro-rata split hota hai,
+          // taake kisi ek bhai ki jagah sab ki fee cover ho jaye.
+          usedGroupSplit = true;
+          const targetKey = quickCollectTargetMonth ? parseMonthKey(quickCollectTargetMonth, year) : null;
+          const targetMonthName = targetKey && targetKey.idx >= 0 ? MONTHS[targetKey.idx] : null;
+          const memberPending = groupMembers.map(m => {
+            const mFs = feeStudents.find(f => String(f.id) === String(m.id));
+            if (!mFs) return Math.max(0, Number(m.baseFee) || 0);
+            if (targetMonthName) return Math.max(0, getMonthlySummary(mFs, targetMonthName, targetKey!.year).pending);
+            return Math.max(0, getTotalPending(mFs));
+          });
+          const totalMemberPending = memberPending.reduce((a, b) => a + b, 0);
+          // Agar sab members fully paid hain to advance amount base fee ke ratio mein baanto
+          const fallbackWeights = groupMembers.map(m => Math.max(0, Number(m.baseFee) || 0));
+          const totalFallbackWeight = fallbackWeights.reduce((a, b) => a + b, 0);
+          const hasPending = totalMemberPending > 0;
+          const weights = hasPending ? memberPending : (totalFallbackWeight > 0 ? fallbackWeights : groupMembers.map(() => 1));
+          const totalWeight = weights.reduce((a, b) => a + b, 0);
+          const drafts = groupMembers.map((m, i) => ({
+            m,
+            share: totalWeight > 0
+              ? Math.min(entry.amount, Math.floor((entry.amount * weights[i]) / totalWeight))
+              : 0,
+          }));
+          let assigned = drafts.reduce((s, d) => s + d.share, 0);
+          if (hasPending) {
+            // Rounding/partial coverage ka remainder pending ke andar distribute karo
+            for (let i = 0; i < drafts.length && assigned < entry.amount; i++) {
+              const cap = Math.max(0, memberPending[i] - drafts[i].share);
+              const add = Math.max(0, Math.min(cap, entry.amount - assigned));
+              if (add > 0) { drafts[i].share += add; assigned += add; }
+            }
+          }
+          // Amount pending se zyada → baqi selected student ke advance mein
+          if (assigned < entry.amount) {
+            const selIdx = drafts.findIndex(d => String(d.m.id) === String(quickCollectStudentId));
+            drafts[selIdx >= 0 ? selIdx : drafts.length - 1].share += entry.amount - assigned;
+          }
+          drafts.forEach(({ m, share }) => {
+            if (!(share > 0)) return;
+            const mFs = feeStudents.find(f => String(f.id) === String(m.id));
+            if (targetMonthName) {
+              const pend = mFs
+                ? getMonthlySummary(mFs, targetMonthName, targetKey!.year).pending
+                : Math.max(0, Number(m.baseFee) || 0);
+              const toTarget = Math.min(share, pend);
+              if (toTarget > 0) pushMemberPay(m.id, entry.feeType, toTarget, targetMonthName, targetKey!.year);
+              const rest = share - toTarget;
+              if (rest > 0) {
+                const allocs = buildTuitionAllocation(mFs, m, rest, year);
+                let done = 0;
+                allocs.forEach(a => { pushMemberPay(m.id, entry.feeType, a.amount, a.month, a.year); done += a.amount; });
+                if (rest - done > 0) pushMemberPay(m.id, entry.feeType, rest - done, targetMonthName, targetKey!.year);
+              }
+            } else {
+              const allocs = buildTuitionAllocation(mFs, m, share, year);
+              let done = 0;
+              allocs.forEach(a => { pushMemberPay(m.id, entry.feeType, a.amount, a.month, a.year); done += a.amount; });
+              if (share - done > 0) pushMemberPay(m.id, entry.feeType, share - done, month, year);
+            }
+          });
+        } else if (quickCollectTargetMonth) {
           // --- TARGET MONTH MODE ---
           const tKey = parseMonthKey(quickCollectTargetMonth, year);
           const tIdx = tKey.idx;
@@ -995,25 +1151,235 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       }));
     }
 
-    setFees(prev => [...newFeeRecords, ...prev]);
+    // ===== TRUE JOINT ACCOUNT (Tareeqa B) =====
+    // Sibling group ke liye ek hi joint ledger record banta hai. Group-split
+    // collection mein har member ke apne hisse ki payments us ke ledger mein
+    // jati hain, aur receipt ke liye aggregated joint records banate hain.
+    if (studentObj?.siblingGroupId) {
+      const groupId = studentObj.siblingGroupId;
+      const siblings = students.filter(
+        s => sameSiblingGroup(s.siblingGroupId, groupId) && String(s.id) !== String(quickCollectStudentId)
+      );
 
-    if (feeStudentObj) {
-      setFeeStudents(prev => prev.map(fs => {
-        if (String(fs.id) === String(quickCollectStudentId)) {
-          return {
-            ...fs,
-            payments: [
-              ...(fs.payments || []),
-              ...newPayments
-            ],
-            dues: [
-              ...(fs.dues || []),
-              ...newDues
-            ]
-          };
+      // Month matching ko robust banao — 'Jun', 'June', 'June 2026' sab same month
+      const monthKeyOf = (raw: unknown): string => {
+        const k = parseMonthKey(raw, year);
+        return k.idx >= 0 ? `${k.year}-${k.idx}` : String(raw ?? '').trim().toLowerCase();
+      };
+
+      let groupRecords: FeeRecord[];
+      if (usedGroupSplit) {
+        // Har member ke payments ko month + feeType par aggregate karo taake
+        // joint account mein cash sirf EK dafa count ho.
+        const agg = new Map<string, { id: string; feeType: string; month: string; year: number; amount: number }>();
+        memberFeeRecords.forEach(r => {
+          const key = `${r.year}-${monthKeyOf(r.month)}-${r.feeType}`;
+          const cur = agg.get(key);
+          if (cur) {
+            cur.amount += r.amount;
+          } else {
+            agg.set(key, {
+              id: makeId(),
+              feeType: r.feeType,
+              month: r.month,
+              year: r.year,
+              amount: r.amount,
+            });
+          }
+        });
+        groupRecords = Array.from(agg.values()).map(a => ({
+          id: a.id,
+          studentId: quickCollectStudentId,
+          amount: a.amount,
+          dueDate: today,
+          status: 'paid' as const,
+          paidDate: today,
+          month: a.month,
+          paymentMethod: quickCollectPaymentMethod,
+          feeType: a.feeType,
+          siblingGroupId: groupId,
+          description: quickCollectNotes || undefined,
+        }));
+        // Extra (non-tuition) collections bhi joint account ka hissa hain
+        newFeeRecords.forEach(r => groupRecords.push({ ...r, siblingGroupId: groupId }));
+        // Receipt / toast / WhatsApp total ke liye collected records mirror karo
+        newFeeRecords.length = 0;
+        newFeeRecords.push(...groupRecords);
+      } else {
+        // Normal joint mode — selected student ki payments group ke naam record karo
+        groupRecords = newFeeRecords.map(r => ({ ...r, siblingGroupId: groupId }));
+      }
+
+      // Check if joint account records already exist for this group + months covered
+      // to prevent duplicate records when collecting fee for different siblings
+      const existingJointRecords = fees.filter(f =>
+        sameSiblingGroup(f.siblingGroupId, groupId)
+      );
+
+      const coveredMonthKeys = new Set(
+        Array.from(monthsCovered).map(m => monthKeyOf(m))
+      );
+
+      let hasExistingForTheseMonths = false;
+      const mergedFees = fees.map(f => {
+        if (sameSiblingGroup(f.siblingGroupId, groupId) && coveredMonthKeys.has(monthKeyOf(f.month))) {
+          const match = groupRecords.find(j => monthKeyOf(j.month) === monthKeyOf(f.month) && j.feeType === f.feeType);
+          if (match) {
+            hasExistingForTheseMonths = true;
+            return {
+              ...f,
+              amount: Number(f.amount) + match.amount,
+              status: 'paid' as const,
+              paidDate: today,
+            };
+          }
         }
-        return fs;
-      }));
+        return f;
+      });
+
+      // Add only truly new joint records (those not already existing).
+      // Note: agar kuch months pehle se hain aur kuch naye, to naye bhi add honge.
+      const trulyNewRecords = groupRecords.filter(j =>
+        !existingJointRecords.some(e => monthKeyOf(e.month) === monthKeyOf(j.month) && e.feeType === j.feeType)
+      );
+
+      setFees(prev => [...trulyNewRecords, ...mergedFees]);
+
+      if (usedGroupSplit) {
+        // Group split: har member ke ledger mein SIRF us ka apna hissa.
+        // Agar kisi member ka ledger mojood nahi to naya bana do taake us ki
+        // payment bhi save ho jaye.
+        setFeeStudents(prev => {
+          const updated = prev.map(fs => {
+            const key = String(fs.id);
+            const isSelected = key === String(quickCollectStudentId);
+            const splitPays = memberPayMap.get(key) || [];
+            const extraPays = isSelected ? newPayments : [];
+            const extraDues = isSelected ? newDues : [];
+            if (splitPays.length === 0 && extraPays.length === 0 && extraDues.length === 0) return fs;
+            return {
+              ...fs,
+              payments: [
+                ...(fs.payments || []),
+                // Group split mein har member ka hissa alag real payment hai
+                // (ek hi cash ka portion) — isliye shared flag nahi lagta,
+                // warna stats mein us ki raqam count nahi hogi.
+                ...splitPays,
+                ...extraPays,
+              ],
+              dues: [
+                ...(fs.dues || []),
+                ...extraDues,
+              ],
+            };
+          });
+          const existingIds = new Set(prev.map(fs => String(fs.id)));
+          groupMembers.forEach(m => {
+            const key = String(m.id);
+            if (existingIds.has(key)) return;
+            const isSelected = key === String(quickCollectStudentId);
+            const splitPays = memberPayMap.get(key) || [];
+            const extraPays = isSelected ? newPayments : [];
+            const extraDues = isSelected ? newDues : [];
+            if (splitPays.length === 0 && extraPays.length === 0 && extraDues.length === 0) return;
+            const cls = classes.find(c => String(c.id) === String(m.classId));
+            updated.push({
+              id: m.id,
+              name: m.name,
+              class: cls ? `${cls.className}${cls.section ? ` - ${cls.section}` : ''}` : '',
+              monthlyFee: Number(m.baseFee) || 0,
+              enrollmentMonth: m.enrollmentMonth,
+              payments: [
+                ...splitPays,
+                ...extraPays,
+              ],
+              otherFunds: [],
+              dues: [...extraDues],
+            });
+          });
+          return updated;
+        });
+      } else {
+        if (feeStudentObj) {
+          setFeeStudents(prev => prev.map(fs => {
+            if (String(fs.id) === String(quickCollectStudentId)) {
+              return {
+                ...fs,
+                payments: [
+                  ...(fs.payments || []),
+                  ...newPayments
+                ],
+                dues: [
+                  ...(fs.dues || []),
+                  ...newDues
+                ]
+              };
+            }
+            return fs;
+          }));
+        }
+
+        // Add same payments to each sibling's feeStudents ledger (skip if already added for this month)
+        siblings.forEach(sibling => {
+          setFeeStudents(prev => prev.map(fs => {
+            if (String(fs.id) === String(sibling.id)) {
+              const alreadyPaid = (fs.payments || []).some(p =>
+                newPayments.some(np => monthKeyOf(np.month) === monthKeyOf(p.month) && np.year === p.year)
+              );
+              if (alreadyPaid) {
+                return fs;
+              }
+              return {
+                ...fs,
+                payments: [
+                  ...(fs.payments || []),
+                  ...newPayments.map(p => ({
+                    ...p,
+                    id: `PAY_JOINT_${Date.now()}_${Math.random().toString(36).slice(2)}_${sibling.id}`,
+                    // Cash stats mein double count na ho — sirf paying student ka payment count hoga
+                    shared: true,
+                  }))
+                ],
+                dues: [
+                  ...(fs.dues || []),
+                  ...newDues.map(d => ({
+                    ...d,
+                    id: `DUE_JOINT_${Date.now()}_${Math.random().toString(36).slice(2)}_${sibling.id}`,
+                    studentId: sibling.id,
+                  }))
+                ]
+              };
+            }
+            return fs;
+          }));
+        });
+      }
+
+      const siblingNames = siblings.map(s => s.name).join(', ');
+      const recordText = hasExistingForTheseMonths ? 'updated' : 'added';
+      toast.info(`Joint account fee ${recordText} for: ${siblingNames}`);
+    } else {
+      // Non-sibling student — normal separate record
+      setFees(prev => [...newFeeRecords, ...prev]);
+
+      if (feeStudentObj) {
+        setFeeStudents(prev => prev.map(fs => {
+          if (String(fs.id) === String(quickCollectStudentId)) {
+            return {
+              ...fs,
+              payments: [
+                ...(fs.payments || []),
+                ...newPayments
+              ],
+              dues: [
+                ...(fs.dues || []),
+                ...newDues
+              ]
+            };
+          }
+          return fs;
+        }));
+      }
     }
 
     setQuickCollectNotes('');
@@ -1031,6 +1397,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     toast.success(`${summaryParts.join(' • ')} — ${studentName}${monthsText ? ` (${monthsText})` : ''}${collectedCategories.length > 0 ? ` Receipt #${newFeeRecords[0].id}` : ''}`);
     // SUCCESS RECEIPT VIEW — modal band karne ke bajaye receipt dikhao (Naya Student / WhatsApp / Close)
     if (newFeeRecords.length > 0) {
+      // Joint account pending calculation — agar student ka siblingGroupId hai to
+      // group ke tamam bhaiyon ka mila hua pending dikhayega
+      let siblingNames: string[] = [];
+      let groupPending = 0;
+      let isJointAccount = false;
+
+      if (studentObj?.siblingGroupId) {
+        const groupId = studentObj.siblingGroupId;
+        const allGroupStudents = students.filter(s => sameSiblingGroup(s.siblingGroupId, groupId));
+        siblingNames = allGroupStudents.map(s => s.name);
+        isJointAccount = true;
+
+        // Calculate combined pending for all siblings in the group
+        allGroupStudents.forEach(st => {
+          const fs = feeStudents.find(f => String(f.id) === String(st.id));
+          if (fs) {
+            groupPending += getTotalPending(fs) + getTotalOtherFunds(fs);
+          }
+        });
+      }
+
       setQcReceipt({
         receiptId: newFeeRecords[0].id,
         studentName,
@@ -1040,6 +1427,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         charged: chargedCategories.join(', ') || '',
         method: quickCollectPaymentMethod,
         date: today,
+        isJointAccount,
+        siblingNames,
+        groupPending,
       });
     } else {
       setShowQuickCollectModal(false);
@@ -1056,7 +1446,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       } else {
       const totalAmount = newFeeRecords.reduce((sum, r) => sum + r.amount, 0);
       const fStudent = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
-      let totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+      // Joint account — use group pending if sibling group exists
+      let totalPending = qcReceipt?.isJointAccount ? qcReceipt.groupPending : (fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0);
       totalPending = Math.max(0, totalPending - totalAmount);
       
       const classId = studentObj?.classId;
@@ -1064,7 +1455,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
       
       const periodText = monthsText ? ` for ${monthsText}` : ` for ${month}`;
-      const template = `Greetings! We have received a payment of PKR ${totalAmount.toLocaleString()}${periodText} (${collectedCategories.join(', ')}) from ${studentName} (${className}). Your remaining balance is PKR ${totalPending.toLocaleString()}. Thank you for your cooperation. NSB1 School.`;
+      const studentDisplay = qcReceipt?.isJointAccount ? `Joint Account (${qcReceipt.siblingNames.join(', ')})` : studentName;
+      const template = `Greetings! We have received a payment of PKR ${totalAmount.toLocaleString()}${periodText} (${collectedCategories.join(', ')}) from ${studentDisplay} (${className}). Your remaining balance is PKR ${totalPending.toLocaleString()}. Thank you for your cooperation. NSB1 School.`;
       
       const phone = studentObj.parentPhone.replace(/\D/g, '');
       let countryCodePhone = phone;
@@ -2094,6 +2486,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   const [sIsAcademy, setSIsAcademy] = useState(false);
   const [sAcademySubjects, setSAcademySubjects] = useState('');
   const [sPhoto, setSPhoto] = useState<string | undefined>(undefined);
+  const [sSiblingGroupId, setSSiblingGroupId] = useState('');
   const [isConvertingPhoto, setIsConvertingPhoto] = useState(false);
 
   // Class
@@ -2236,8 +2629,14 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       
       // Calculate approximate size in KB
       const sizeInKB = Math.round((webpData.length * 3/4) / 1024);
-      
-      setSPhoto(webpData);
+
+      // Base64 ki jagah Storage par upload — row ke andar sirf URL jata hai.
+      const photoFolder = modalType === 'teacher' ? 'teachers'
+        : modalType === 'coordinator' ? 'coordinators'
+        : 'students';
+      const photoUrl = await uploadPhotoDataUrl(webpData, photoFolder, currentId || undefined);
+
+      setSPhoto(photoUrl);
       toast.success(`Photo compressed successfully! (~${sizeInKB} KB)`);
     } catch (err) {
       console.error(err);
@@ -2266,7 +2665,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     try {
       setIsConvertingPhoto(true);
       const webpData = await convertToWebP(file);
-      setAppSettings(prev => ({ ...prev, principalPhoto: webpData }));
+      const photoUrl = await uploadPhotoDataUrl(webpData, 'staff', 'principal');
+      setAppSettings(prev => ({ ...prev, principalPhoto: photoUrl }));
       toast.success("Profile photo updated!");
     } catch (err) {
       console.error(err);
@@ -2350,6 +2750,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     setSUsername('');
     setSIsAcademy(false);
     setSAcademySubjects('');
+    setSSiblingGroupId('');
     setSPhoto(undefined);
     setIsConvertingPhoto(false);
 
@@ -2447,6 +2848,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         setSIsAcademy(match.category === 'Academy');
         setSAcademySubjects(match.academySubjects?.join(', ') || '');
         setSPhoto(match.photo);
+        setSSiblingGroupId(match.siblingGroupId || '');
       }
     } else if (type === 'class') {
       const match = classes.find(c => c.id === id);
@@ -2654,6 +3056,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
           enrollmentMonth: sEnrollmentMonth,
           photo: sPhoto,
+          siblingGroupId: sSiblingGroupId.trim() || undefined,
         };
         setStudents([...students, newStudent]);
         toast.success("Student profile added successfully!");
@@ -2675,6 +3078,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           academySubjects: sIsAcademy ? sAcademySubjects.split(',').map(s => s.trim()).filter(s => s !== '') : [],
           enrollmentMonth: sEnrollmentMonth,
           photo: sPhoto,
+          siblingGroupId: sSiblingGroupId.trim() || undefined,
         } : s));
         toast.success("Student profile updated successfully!");
         // NOTE: students Auth se bahar — koi Auth sync nahi
@@ -4704,10 +5108,13 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                               )}
                               <div className="divide-y divide-slate-50">
                                 {classStudents.map(student => {
-                                  const sFees = fees.filter(f => String(f.studentId) === String(student.id));
-                                  const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-                                  const monthlyFee = student.baseFee || 5500;
-                                  const isPaidCurrent = totalPaid >= monthlyFee;
+                                  const sFees = fees.filter(f => 
+                                    String(f.studentId) === String(student.id) || 
+                                    (f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, student.siblingGroupId))
+                                  );
+                                  const feeState = getStudentFeeState(student);
+                                  const linked = getLinkedAccountInfo(student);
+                                  const displayPending = linked.isLinked ? linked.linkedPending : feeState.pending;
                                   const isExpanded = expandedStudentFeeId === String(student.id);
                                   const photo = getStudentPhoto(student);
 
@@ -4729,7 +5136,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                             ) : (
                                               <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-300"><User size={18} /></div>
                                             )}
-                                            <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${isPaidCurrent ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                            <div className="absolute -bottom-1 -right-1 flex items-center gap-0.5">
+                                              {feeState.status === 'partial' && feeState.currentMonthPaid && (
+                                                <div className={`w-2.5 h-2.5 rounded-full border-2 border-white bg-emerald-500 shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
+                                              )}
+                                              <div className={`w-3 h-3 rounded-full border-2 border-white ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${feeState.status === 'paid' ? 'bg-emerald-500' : feeState.status === 'partial' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                                            </div>
                                           </div>
                                           <div className="min-w-0">
                                             <h4 className="font-black text-slate-900 uppercase tracking-tight text-xs truncate mb-0.5">{student.name}</h4>
@@ -4746,13 +5158,13 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                             <div className="grid grid-cols-2 gap-2">
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                                                 <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Status</span>
-                                                <span className={`text-[10px] font-black uppercase ${isPaidCurrent ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                  {isPaidCurrent ? 'Full Paid' : totalPaid > 0 ? `Partial · Remaining PKR ${Math.max(0, monthlyFee - totalPaid).toLocaleString()}` : 'Unpaid'}
+                                                <span className={`text-[10px] font-black uppercase ${feeState.status === 'paid' ? 'text-emerald-600' : feeState.status === 'partial' ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                  {feeState.status === 'paid' ? 'Full Paid' : feeState.status === 'partial' ? `Pending · Remaining PKR ${displayPending.toLocaleString()}` : 'Unpaid'}
                                                 </span>
                                               </div>
                                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                                <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Balance</span>
-                                                <span className="text-[10px] font-black text-slate-900">PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}</span>
+                                                <span className="block text-[9px] font-black text-slate-400 uppercase leading-none mb-1">{linked.isLinked ? 'Linked Balance' : 'Balance'}</span>
+                                                <span className="text-[10px] font-black text-slate-900">PKR {displayPending.toLocaleString()}</span>
                                               </div>
                                             </div>
 
@@ -4760,7 +5172,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 setQuickCollectStudentId(String(student.id));
-                                                setQuickCollectAmount(String(student.baseFee || 5500));
+                                                setQuickCollectAmount(String(collectDefaultAmount(student)));
                                                 setShowQuickCollectModal(true);
                                               }}
                                               className="w-full py-3 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -4930,10 +5342,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                   )}
 
                                   {classStudents.map(student => {
-                                    const sFees = fees.filter(f => String(f.studentId) === String(student.id));
-                                    const totalPaid = sFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+                                    const sFees = fees.filter(f => 
+                                      String(f.studentId) === String(student.id) || 
+                                      (f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, student.siblingGroupId))
+                                    );
                                     const monthlyFee = student.baseFee || 5500;
-                                    const isPaidCurrent = totalPaid >= monthlyFee;
+                                    const feeState = getStudentFeeState(student);
+                                    const linked = getLinkedAccountInfo(student);
+                                    const displayPending = linked.isLinked ? linked.linkedPending : feeState.pending;
+                                    const displayBaseFee = linked.isLinked ? linked.linkedBaseFee : monthlyFee;
                                     const isExpanded = expandedStudentFeeId === String(student.id);
                                     const photo = getStudentPhoto(student);
 
@@ -4957,7 +5374,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     <User size={18} />
                                                   </div>
                                                 )}
-                                                <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ${isPaidCurrent ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                                <div className="absolute -bottom-1 -right-1 flex items-center gap-0.5">
+                                                  {feeState.status === 'partial' && feeState.currentMonthPaid && (
+                                                    <div className={`w-3 h-3 rounded-full border-2 border-white bg-emerald-500 shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
+                                                  )}
+                                                  <div className={`w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${feeState.status === 'paid' ? 'bg-emerald-500' : feeState.status === 'partial' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                                                </div>
                                               </div>
                                               <div>
                                                 <span className="block font-black text-slate-900 uppercase tracking-tight text-xs leading-none mb-1 group-hover:text-emerald-600 transition-colors">
@@ -4970,19 +5392,19 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                             </div>
                                           </td>
                                           <td className="px-6 py-4">
-                                            {isPaidCurrent ? (
+                                            {feeState.status === 'paid' ? (
                                               <div className="flex items-center gap-2">
                                                 <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black tracking-wider rounded-lg border border-emerald-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
                                                   <CheckCircle2 size={12} /> Full Paid
                                                 </div>
                                               </div>
-                                            ) : totalPaid > 0 ? (
+                                            ) : feeState.status === 'partial' ? (
                                               <div className="px-2.5 py-1.5 bg-amber-50 text-amber-700 text-[10px] font-black tracking-wider rounded-lg border border-amber-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
-                                                <Clock size={12} /> Partial · Remaining PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}
+                                                <Clock size={12} /> Pending · Remaining PKR {displayPending.toLocaleString()}
                                               </div>
                                             ) : (
                                               <div className="px-2.5 py-1.5 bg-rose-50 text-rose-700 text-[10px] font-black tracking-wider rounded-lg border border-rose-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
-                                                <AlertTriangle size={12} /> Pending
+                                                <AlertTriangle size={12} /> Unpaid
                                               </div>
                                             )}
                                           </td>
@@ -4992,7 +5414,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                 onClick={(e) => {
                                                   e.stopPropagation();
                                                   setQuickCollectStudentId(String(student.id));
-                                                  setQuickCollectAmount(String(student.baseFee || 5500));
+                                                  setQuickCollectAmount(String(collectDefaultAmount(student)));
                                                   setShowQuickCollectModal(true);
                                                 }}
                                                 className="h-8 px-3 bg-emerald-600 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
@@ -5024,18 +5446,18 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                       <div className="text-right mr-4">
-                                                        <span className="block text-[10px] font-black text-slate-400 uppercase">Base Fee</span>
-                                                        <span className="block text-sm font-black text-slate-900">PKR {monthlyFee.toLocaleString()}</span>
+                                                        <span className="block text-[10px] font-black text-slate-400 uppercase">{linked.isLinked ? 'Linked Base Fee' : 'Base Fee'}</span>
+                                                        <span className="block text-sm font-black text-slate-900">PKR {displayBaseFee.toLocaleString()}</span>
                                                       </div>
-                                                      {Math.max(0, monthlyFee - totalPaid) > 0 && (
+                                                      {displayPending > 0 && (
                                                         <div className="text-right mr-4">
-                                                          <span className="block text-[10px] font-black text-amber-600 uppercase">Remaining Balance</span>
-                                                          <span className="block text-sm font-black text-rose-600">PKR {Math.max(0, monthlyFee - totalPaid).toLocaleString()}</span>
+                                                          <span className="block text-[10px] font-black text-amber-600 uppercase">{linked.isLinked ? 'Linked Remaining' : 'Remaining Balance'}</span>
+                                                          <span className="block text-sm font-black text-rose-600">PKR {displayPending.toLocaleString()}</span>
                                                         </div>
                                                       )}
                                                       <button
                                                         onClick={() => {
-                                                          const text = `Fee Reminder: A payment is pending for ${student.name}. Balance: ${monthlyFee - totalPaid}. Please clear it soon. - NSB Academy`;
+                                                          const text = `Fee Reminder: A payment is pending for ${student.name}. Balance: ${displayPending}. Please clear it soon. - NSB Academy`;
                                                           if (student.parentPhone) window.open(`https://api.whatsapp.com/send?phone=${student.parentPhone.replace(/[^0-9]/g, '')}&text=${encodeURIComponent(text)}`, '_blank');
                                                         }}
                                                         className="p-2 bg-white border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 text-slate-700 rounded-xl transition-all flex items-center justify-center cursor-pointer shadow-sm"
@@ -7972,6 +8394,27 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         </div>
                       </div>
 
+                      {/* Sibling Group ID — same group ke bhaiyon ki fee ek saath add hogi */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black uppercase tracking-widest text-emerald-700 ml-1">Sibling Group ID (optional)</label>
+                        <input
+                          type="text"
+                          list="sibling-group-options"
+                          value={sSiblingGroupId}
+                          onChange={(e) => setSSiblingGroupId(e.target.value)}
+                          placeholder="e.g. GRP_123"
+                          className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-2xl text-sm font-bold text-emerald-950 focus:ring-4 focus:ring-emerald-200/50 outline-none transition-all placeholder:text-emerald-200"
+                        />
+                        <datalist id="sibling-group-options">
+                          {Array.from(new Set(students.map(s => (s.siblingGroupId || '').trim()).filter(Boolean)))
+                            .sort()
+                            .map(g => <option key={g} value={g} />)}
+                        </datalist>
+                        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider ml-1">
+                          Same Group ID wale sab bhaiyon ki fee ek saath add hogi (case/space ka farq nahi padta)
+                        </p>
+                      </div>
+
                       <div className="p-6 bg-indigo-950 text-white rounded-3xl space-y-6 shadow-xl shadow-indigo-200 border-l-8 border-indigo-500">
                         <div className="flex items-center justify-between">
                           <div className="space-y-1">
@@ -10164,8 +10607,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">Receipt #{qcReceipt.receiptId} • {qcReceipt.date}</p>
                   </div>
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
-                    <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Student</span><span className="font-black text-slate-900">{qcReceipt.studentName}</span></div>
+                    <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Student</span><span className={`font-black text-slate-900 ${qcReceipt.isJointAccount ? 'text-emerald-600' : ''}`}>{qcReceipt.isJointAccount ? `Joint Account (${qcReceipt.siblingNames.join(', ')})` : qcReceipt.studentName}</span></div>
                     <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Total Collected</span><span className="font-black text-emerald-700">PKR {qcReceipt.total.toLocaleString()}</span></div>
+                    {qcReceipt.isJointAccount && qcReceipt.groupPending > 0 && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Group Pending</span><span className="font-black text-rose-600">PKR {qcReceipt.groupPending.toLocaleString()}</span></div>}
                     {qcReceipt.months && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Months</span><span className="font-black text-slate-900 text-right">{qcReceipt.months}</span></div>}
                     {qcReceipt.collected !== '—' && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Categories</span><span className="font-black text-slate-900 text-right">{qcReceipt.collected}</span></div>}
                     {qcReceipt.charged && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Charged (Dues)</span><span className="font-black text-amber-600 text-right">{qcReceipt.charged}</span></div>}
@@ -10244,7 +10688,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                               return (
                                 <button
                                   key={s.id}
-                                  onClick={() => { setQuickCollectStudentId(s.id); if (s.baseFee) setQuickCollectAmount(String(s.baseFee)); setQuickCollectFeeType('School NSB Fee'); setQcSearch(''); }}
+                                  onClick={() => { setQuickCollectStudentId(s.id); setQuickCollectAmount(String(collectDefaultAmount(s))); setQuickCollectFeeType('School NSB Fee'); setQcSearch(''); }}
                                   className="w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-emerald-50 transition-colors cursor-pointer text-left"
                                 >
                                   <span className="text-xs font-black text-slate-800 truncate">{s.name} <span className="text-[10px] font-bold text-slate-400">· Roll #{s.rollNumber || 'N/A'}</span></span>
@@ -10263,23 +10707,40 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   })()}
                 </div>
 
-                {/* PENDING SUMMARY — sirf pending ho to dikhe (warna hidden) */}
+                {/* PENDING SUMMARY — linked (sibling) account ho to group ke tamam students ka combined pending */}
                 {(() => {
-                  const fSt = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
-                  if (!fSt) return null;
-                  const duesPending = (fSt.dues || []).filter(d => d.status !== 'waived').reduce((s, d) => s + getDueRemaining(d), 0) + getTotalOtherFunds(fSt);
-                  const feePending = Math.max(0, getTotalPending(fSt));
+                  const stObj = students.find(s => String(s.id) === String(quickCollectStudentId));
+                  if (!stObj) return null;
+                  const members = stObj.siblingGroupId
+                    ? students.filter(s => sameSiblingGroup(s.siblingGroupId, stObj.siblingGroupId))
+                    : [stObj];
+                  const isLinked = !!stObj.siblingGroupId && members.length > 1;
+                  let feePending = 0;
+                  let duesPending = 0;
+                  members.forEach(m => {
+                    const fs = feeStudents.find(f => String(f.id) === String(m.id));
+                    if (!fs) return;
+                    feePending += Math.max(0, getTotalPending(fs));
+                    duesPending += (fs.dues || []).filter(d => d.status !== 'waived').reduce((s, d) => s + getDueRemaining(d), 0) + getTotalOtherFunds(fs);
+                  });
                   const grand = duesPending + feePending;
                   if (grand <= 0) return null;
                   return (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className={`p-3 rounded-xl border text-center ${feePending > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-100'}`}>
-                        <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">School NSB Fee Pending</span>
-                        <span className={`block text-sm font-black ${feePending > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{feePending > 0 ? `PKR ${feePending.toLocaleString()}` : 'Clear ✓'}</span>
-                      </div>
-                      <div className={`p-3 rounded-xl border text-center ${duesPending > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-100'}`}>
-                        <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">Dues / Funds Pending</span>
-                        <span className={`block text-sm font-black ${duesPending > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{duesPending > 0 ? `PKR ${duesPending.toLocaleString()}` : 'Clear ✓'}</span>
+                    <div className="space-y-1.5">
+                      {isLinked && (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700 flex items-center gap-1.5">
+                          <Users size={11} /> Linked Account — {members.length} students ka combined pending
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className={`p-3 rounded-xl border text-center ${feePending > 0 ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-100'}`}>
+                          <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">{isLinked ? 'Linked Fee Pending' : 'School NSB Fee Pending'}</span>
+                          <span className={`block text-sm font-black ${feePending > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{feePending > 0 ? `PKR ${feePending.toLocaleString()}` : 'Clear ✓'}</span>
+                        </div>
+                        <div className={`p-3 rounded-xl border text-center ${duesPending > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-100'}`}>
+                          <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">{isLinked ? 'Linked Dues / Funds' : 'Dues / Funds Pending'}</span>
+                          <span className={`block text-sm font-black ${duesPending > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{duesPending > 0 ? `PKR ${duesPending.toLocaleString()}` : 'Clear ✓'}</span>
+                        </div>
                       </div>
                     </div>
                   );

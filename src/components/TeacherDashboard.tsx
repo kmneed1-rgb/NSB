@@ -11,12 +11,14 @@ import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { Teacher, Student, Class, TimetableEntry, Attendance, Mark, ExamType, UserSession, FeeRecord, DayOfWeek, Assignment, getStudentPhoto, AppSettings, StaffAttendanceEntry } from '../types';
 import { subscribeRecords, loadCollectionFromSupabase, sbQueueWrite, sbQueueDelete, flushSupabase, mergePendingRows } from '../lib/supabaseSync';
 import { listChanged } from '../lib/dataUtils';
+import { sameSiblingGroup } from '../lib/feeEngine';
 import { updateAuthPassword, authEmailFor } from '../lib/authAdmin';
 import { getCurrentPosition, isWithinFence } from '../lib/geo';
 import { setStaffAttendance, pruneStaffAttendance, monthAttendanceMap, summarizeStaffAttendance, resolveStaffStatus, isSundayDate, STAFF_STATUS_LABEL, todayIso, currentMonthKey } from '../lib/salaryEngine';
 import { monthKeyLabel } from '../lib/dateUtils';
 import { HoldActionWrapper } from './HoldActionWrapper';
 import { convertToWebP } from '../lib/imageUtils';
+import { uploadPhotoDataUrl } from '../lib/photoStorage';
 import UserAvatar from './UserAvatar';
 
 interface TeacherDashboardProps {
@@ -226,7 +228,8 @@ export default function TeacherDashboard({
       setIsConvertingPhoto(true);
       const webpData = await convertToWebP(file);
       const targetId = myTeacherRecord.id;
-      setTeachers(prev => prev.map(t => (t.id === targetId ? { ...t, photo: webpData } : t)));
+      const photoUrl = await uploadPhotoDataUrl(webpData, 'teachers', targetId);
+      setTeachers(prev => prev.map(t => (t.id === targetId ? { ...t, photo: photoUrl } : t)));
       toast.success('Profile photo updated!');
     } catch (err) {
       toast.error('Failed to process image');
@@ -333,7 +336,8 @@ export default function TeacherDashboard({
         month: newFeeMonth,
         feeType: newFeeType,
         paymentMethod: 'Cash Partial (Faculty)',
-        description: `Partial collection recorded by faculty (${collected} of ${billTotal})`
+        description: `Partial collection recorded by faculty (${collected} of ${billTotal})`,
+        ...(student?.siblingGroupId ? { siblingGroupId: student.siblingGroupId } : {}),
       };
 
       const remainingRecord: FeeRecord = {
@@ -344,7 +348,8 @@ export default function TeacherDashboard({
         status: 'unpaid',
         month: newFeeMonth,
         feeType: 'Remaining Balance',
-        description: `Remaining from faculty collection (${newFeeType})`
+        description: `Remaining from faculty collection (${newFeeType})`,
+        ...(student?.siblingGroupId ? { siblingGroupId: student.siblingGroupId } : {}),
       };
 
       setFees([paidRecord, remainingRecord, ...updatedFees]);
@@ -359,9 +364,26 @@ export default function TeacherDashboard({
         month: newFeeMonth,
         feeType: newFeeType,
         paymentMethod: 'Cash (Direct Collection)',
-        description: `Direct cash collection by Faculty: ${userSession.name}`
+        description: `Direct cash collection by Faculty: ${userSession.name}`,
+        ...(student?.siblingGroupId ? { siblingGroupId: student.siblingGroupId } : {}),
       };
       setFees([newFee, ...updatedFees]);
+    }
+
+    // ===== TRUE JOINT ACCOUNT (TeacherDashboard) =====
+    // Agar student ka siblingGroupId hai, to bane hue fee records ko
+    // joint account mark kar dena (siblingGroupId tag). Alag-alag
+    // records nahi banenge — ek hi account rahega group ke liye.
+    if (student?.siblingGroupId) {
+      const groupId = student.siblingGroupId;
+      const siblings = students.filter(
+        s => sameSiblingGroup(s.siblingGroupId, groupId) && s.id !== newFeeStudentId
+      );
+
+      if (siblings.length > 0) {
+        const siblingNames = siblings.map(s => s.name).join(', ');
+        toast.info(`Joint account fee shared with siblings: ${siblingNames}`);
+      }
     }
 
     toast.success(`Collection of ${collected} for ${student.name} recorded!`);
@@ -2357,7 +2379,10 @@ export default function TeacherDashboard({
                                     <div className="flex items-center gap-2">
                                       <span className="font-semibold text-slate-900 block text-sm">{student.name}</span>
                                       {(() => {
-                                        const studentFees = fees.filter(f => f.studentId === student.id);
+                                        const studentFees = fees.filter(f => 
+                                          f.studentId === student.id || 
+                                          (f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, student.siblingGroupId))
+                                        );
                                         const totalPaid = studentFees.reduce((acc, curr) => acc + curr.amount, 0);
                                         const isPaid = totalPaid >= 5000; // Assuming 5000 is the target for this month
                                         return (
