@@ -5,7 +5,7 @@ import { toMonthKey, monthKeyLabel, formatAttendanceDayShort, attendanceDaysBySt
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi, Banknote } from 'lucide-react';
+import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi, Banknote, ClipboardList } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
 import { addNotification, getNotifications, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
@@ -14,6 +14,7 @@ import { HoldActionWrapper } from './HoldActionWrapper';
 import { FeePaymentCenter } from './FeePaymentCenter';
 import PaperGenerator from './PaperGenerator';
 import TeacherPayrollPanel from './TeacherPayrollPanel';
+import AdmissionsPanel from './AdmissionsPanel';
 import { isPaperGeneratorEnabled, isTeacherSalaryEnabled } from '../lib/appControl';
 import { convertToWebP } from '../lib/imageUtils';
 import { uploadPhotoDataUrl } from '../lib/photoStorage';
@@ -176,7 +177,7 @@ interface PrincipalDashboardProps {
   pushLocalToCloud: () => Promise<void>;
 }
 
-type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll';
+type PrincipalTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers' | 'payroll' | 'admissions';
 // Coordinator ko Teacher Salary (payroll) tab NAHI milta — sirf principal ke liye.
 type CoordinatorTabType = 'dashboard' | 'management_hub' | 'timetable' | 'alerts' | 'settings' | 'registers' | 'monthly_report' | 'fees' | 'papers';
 type TabType = PrincipalTabType | CoordinatorTabType;
@@ -220,8 +221,11 @@ export default function PrincipalDashboard({
 }: PrincipalDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = safeStorage.getItem('acadamis_active_tab');
-    const valid: TabType[] = ['dashboard', 'management_hub', 'timetable', 'alerts', 'settings', 'registers', 'monthly_report', 'fees', 'papers', 'payroll'];
-    return (saved && valid.includes(saved as TabType) ? saved : 'dashboard') as TabType;
+    const valid: TabType[] = ['dashboard', 'management_hub', 'timetable', 'alerts', 'settings', 'registers', 'monthly_report', 'fees', 'papers', 'payroll', 'admissions'];
+    if (!saved || !valid.includes(saved as TabType)) return 'dashboard';
+    // Admissions sirf principal ke liye hai — coordinator ke liye dashboard par wapas.
+    if (saved === 'admissions' && userSession.role !== 'principal') return 'dashboard';
+    return saved as TabType;
   });
 
   // Persist activeTab to localStorage on every change
@@ -238,11 +242,11 @@ export default function PrincipalDashboard({
 
   // Agar developer ne module band kar diya aur user usi tab par mojood hai → dashboard par wapas
   useEffect(() => {
-    if ((activeTab === 'papers' && !showPapersTab) || (activeTab === 'payroll' && !showPayrollTab)) {
+    if ((activeTab === 'papers' && !showPapersTab) || (activeTab === 'payroll' && !showPayrollTab) || (activeTab === 'admissions' && userSession.role !== 'principal')) {
       window.history.replaceState({ tab: 'dashboard' }, '', '');
       setActiveTab('dashboard');
     }
-  }, [activeTab, showPapersTab, showPayrollTab]);
+  }, [activeTab, showPapersTab, showPayrollTab, userSession.role]);
 
   // Browser Back Button Support for Tabs
   useEffect(() => {
@@ -3476,6 +3480,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
             {[
               { id: 'dashboard', label: 'Home', icon: BarChart2 },
               { id: 'registers', label: 'Records', icon: Database },
+              ...(userSession.role === 'principal' ? [{ id: 'admissions', label: 'Admissions', icon: ClipboardList }] : []),
               { id: 'management_hub', label: 'Admin Hub', icon: Shield },
               { id: 'timetable', label: 'Schedules', icon: Calendar },
               { id: 'monthly_report', label: 'Reports', icon: FileText, color: 'text-indigo-600' },
@@ -7941,6 +7946,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               markedByName={userSession.name || 'Principal'}
             />
           </div>
+        )}
+
+        {/* ========== ADMISSIONS REVIEW (Landing page applications) ========== */}
+        {activeTab === 'admissions' && userSession.role === 'principal' && (
+          <AdmissionsPanel />
         )}
 
       </main>

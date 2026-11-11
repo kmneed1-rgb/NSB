@@ -311,6 +311,76 @@ export interface UserSession {
   name: string;
 }
 
+/** Landing page admission form se aane wali application. */
+export type AdmissionStatus = 'pending' | 'approved' | 'rejected' | 'waitlisted';
+
+export interface AdmissionApplication {
+  id: string;
+  /** Human-readable reference, e.g. NSB-ADM-20261111-4821 */
+  applicationNo: string;
+
+  // ---- Student personal details ----
+  studentName: string;
+  dob: string;              // YYYY-MM-DD
+  gender: string;
+  bformNo: string;
+  bloodGroup: string;
+  nationality: string;
+  religion: string;
+  studentPhone: string;
+  photo?: string;
+
+  // ---- Academic / admission details ----
+  grade: string;            // Applying for (class/grade)
+  sectionPreference: string;
+  session: string;          // e.g. 2026-27
+  category: string;         // Regular / Academy / Both
+  academySubjects: string;
+  previousSchool: string;
+  previousClass: string;
+  lastResult: string;
+  transferCertificate: string; // Yes / No / Will provide later
+
+  // ---- Parent / guardian details ----
+  fatherName: string;
+  motherName: string;
+  guardianName: string;
+  relationship: string;
+  parentPhone: string;      // Primary WhatsApp
+  alternatePhone: string;
+  parentEmail: string;
+  parentCnic: string;
+  occupation: string;
+  address: string;
+  city: string;
+
+  // ---- Emergency contact ----
+  emergencyName: string;
+  emergencyPhone: string;
+  emergencyRelation: string;
+
+  // ---- Health & additional info ----
+  medicalConditions: string;
+  transportRequired: string; // Yes / No
+  pickupArea: string;
+  siblingAtSchool: string;   // Yes / No
+  siblingNames: string;
+  hearAboutUs: string;
+  notes: string;
+  consent: boolean;
+
+  // ---- Review state ----
+  status: AdmissionStatus;
+  submittedAt: string;      // ISO timestamp
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
+export type AdmissionApplicationInput = Omit<
+  AdmissionApplication,
+  'id' | 'applicationNo' | 'status' | 'submittedAt' | 'reviewedAt' | 'reviewNote'
+>;
+
 export function getStudentPhoto(student?: { id?: string; name?: string; photo?: string } | null): string {
   if (student?.photo && student.photo.trim().length > 0) {
     return student.photo;
