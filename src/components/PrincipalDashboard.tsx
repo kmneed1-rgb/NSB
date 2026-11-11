@@ -5318,27 +5318,33 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     const k = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || hf.year);
                                                     return k.idx === (MONTH_ALIAS[hf.month.toLowerCase()] ?? -1) && k.year === Number(hf.year);
                                                   })
-                                                : sFees;
+                                                : [];
                                               const fsObj = feeStudents.find(fs => String(fs.id) === String(student.id));
                                               const historyDues = (fsObj?.dues || []).filter(d => {
-                                                if (!hf) return true;
+                                                if (!hf) return false;
                                                 const k = parseMonthKey(d.month, d.year || hf.year);
                                                 return k.idx === (MONTH_ALIAS[hf.month.toLowerCase()] ?? -1) && k.year === Number(hf.year);
                                               });
+                                              // "All Months" history list hidden — sirf clicked month ki receipts dikhti hain
+                                              if (!hf) {
+                                                return (
+                                                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl px-4 py-3 text-center">
+                                                    Month card par click karein — us month ki receipts yahan dikhengi
+                                                  </div>
+                                                );
+                                              }
                                               return (
                                             <div className="space-y-2">
                                               <div className="flex items-center justify-between border-b border-slate-100 pb-1">
-                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{hf ? `History Log · ${hf.month} ${hf.year}` : 'History Log'}</span>
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">History Log · {hf.month} {hf.year}</span>
                                                 {hf ? (
                                                   <button
                                                     onClick={() => setMonthHistoryFilter(null)}
                                                     className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-600 text-[9px] font-black uppercase rounded-md hover:bg-indigo-100 transition-colors cursor-pointer"
                                                   >
-                                                    ✕ All Months
+                                                    ✕ Close
                                                   </button>
-                                                ) : (
-                                                  <span className="text-[10px] font-bold text-slate-400">{sFees.length} Receipts</span>
-                                                )}
+                                                ) : null}
                                               </div>
                                               {historyFees.length === 0 ? (
                                                 <p className="text-[10px] text-center text-slate-300 py-2 font-bold uppercase">{hf ? `${hf.month} ${hf.year}: No transactions` : 'No records found'}</p>
@@ -5596,6 +5602,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                     student={student}
                                                     feeRecords={sFees}
                                                     year={new Date().getFullYear()}
+                                                    selectedMonth={monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter.month : null}
+                                                    onSelectMonth={(m) => setMonthHistoryFilter(m ? { studentId: String(student.id), month: m, year: new Date().getFullYear() } : null)}
                                                     onCollect={(month, pending) => openQuickCollectForMonth(String(student.id), month, new Date().getFullYear(), pending)}
                                                     onDeleteMonth={(month, year) => deleteMonthPayments(String(student.id), month, year)}
                                                     onPayDues={() => openFeePaymentCenter(String(student.id))}
@@ -5603,28 +5611,32 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                   {/* History Log List (filtered by clicked month card) */}
                                                   {(() => {
                                                     const hfD = monthHistoryFilter && String(monthHistoryFilter.studentId) === String(student.id) ? monthHistoryFilter : null;
-                                                    const deskFees = hfD
-                                                      ? sFees.filter(f => {
-                                                          const k = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || hfD.year);
-                                                          return k.idx === (MONTH_ALIAS[hfD.month.toLowerCase()] ?? -1) && k.year === Number(hfD.year);
-                                                        })
-                                                      : sFees;
+                                                    // "All Months" history list hidden — sirf clicked month ki receipts dikhti hain
+                                                    if (!hfD) {
+                                                      return (
+                                                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl px-4 py-3 text-center">
+                                                          Month card par click karein — us month ki receipts yahan dikhengi
+                                                        </div>
+                                                      );
+                                                    }
+                                                    const deskFees = sFees.filter(f => {
+                                                      const k = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || hfD.year);
+                                                      return k.idx === (MONTH_ALIAS[hfD.month.toLowerCase()] ?? -1) && k.year === Number(hfD.year);
+                                                    });
                                                     return (
                                                       <div>
                                                         <div className="flex items-center justify-between mb-2">
-                                                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{hfD ? `History Log · ${hfD.month} ${hfD.year}` : `History Log · All Months`}</span>
-                                                          {hfD && (
-                                                            <button
-                                                              onClick={() => setMonthHistoryFilter(null)}
-                                                              className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-600 text-[9px] font-black uppercase rounded-md hover:bg-indigo-100 transition-colors cursor-pointer"
-                                                            >
-                                                              ✕ All Months
-                                                            </button>
-                                                          )}
+                                                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{`History Log · ${hfD.month} ${hfD.year}`}</span>
+                                                          <button
+                                                            onClick={() => setMonthHistoryFilter(null)}
+                                                            className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-600 text-[9px] font-black uppercase rounded-md hover:bg-indigo-100 transition-colors cursor-pointer"
+                                                          >
+                                                            ✕ Close
+                                                          </button>
                                                         </div>
                                                         {deskFees.length === 0 ? (
                                                           <div className="py-10 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{hfD ? `${hfD.month} ${hfD.year}: No transactions` : 'No previous transaction receipts found'}</p>
+                                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{`${hfD.month} ${hfD.year}: No transactions`}</p>
                                                           </div>
                                                         ) : (
                                                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
