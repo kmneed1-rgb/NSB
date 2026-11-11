@@ -977,8 +977,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
           const totalWeight = weights.reduce((a, b) => a + b, 0);
           const drafts = groupMembers.map((m, i) => ({
             m,
+            // Decimal hissa preserve karo (floor decimals gata deta tha — e.g. 3.5 → 3)
             share: totalWeight > 0
-              ? Math.min(entry.amount, Math.floor((entry.amount * weights[i]) / totalWeight))
+              ? Math.min(entry.amount, Math.round((entry.amount * weights[i]) / totalWeight * 100) / 100)
               : 0,
           }));
           let assigned = drafts.reduce((s, d) => s + d.share, 0);
@@ -1734,10 +1735,20 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   // Delete EVERY payment recorded for a given month (fee engine + legacy ledger stay in sync)
   const deleteMonthPayments = (studentId: string, month: string, year: number) => {
     const monthKey = `${month} ${year}`;
-    if (!window.confirm(`Delete all ${monthKey} fee payments & dues for this student?`)) return;
+    const stu = students.find(s => String(s.id) === String(studentId));
+    const groupMembers = stu?.siblingGroupId
+      ? students.filter(s => sameSiblingGroup(s.siblingGroupId, stu.siblingGroupId))
+      : [];
+    const isLinked = groupMembers.length > 1;
+    const msg = isLinked
+      ? `Delete all ${monthKey} fee payments & dues for the WHOLE LINKED ACCOUNT (${groupMembers.length} siblings)? Joint receipt bhi delete hoga.`
+      : `Delete all ${monthKey} fee payments & dues for this student?`;
+    if (!window.confirm(msg)) return;
     const monthIdx = MONTH_ALIAS[String(month).toLowerCase()] ?? -1;
+    // Linked account mein poore group ka data ek saath delete hota hai
+    const targetIds = new Set((isLinked ? groupMembers : [stu].filter(Boolean) as Student[]).map(s => String(s.id)));
     setFeeStudents(prev => prev.map(fs => {
-      if (String(fs.id) === String(studentId)) {
+      if (targetIds.has(String(fs.id))) {
         return {
           ...fs,
           payments: fs.payments.filter(p => {
@@ -1756,7 +1767,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     }));
     setFees(prev => prev.filter(f => {
       const key = parseMonthKey(f.month, Number(String(f.dueDate || '').split('-')[0]) || year);
-      return !(String(f.studentId) === String(studentId) && key.idx === monthIdx && key.year === Number(year));
+      const sameMonth = key.idx === monthIdx && key.year === Number(year);
+      if (!sameMonth) return true;
+      if (isLinked && f.siblingGroupId && sameSiblingGroup(f.siblingGroupId, stu?.siblingGroupId)) return false;
+      return !(String(f.studentId) === String(studentId));
     }));
     setMonthFeeInputs(prev => { const n = {...prev}; delete n[monthKey]; return n; });
     toast.success(`${monthKey} fee payments deleted.`);
@@ -2358,43 +2372,123 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         : item
     ));
     // Keep the student's monthly payment ledger in sync with the edited receipt
-    setFeeStudents(prev => prev.map(fs => {
-      if (String(fs.id) === String(modalFee.studentId)) {
-        return {
-          ...fs,
-          payments: fs.payments.map(p => {
-            if (String(p.id) === String(modalFee.id)) {
-              return {
-                ...p,
-                month: mth || p.month,
-                year: Number(yr) || p.year,
-                amount: amt,
-                date: feeEditForm.paidDate || p.date,
-                feeType: feeEditForm.feeType || p.feeType
-              };
-            }
-            return p;
-          })
-        };
-      }
-      return fs;
-    }));
+    if (modalFee.siblingGroupId) {
+      // JOINT receipt — members ke hisse (ledger payments) naye total ke mutabiq adjust karo
+      syncJointLedgerAmount(modalFee, amt);
+    } else {
+      setFeeStudents(prev => prev.map(fs => {
+        if (String(fs.id) === String(modalFee.studentId)) {
+          return {
+            ...fs,
+            payments: fs.payments.map(p => {
+              if (String(p.id) === String(modalFee.id)) {
+                return {
+                  ...p,
+                  month: mth || p.month,
+                  year: Number(yr) || p.year,
+                  amount: amt,
+                  date: feeEditForm.paidDate || p.date,
+                  feeType: feeEditForm.feeType || p.feeType
+                };
+              }
+              return p;
+            })
+          };
+        }
+        return fs;
+      }));
+    }
     setFeeActionModal({ isOpen: false, fee: null });
     toast.success("Fee record updated successfully!");
   };
 
+  // ===== SIBLING GROUP (JOINT ACCOUNT) LEDGER SYNC =====
+  // Joint receipt delete/edit karne par members ke apne ledgers (his-share payments)
+  // bhi update honge — warna receipt hat jata tha lekin balance galat rehta tha.
+  const groupMembersOf = (groupId?: string): Student[] => {
+    if (!groupId) return [];
+    return students.filter(s => sameSiblingGroup(s.siblingGroupId, groupId));
+  };
+
+  const jointMonthKey = (fee: FeeRecord) => {
+    const [, yr] = String(fee.month || '').split(' ');
+    return {
+      monthIdx: parseMonthKey(fee.month, new Date().getFullYear()).idx,
+      year: Number(yr) || new Date().getFullYear(),
+      feeType: fee.feeType || 'School Fee',
+    };
+  };
+
+  /** Joint receipt delete: group ke har member ka us month + feeType ka ledger payment hatao. */
+  const removeJointLedgerPayments = (fee: FeeRecord) => {
+    const members = groupMembersOf(fee.siblingGroupId);
+    if (members.length === 0) return;
+    const { monthIdx, year, feeType } = jointMonthKey(fee);
+    const memberIds = new Set(members.map(m => String(m.id)));
+    setFeeStudents(prev => prev.map(fs => {
+      if (!memberIds.has(String(fs.id))) return fs;
+      return {
+        ...fs,
+        payments: (fs.payments || []).filter(p => {
+          const k = parseMonthKey(p.month, Number(p.year) || year);
+          const sameMonth = k.idx === monthIdx && k.year === year;
+          const sameType = (p.feeType || 'School Fee') === feeType;
+          return !(sameMonth && sameType);
+        }),
+      };
+    }));
+  };
+
+  /** Joint receipt ka amount badla to members ke hisse proportionally adjust karo. */
+  const syncJointLedgerAmount = (fee: FeeRecord, newAmount: number) => {
+    const members = groupMembersOf(fee.siblingGroupId);
+    if (members.length === 0) return;
+    const { monthIdx, year, feeType } = jointMonthKey(fee);
+    const memberIds = new Set(members.map(m => String(m.id)));
+    setFeeStudents(prev => prev.map(fs => {
+      if (!memberIds.has(String(fs.id))) return fs;
+      const matched = (fs.payments || []).filter(p => {
+        const k = parseMonthKey(p.month, Number(p.year) || year);
+        return k.idx === monthIdx && k.year === year && (p.feeType || 'School Fee') === feeType;
+      });
+      if (matched.length === 0) return fs;
+      const oldTotal = matched.reduce((s, p) => s + Number(p.amount || 0), 0);
+      const scale = oldTotal > 0 ? newAmount / oldTotal : 0;
+      let assigned = 0;
+      const matchedIds = new Set(matched.map(p => p.id));
+      const lastId = matched[matched.length - 1].id;
+      const payments = (fs.payments || []).map(p => {
+        if (!matchedIds.has(p.id)) return p;
+        const share = p.id === lastId
+          ? Math.round((newAmount - assigned) * 100) / 100
+          : Math.round(Number(p.amount || 0) * scale * 100) / 100;
+        assigned += share;
+        return { ...p, amount: share };
+      });
+      return { ...fs, payments };
+    }));
+  };
+
   const deleteFeeRecord = (fee: FeeRecord) => {
-    if (!window.confirm(`Delete this fee record (PKR ${Number(fee.amount) || 0}) for ${fee.month || 'this student'}? This will also update the remaining balance.`)) return;
+    const isJoint = !!fee.siblingGroupId;
+    const msg = isJoint
+      ? `Delete this JOINT receipt (PKR ${Number(fee.amount) || 0}) of the sibling group? Members ke ledger shares bhi remove ho jayenge.`
+      : `Delete this fee record (PKR ${Number(fee.amount) || 0}) for ${fee.month || 'this student'}? This will also update the remaining balance.`;
+    if (!window.confirm(msg)) return;
     setFees(prev => prev.filter(item => item.id !== fee.id));
     const monthParts = (fee.month || '').split(' ');
     const payMonth = monthParts[0] || '';
     const payYear = Number(monthParts[1]) || new Date().getFullYear();
-    setFeeStudents(prev => prev.map(fs => {
-      if (String(fs.id) === String(fee.studentId)) {
-        return { ...fs, payments: fs.payments.filter(p => !(p.id === fee.id || (p.month === payMonth && p.year === payYear && Number(p.amount) === Number(fee.amount)))) };
-      }
-      return fs;
-    }));
+    if (isJoint) {
+      removeJointLedgerPayments(fee);
+    } else {
+      setFeeStudents(prev => prev.map(fs => {
+        if (String(fs.id) === String(fee.studentId)) {
+          return { ...fs, payments: fs.payments.filter(p => !(p.id === fee.id || (p.month === payMonth && p.year === payYear && Number(p.amount) === Number(fee.amount)))) };
+        }
+        return fs;
+      }));
+    }
     setFeeActionModal({ isOpen: false, fee: null });
     toast.success("Fee record deleted.");
   };
@@ -5178,6 +5272,19 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               </div>
                                             </div>
 
+                                            {/* Linked (sibling) account ka banner — group members + group id */}
+                                            {linked.isLinked && (
+                                              <div className="flex items-center gap-2 p-2.5 bg-indigo-50 border border-indigo-100 rounded-xl flex-wrap">
+                                                <Users size={13} className="text-indigo-600 shrink-0" />
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">
+                                                  Linked Account · {linked.members.length} Siblings · Group: {student.siblingGroupId}
+                                                </span>
+                                                <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-500 truncate">
+                                                  {linked.members.map(m => m.name).join(' • ')}
+                                                </span>
+                                              </div>
+                                            )}
+
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
@@ -5240,6 +5347,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                   {historyFees.map(f => (
                                                     <div key={f.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between">
                                                       <div>
+                                                        {f.siblingGroupId && (
+                                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 mb-1 rounded bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase tracking-widest">
+                                                            Joint · {f.siblingGroupId}
+                                                          </span>
+                                                        )}
                                                         <span className="block text-[10px] font-black text-slate-900 uppercase leading-none mb-1">{f.month} Payment</span>
                                                         <span className="block text-[9px] font-bold text-slate-400 uppercase tabular-nums">{f.paidDate}</span>
                                                       </div>
@@ -5267,17 +5379,17 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                               {historyDues.length > 0 && (
                                                 <div className="pt-1">
                                                   <div className="flex items-center justify-between border-t border-slate-100 pt-2 pb-1">
-                                                    <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Dues</span>
+                                                    <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Dues</span>
                                                     <span className="text-[9px] font-bold text-slate-400 uppercase">{historyDues.length} entries</span>
                                                   </div>
                                                   <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                                                     {historyDues.map(d => (
-                                                      <div key={d.id} className="p-2.5 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between gap-2">
+                                                      <div key={d.id} className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${d.status === 'paid' ? 'bg-emerald-50/70 border-emerald-100' : d.status === 'waived' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50/70 border-amber-100'}`}>
                                                         <div className="min-w-0">
                                                           <span className="block text-[10px] font-black text-slate-900 uppercase leading-none mb-0.5 truncate">{d.desc}</span>
                                                           <span className="block text-[9px] font-bold text-slate-400 uppercase tabular-nums">{d.month} {d.year} · Added {formatDateDDMMYY(d.date)}</span>
                                                         </div>
-                                                        <span className={`text-[10px] font-black shrink-0 ${d.status === 'paid' ? 'text-emerald-600' : d.status === 'waived' ? 'text-amber-600' : 'text-rose-600'}`}>
+                                                        <span className={`text-[10px] font-black shrink-0 ${d.status === 'paid' ? 'text-emerald-600' : d.status === 'waived' ? 'text-slate-500' : 'text-amber-600'}`}>
                                                           {d.status === 'paid' ? 'PAID' : d.status === 'waived' ? 'WAIVED' : 'PENDING'}: PKR {(Number(d.amount) || 0).toLocaleString()}
                                                         </span>
                                                       </div>
@@ -10627,7 +10739,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
                     <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Student</span><span className={`font-black text-slate-900 ${qcReceipt.isJointAccount ? 'text-emerald-600' : ''}`}>{qcReceipt.isJointAccount ? `Joint Account (${qcReceipt.siblingNames.join(', ')})` : qcReceipt.studentName}</span></div>
                     <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Total Collected</span><span className="font-black text-emerald-700">PKR {qcReceipt.total.toLocaleString()}</span></div>
-                    {qcReceipt.isJointAccount && qcReceipt.groupPending > 0 && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Group Pending</span><span className="font-black text-rose-600">PKR {qcReceipt.groupPending.toLocaleString()}</span></div>}
+                    {qcReceipt.isJointAccount && qcReceipt.groupPending > 0 && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Group Pending (after collection)</span><span className="font-black text-rose-600">PKR {Math.max(0, qcReceipt.groupPending - qcReceipt.total).toLocaleString()}</span></div>}
                     {qcReceipt.months && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Months</span><span className="font-black text-slate-900 text-right">{qcReceipt.months}</span></div>}
                     {qcReceipt.collected !== '—' && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Categories</span><span className="font-black text-slate-900 text-right">{qcReceipt.collected}</span></div>}
                     {qcReceipt.charged && <div className="flex justify-between text-xs font-bold text-slate-600"><span className="uppercase tracking-widest text-slate-400">Charged (Dues)</span><span className="font-black text-amber-600 text-right">{qcReceipt.charged}</span></div>}
@@ -11207,6 +11319,12 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         onPayMonth={handleFpcPayMonth}
         onCollectDue={handleFpcCollectDue}
         onPayAutoSpread={handleFpcPayAutoSpread}
+        onCollectGroup={(studentId) => {
+          const stu = students.find(s => String(s.id) === String(studentId));
+          setQuickCollectStudentId(String(studentId));
+          setQuickCollectAmount(String(collectDefaultAmount(stu as Student)));
+          setShowQuickCollectModal(true);
+        }}
       />
 
       {/* APPLY DUES TO CLASS — poori class / selected students ko due lagao ya collect karo */}

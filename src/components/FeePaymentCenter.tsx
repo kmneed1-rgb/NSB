@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { X, Search, CheckCircle2, CreditCard, Receipt, AlertCircle, ChevronLeft, ChevronDown, Wallet, ArrowRight, CalendarDays, BadgeCheck, Banknote } from 'lucide-react';
+import { X, Search, CheckCircle2, CreditCard, Receipt, AlertCircle, ChevronLeft, ChevronDown, Wallet, ArrowRight, CalendarDays, BadgeCheck, Banknote, Users } from 'lucide-react';
 import { StudentFeeData, Student } from '../types';
-import { MONTHS, getDueRemaining, getDuePaid, isTuitionFeeType } from '../lib/feeEngine';
+import { MONTHS, getDueRemaining, getDuePaid, isTuitionFeeType, sameSiblingGroup, getStudentTotalPending } from '../lib/feeEngine';
 import { FEE_COLORS, FEE_INFO, dueColor } from '../lib/feeColors';
 
 // ===== Month parsing helpers (mirror of PrincipalDashboard's parseMonthKey) =====
@@ -32,6 +32,8 @@ export interface FeePaymentCenterProps {
   onPayMonth: (studentId: string | number, month: string, year: number, amount: number, method: string) => void;
   onCollectDue: (studentId: string | number, dueId: string, amount: number, method: string) => void;
   onPayAutoSpread: (studentId: string | number, amount: number, method: string) => void;
+  /** Linked (sibling) account — poore group ki collection ke liye. */
+  onCollectGroup?: (studentId: string) => void;
 }
 
 /**
@@ -40,7 +42,7 @@ export interface FeePaymentCenterProps {
  * Step 2: Account view - Dues/Other Funds cards + Month-wise fee rows,
  *         har row pe Pay button -> inline amount+method panel -> confirm.
  */
-export function FeePaymentCenter({ open, onClose, feeStudents, students, initialStudentId, onPayMonth, onCollectDue, onPayAutoSpread }: FeePaymentCenterProps) {
+export function FeePaymentCenter({ open, onClose, feeStudents, students, initialStudentId, onPayMonth, onCollectDue, onPayAutoSpread, onCollectGroup }: FeePaymentCenterProps) {
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
@@ -134,6 +136,20 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
     : [];
   const paidDues = fs ? (fs.dues || []).filter(d => d.status !== 'waived' && getDueRemaining(d) === 0) : [];
   const recentPayments = fs ? [...(fs.payments || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 8) : [];
+
+  // ===== Linked (sibling) account info — group members + combined pending =====
+  const linkedGroup = useMemo(() => {
+    const st = students.find(s => String(s.id) === String(selectedId));
+    if (!st?.siblingGroupId) return null;
+    const members = students.filter(s => sameSiblingGroup(s.siblingGroupId, st.siblingGroupId));
+    if (members.length < 2) return null;
+    const groupPending = members.reduce((sum, m) => {
+      const mFs = feeStudents.find(f => String(f.id) === String(m.id));
+      return sum + (mFs ? getStudentTotalPending(mFs) : 0);
+    }, 0);
+    const groupBase = members.reduce((sum, m) => sum + (Number(m.baseFee) || 0), 0);
+    return { groupId: st.siblingGroupId, members, groupPending, groupBase };
+  }, [students, feeStudents, selectedId]);
 
   // ===== Pay panel helpers =====
   const openMonthPanel = (m: string, remaining: number, advance?: number) => {
@@ -273,6 +289,33 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
                       <span className="block text-sm font-black text-slate-900">PKR {grandPayable.toLocaleString()}</span>
                     </div>
                   </div>
+
+                  {/* ===== LINKED (SIBLING) ACCOUNT BANNER ===== */}
+                  {linkedGroup && (
+                    <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center gap-3 flex-wrap">
+                      <Users size={15} className="text-indigo-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">
+                          Linked Account · {linkedGroup.members.length} Siblings · Group: {linkedGroup.groupId}
+                        </p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-500 truncate">
+                          {linkedGroup.members.map(m => m.name).join(' • ')}
+                        </p>
+                      </div>
+                      <div className="ml-auto text-right">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-indigo-400">Group Pending</p>
+                        <p className="text-xs font-black text-indigo-700">PKR {linkedGroup.groupPending.toLocaleString()}</p>
+                      </div>
+                      {onCollectGroup && (
+                        <button
+                          onClick={() => { onCollectGroup(String(selectedId)); onClose(); }}
+                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all cursor-pointer"
+                        >
+                          Collect Whole Group
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* ===== SECTION 1 - DUES AND OTHER FUNDS (Paper Fund etc.) ===== */}
                   <div>

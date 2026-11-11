@@ -283,6 +283,7 @@ export const sameSiblingGroup = (a?: string | null, b?: string | null): boolean 
 };
 
 // 7.2 getGroupPending - combined pending for all siblings in same group
+// (dues bhi shamil — taake group ka total aur individual totals ek jaise rahein)
 export const getGroupPending = (
   feeStudents: StudentFeeData[],
   allStudents: Student[],
@@ -295,7 +296,7 @@ export const getGroupPending = (
   const groupStudents = allStudents.filter(s => sameSiblingGroup(s.siblingGroupId, groupId));
   return groupStudents.reduce((sum, st) => {
     const fs = feeStudents.find(f => String(f.id) === String(st.id));
-    return sum + (fs ? getTotalPending(fs) + getTotalOtherFunds(fs) : 0);
+    return sum + (fs ? getStudentTotalPending(fs) : 0);
   }, 0);
 };
 
