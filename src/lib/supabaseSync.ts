@@ -46,6 +46,7 @@ const pendingDel: { col: string; id: string }[] = [];
 let sbTimer: any = null;
 let persistTimer: any = null;
 let flushInFlight = false;
+let flushRequested = false; // FIX: in-flight flush ke dauran aaye naye changes ka flag
 
 function persistOutboxNow() {
   if (typeof window === 'undefined') return;
@@ -98,7 +99,14 @@ function hydrateOutbox() {
 
 function scheduleFlush() {
   if (sbTimer) clearTimeout(sbTimer);
-  sbTimer = setTimeout(() => { flushSupabase(); }, 900);
+  sbTimer = setTimeout(() => {
+    sbTimer = null;
+    flushSupabase();
+    // FIX: agar flush in-flight tha (guard ne foran return kiya) aur queue mein
+    // ab bhi items hain, to dobara schedule karo — warna items next event tak
+    // (kabhi-kabhi hi) pending atke rehte the. Ye "sync late" ka main cause tha.
+    setTimeout(() => { if (hasPendingWrites()) scheduleFlush(); }, 1000);
+  }, 900);
 }
 
 export function sbQueueWrite(col: string, id: string, data: any) {
@@ -159,7 +167,11 @@ hydrateOutbox();
 
 /** Pending queue ko foran flush karta hai. Success = true. Fail par data re-queue hota hai. */
 export async function flushSupabase(): Promise<boolean> {
-  if (flushInFlight) return true;
+  if (flushInFlight) {
+    // FIX: in-flight flush hai — naye changes skip na hon; flush poora hote hi dobara chalao.
+    flushRequested = true;
+    return true;
+  }
   if (pendingSet.length === 0 && pendingDel.length === 0) return true;
   flushInFlight = true;
   const sets = pendingSet.splice(0);
@@ -210,6 +222,11 @@ export async function flushSupabase(): Promise<boolean> {
     return false;
   } finally {
     flushInFlight = false;
+    // FIX: in-flight ke dauran queue hue changes ko foran flush karo (retry nahi bache)
+    if (flushRequested) {
+      flushRequested = false;
+      if (pendingSet.length > 0 || pendingDel.length > 0) scheduleFlush();
+    }
   }
 }
 
