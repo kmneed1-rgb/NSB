@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BarChart2, CheckCircle2, ChevronDown, ChevronUp, CreditCard, Database, Download, Edit2, LogOut, Mail, Menu, MessageSquare, Moon, Percent, Phone, Plus, PlusCircle, RefreshCw, Save, Search, Shield, ShieldAlert, Sparkles, Sun, Trash2, TrendingUp, User, Users, X, ArrowUpRight, Award, Bell, BookOpen, Calendar, CalendarDays, AlertCircle, DownloadCloud, UploadCloud, Upload, ArrowLeft, ArrowRight, Fingerprint, Send, Zap, FileText, Printer, Filter, Receipt, Clock, AlertTriangle, School, DollarSign, HardDrive, Wifi, Banknote, ClipboardList } from 'lucide-react';
 import { getPeriodStatus, getStatusColor } from '../lib/periodUtils';
+import { FEE_COLORS, feeColor, dueColor, studentFeeColor } from '../lib/feeColors';
 import { addNotification, getNotifications, saveNotifications, getUserKey, clearNotificationsForUser, visibleForUser, PortalNotification } from '../lib/notificationUtils';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from 'recharts';
 import { Teacher, Student, Coordinator, Class, TimetableEntry, DayOfWeek, UserSession, FeeRecord, Attendance, Mark, AppSettings, StudentFeeData, DueEntry, Assignment, getStudentPhoto } from '../types';
@@ -29,6 +30,7 @@ import {
   getTotalCollected, 
   addOtherFund, 
   getTotalOtherFunds, 
+  getStudentTotalPending,
   sameSiblingGroup,
   getGroupPending,
   getGroupOtherFunds,
@@ -683,7 +685,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       const pending = Math.max(0, monthlyFee - paid);
       return { status: pending <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid', pending, currentMonthPaid: false };
     }
-    const pending = getTotalPending(fs) + getTotalOtherFunds(fs);
+    const pending = getStudentTotalPending(fs);
     const currentMonthSummary = getMonthlySummary(fs, currentMonth, currentYear);
     const currentMonthPaid = currentMonthSummary.due > 0 && currentMonthSummary.pending <= 0;
     if (pending <= 0) return { status: 'paid', pending: 0, currentMonthPaid };
@@ -727,7 +729,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       const fs = feeStudents.find(f => String(f.id) === String(m.id));
       if (fs) {
         monthPending += Math.max(0, getMonthlySummary(fs, currentMonth, currentYear).pending);
-        totalPending += getTotalPending(fs) + getTotalOtherFunds(fs);
+        totalPending += getStudentTotalPending(fs);
       } else {
         monthPending += base;
         totalPending += base;
@@ -1417,7 +1419,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
         allGroupStudents.forEach(st => {
           const fs = feeStudents.find(f => String(f.id) === String(st.id));
           if (fs) {
-            groupPending += getTotalPending(fs) + getTotalOtherFunds(fs);
+            groupPending += getStudentTotalPending(fs);
           }
         });
       }
@@ -1451,7 +1453,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       const totalAmount = newFeeRecords.reduce((sum, r) => sum + r.amount, 0);
       const fStudent = feeStudents.find(fs => String(fs.id) === String(quickCollectStudentId));
       // Joint account — use group pending if sibling group exists
-      let totalPending = qcReceipt?.isJointAccount ? qcReceipt.groupPending : (fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0);
+      let totalPending = qcReceipt?.isJointAccount ? qcReceipt.groupPending : (fStudent ? getStudentTotalPending(fStudent) : 0);
       totalPending = Math.max(0, totalPending - totalAmount);
       
       const classId = studentObj?.classId;
@@ -1493,7 +1495,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
     const studentObj = students.find(s => String(s.id) === String(studentId));
     if (!appSettings.whatsAppAutoFee || !studentObj?.parentPhone) return;
     const fStudent = feeStudents.find(fs => String(fs.id) === String(studentId));
-    const totalPending = Math.max(0, (fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0));
+    const totalPending = Math.max(0, (fStudent ? getStudentTotalPending(fStudent) : 0));
     const classId = studentObj?.classId;
     const sClass = classId ? classes.find(c => c.id === classId) : null;
     const className = sClass ? `${sClass.className} - ${sClass.section}` : 'N/A';
@@ -1982,7 +1984,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
   const handleSendFeeNotification = (student: Student | StudentFeeData, type: 'payment' | 'charge' | 'reminder', amount: number, details: string) => {
     // Find fee data to get total pending
     const fStudent = feeStudents.find(fs => String(fs.id) === String(student.id));
-    let totalPending = fStudent ? getTotalPending(fStudent) + getTotalOtherFunds(fStudent) : 0;
+    let totalPending = fStudent ? getStudentTotalPending(fStudent) : 0;
     
     // Adjust pending balance based on the current action because state updates are async
     if (type === 'payment') {
@@ -3567,9 +3569,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               let remainingExtraDues = 0;
               let paidStudentsCount = 0;
               let pendingStudentsCount = 0;
+              let outstandingCount = 0;
 
               feeStudents.forEach(fs => {
-                const pending = getTotalPending(fs) + getTotalOtherFunds(fs);
+                const pending = getStudentTotalPending(fs);
                 const collected = fs.payments.reduce((sum, p) => sum + p.amount, 0);
                 totalPendingAll += pending;
                 totalCollectedAll += collected;
@@ -3588,8 +3591,10 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 totalCollectedMonth += monthSummary.paid;
 
                 if (monthSummary.paid > 0) paidStudentsCount++;
+                // Outstanding = tuition + other funds + dues (student ke paas baqi hai)
+                if (pending > 0) outstandingCount++;
               });
-              pendingStudentsCount = students.length - paidStudentsCount;
+              pendingStudentsCount = outstandingCount;
 
               // Live "today" figures for real-time dashboard cards
               const todayISO = new Date().toISOString().split('T')[0];
@@ -3613,14 +3618,14 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 animate-fade-in pt-8 border-t border-slate-100">
                     
                     {[
-                      { label: 'Today Collection', val: `PKR ${todaysCollection.toLocaleString()}`, icon: <CreditCard size={16} className="text-violet-600" />, chip: 'bg-violet-100/70 border-violet-200', cardBg: 'bg-gradient-to-br from-violet-50/70 via-white to-purple-50/40 border-violet-150/80 hover:border-violet-300' },
-                      { label: 'Today Attendance', val: `${todayPresent}/${todayAttendance.length}`, icon: <CheckCircle2 size={16} className="text-emerald-600" />, chip: 'bg-emerald-100/70 border-emerald-200', cardBg: 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-150/80 hover:border-emerald-300' },
-                      { label: 'Fee Paid Students', val: paidStudentsCount, icon: <User size={16} className="text-blue-600" />, chip: 'bg-blue-100/70 border-blue-200', cardBg: 'bg-gradient-to-br from-blue-50/70 via-white to-sky-50/40 border-blue-150/80 hover:border-blue-300' },
-                      { label: 'Pending Students', val: pendingStudentsCount, icon: <AlertCircle size={16} className="text-rose-600" />, chip: 'bg-rose-100/70 border-rose-200', cardBg: 'bg-gradient-to-br from-rose-50/70 via-white to-pink-50/40 border-rose-150/80 hover:border-rose-300' },
-                      { label: 'Teachers', val: teachers.length, icon: <Users size={16} className="text-indigo-600" />, chip: 'bg-indigo-100/70 border-indigo-200', cardBg: 'bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 border-indigo-150/80 hover:border-indigo-300' },
-                      { label: 'Students', val: students.length, icon: <Users size={16} className="text-teal-600" />, chip: 'bg-teal-100/70 border-teal-200', cardBg: 'bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/40 border-teal-150/80 hover:border-teal-300' },
-                      { label: 'Classes', val: classes.length, icon: <Award size={16} className="text-amber-600" />, chip: 'bg-amber-100/70 border-amber-200', cardBg: 'bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/40 border-amber-150/80 hover:border-amber-300' },
-                      { label: 'Attendance Average', val: attendanceAvg, icon: <CheckCircle2 size={16} className="text-sky-600" />, chip: 'bg-sky-100/70 border-sky-200', cardBg: 'bg-gradient-to-br from-sky-50/70 via-white to-cyan-50/40 border-sky-150/80 hover:border-sky-300' },
+                      { label: 'Today Collection', val: `PKR ${todaysCollection.toLocaleString()}`, icon: <CreditCard size={16} className="text-violet-600" />, chip: 'bg-violet-100/70 border-violet-200', cardBg: 'bg-gradient-to-br from-violet-50/70 via-white to-purple-50/40 border-violet-200/80 hover:border-violet-300' },
+                      { label: 'Today Attendance', val: `${todayPresent}/${todayAttendance.length}`, icon: <CheckCircle2 size={16} className="text-emerald-600" />, chip: 'bg-emerald-100/70 border-emerald-200', cardBg: 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-200/80 hover:border-emerald-300' },
+                      { label: 'Paid This Month', val: paidStudentsCount, icon: <User size={16} className="text-blue-600" />, chip: 'bg-blue-100/70 border-blue-200', cardBg: 'bg-gradient-to-br from-blue-50/70 via-white to-sky-50/40 border-blue-200/80 hover:border-blue-300' },
+                      { label: 'Pending Students', val: pendingStudentsCount, icon: <AlertCircle size={16} className="text-rose-600" />, chip: 'bg-rose-100/70 border-rose-200', cardBg: 'bg-gradient-to-br from-rose-50/70 via-white to-pink-50/40 border-rose-200/80 hover:border-rose-300' },
+                      { label: 'Teachers', val: teachers.length, icon: <Users size={16} className="text-indigo-600" />, chip: 'bg-indigo-100/70 border-indigo-200', cardBg: 'bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 border-indigo-200/80 hover:border-indigo-300' },
+                      { label: 'Students', val: students.length, icon: <Users size={16} className="text-teal-600" />, chip: 'bg-teal-100/70 border-teal-200', cardBg: 'bg-gradient-to-br from-teal-50/70 via-white to-emerald-50/40 border-teal-200/80 hover:border-teal-300' },
+                      { label: 'Classes', val: classes.length, icon: <Award size={16} className="text-amber-600" />, chip: 'bg-amber-100/70 border-amber-200', cardBg: 'bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/40 border-amber-200/80 hover:border-amber-300' },
+                      { label: 'Attendance Average', val: attendanceAvg, icon: <CheckCircle2 size={16} className="text-sky-600" />, chip: 'bg-sky-100/70 border-sky-200', cardBg: 'bg-gradient-to-br from-sky-50/70 via-white to-cyan-50/40 border-sky-200/80 hover:border-sky-300' },
                     ].map(stat => (
                       <div key={stat.label} className={`p-4 md:p-5 border rounded-2xl shadow-xs hover:shadow-md hover:-translate-y-0.5 transition-all ${stat.cardBg}`}>
                         <div className="flex items-center gap-2.5 mb-2.5">
@@ -3736,7 +3741,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <button
                   onClick={() => openAddModal('teacher')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-indigo-150 bg-indigo-50/40 hover:bg-indigo-100/60 hover:border-indigo-300 text-sm font-semibold text-indigo-900 transition-all text-left shadow-2xs"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 hover:bg-indigo-100/60 hover:border-indigo-300 text-sm font-semibold text-indigo-900 transition-all text-left shadow-2xs"
                 >
                   <Users size={16} className="text-indigo-600" />
                   Teacher
@@ -3744,7 +3749,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
                 <button
                   onClick={() => openAddModal('student')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-emerald-150 bg-emerald-50/40 hover:bg-emerald-100/60 hover:border-emerald-300 text-sm font-semibold text-emerald-900 transition-all text-left shadow-2xs"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-100/60 hover:border-emerald-300 text-sm font-semibold text-emerald-900 transition-all text-left shadow-2xs"
                 >
                   <Users size={16} className="text-emerald-600" />
                   Student
@@ -3752,7 +3757,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
                 <button
                   onClick={() => openAddModal('class')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-amber-150 bg-amber-50/40 hover:bg-amber-100/60 hover:border-amber-300 text-sm font-semibold text-amber-900 transition-all text-left shadow-2xs"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/60 hover:border-amber-300 text-sm font-semibold text-amber-900 transition-all text-left shadow-2xs"
                 >
                   <BookOpen size={16} className="text-amber-600" />
                   Class
@@ -3760,7 +3765,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
 
                 <button
                   onClick={() => openAddModal('timetable')}
-                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-sky-150 bg-sky-50/40 hover:bg-sky-100/60 hover:border-sky-300 text-sm font-semibold text-sky-900 transition-all text-left shadow-2xs"
+                  className="flex items-center justify-center gap-2.5 p-4 rounded-xl border border-sky-200 bg-sky-50/40 hover:bg-sky-100/60 hover:border-sky-300 text-sm font-semibold text-sky-900 transition-all text-left shadow-2xs"
                 >
                   <Calendar size={16} className="text-sky-600" />
                   Schedule
@@ -4605,7 +4610,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         .map(s => {
                         const feeData = feeStudents.find(fs => String(fs.id) === String(s.id));
                         const feeSummary = feeData ? getMonthlySummary(feeData, reportMonth, new Date().getFullYear()) : null;
-                        const totalPending = feeData ? getTotalPending(feeData) + getTotalOtherFunds(feeData) : 0;
+                        const totalPending = feeData ? getStudentTotalPending(feeData) : 0;
                         
                         const studentMarks = marks.filter(m => m.studentId === s.id);
                         const avg = studentMarks.length > 0 
@@ -5143,9 +5148,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                             )}
                                             <div className="absolute -bottom-1 -right-1 flex items-center gap-0.5">
                                               {feeState.status === 'partial' && feeState.currentMonthPaid && (
-                                                <div className={`w-2.5 h-2.5 rounded-full border-2 border-white bg-emerald-500 shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
+                                                <div className={`w-2.5 h-2.5 rounded-full border-2 border-white ${FEE_COLORS.paid.dot} shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
                                               )}
-                                              <div className={`w-3 h-3 rounded-full border-2 border-white ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${feeState.status === 'paid' ? 'bg-emerald-500' : feeState.status === 'partial' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                                              <div className={`w-3 h-3 rounded-full border-2 border-white ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${studentFeeColor(feeState.status).dot}`}></div>
                                             </div>
                                           </div>
                                           <div className="min-w-0">
@@ -5381,9 +5386,9 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                                 )}
                                                 <div className="absolute -bottom-1 -right-1 flex items-center gap-0.5">
                                                   {feeState.status === 'partial' && feeState.currentMonthPaid && (
-                                                    <div className={`w-3 h-3 rounded-full border-2 border-white bg-emerald-500 shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
+                                                    <div className={`w-3 h-3 rounded-full border-2 border-white ${FEE_COLORS.paid.dot} shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''}`}></div>
                                                   )}
-                                                  <div className={`w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${feeState.status === 'paid' ? 'bg-emerald-500' : feeState.status === 'partial' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                                                  <div className={`w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm ${linked.isLinked ? 'ring-2 ring-slate-900' : ''} ${studentFeeColor(feeState.status).dot}`}></div>
                                                 </div>
                                               </div>
                                               <div>
@@ -5399,16 +5404,16 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                           <td className="px-6 py-4">
                                             {feeState.status === 'paid' ? (
                                               <div className="flex items-center gap-2">
-                                                <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black tracking-wider rounded-lg border border-emerald-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                                <div className={`px-2.5 py-1.5 ${studentFeeColor('paid').badge} ${studentFeeColor('paid').badgeBorder} text-[10px] font-black tracking-wider rounded-lg uppercase flex items-center gap-1.5 w-fit shadow-xs`}>
                                                   <CheckCircle2 size={12} /> Full Paid
                                                 </div>
                                               </div>
                                             ) : feeState.status === 'partial' ? (
-                                              <div className="px-2.5 py-1.5 bg-amber-50 text-amber-700 text-[10px] font-black tracking-wider rounded-lg border border-amber-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                              <div className={`px-2.5 py-1.5 ${studentFeeColor('partial').badge} ${studentFeeColor('partial').badgeBorder} text-[10px] font-black tracking-wider rounded-lg uppercase flex items-center gap-1.5 w-fit shadow-xs`}>
                                                 <Clock size={12} /> Pending · Remaining PKR {displayPending.toLocaleString()}
                                               </div>
                                             ) : (
-                                              <div className="px-2.5 py-1.5 bg-rose-50 text-rose-700 text-[10px] font-black tracking-wider rounded-lg border border-rose-100 uppercase flex items-center gap-1.5 w-fit shadow-xs">
+                                              <div className={`px-2.5 py-1.5 ${studentFeeColor('unpaid').badge} ${studentFeeColor('unpaid').badgeBorder} text-[10px] font-black tracking-wider rounded-lg uppercase flex items-center gap-1.5 w-fit shadow-xs`}>
                                                 <AlertTriangle size={12} /> Unpaid
                                               </div>
                                             )}
@@ -6377,7 +6382,8 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               if (allDues.length === 0) return null;
 
               const fundBreakdown: Record<string, number> = {};
-              allDues.forEach(d => { fundBreakdown[d.desc] = (fundBreakdown[d.desc] || 0) + d.amount; });
+              // Chip par PENDING amount dikhayein (collected to amount column mein hai)
+              allDues.forEach(d => { fundBreakdown[d.desc] = (fundBreakdown[d.desc] || 0) + d.pending; });
 
               return (
                 <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
@@ -6391,15 +6397,15 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     </div>
                     <div className="flex items-center gap-3">
                       {Object.entries(fundBreakdown).map(([desc, amt]) => (
-                        <span key={desc} className="px-3 py-1.5 bg-amber-50 border border-amber-100 rounded-xl text-xs font-black text-amber-700 uppercase tracking-widest">
-                          {desc}: {Number(amt).toLocaleString()}
+                        <span key={desc} className={`px-3 py-1.5 ${FEE_COLORS.pending.chip} ${FEE_COLORS.pending.chipBorder} rounded-xl text-xs font-black ${FEE_COLORS.pending.text} uppercase tracking-widest`}>
+                          {desc}: {Number(amt).toLocaleString()} pending
                         </span>
                       ))}
-                      <span className="px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-xl text-xs font-black text-rose-700 uppercase tracking-widest">
+                      <span className={`px-3 py-1.5 ${FEE_COLORS.paid.chip} ${FEE_COLORS.paid.chipBorder} rounded-xl text-xs font-black ${FEE_COLORS.paid.text} uppercase tracking-widest`}>
                         Collected: {totalDuesAmount.toLocaleString()}
                       </span>
                       {totalPendingDues > 0 && (
-                        <span className="px-3 py-1.5 bg-rose-100 border border-rose-200 rounded-xl text-xs font-black text-rose-700 uppercase tracking-widest">
+                        <span className={`px-3 py-1.5 ${FEE_COLORS.pending.badge} ${FEE_COLORS.pending.badgeBorder} rounded-xl text-xs font-black uppercase tracking-widest`}>
                           Pending: {totalPendingDues.toLocaleString()}
                         </span>
                       )}
@@ -6440,9 +6446,11 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                             <td className="px-4 py-3 text-slate-400">{formatDateDDMMYY(d.date)}</td>
                             <td className="px-4 py-3 text-right">
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                d.pending > 0 ? (d.amount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700') : 'bg-emerald-100 text-emerald-700'
+                                d.pending > 0
+                                  ? `${dueColor(d.status).badge} ${dueColor(d.status).badgeBorder}`
+                                  : `${FEE_COLORS.paid.badge} ${FEE_COLORS.paid.badgeBorder}`
                               }`}>
-                                {d.status}
+                                {d.pending > 0 ? d.status : 'cleared'}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-emerald-600 text-right">{d.amount.toLocaleString()}</td>
@@ -6541,7 +6549,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         <tbody className="divide-y divide-slate-100 text-xs font-bold">
                           {feeStudents.map(st => {
                             const totalPaid = (st.payments || []).reduce((sum, p) => sum + p.amount, 0);
-                            const pending = getTotalPending(st);
+                            const pending = getStudentTotalPending(st);
                             return (
                               <tr key={st.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-6 py-4 text-slate-900 font-black">{st.name}</td>
@@ -6655,7 +6663,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         </h3>
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                           <p className="text-xs text-slate-500 font-black uppercase tracking-widest leading-none mb-1">Total Pending</p>
-                          <p className="text-2xl font-black text-rose-600 ">{getTotalPending(student) + getTotalOtherFunds(student)}</p>
+                          <p className="text-2xl font-black text-rose-600 ">{getStudentTotalPending(student)}</p>
                         </div>
                         <button 
                           onClick={() => handleSendFeeNotification(student, 'reminder', 0, '')}
@@ -6732,23 +6740,25 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                               {m.isFutureMonth ? (
                                 <span className="text-xs font-black uppercase text-slate-300">Upcoming</span>
                               ) : m.isComplete ? (
-                                <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+                                <CheckCircle2 size={14} className={`${FEE_COLORS.paid.dot} shrink-0`} />
+                              ) : m.paid > 0 ? (
+                                <Clock size={14} className={`${FEE_COLORS.partial.dot} shrink-0`} />
                               ) : (
-                                <AlertCircle size={14} className="text-rose-500 animate-pulse group-hover:text-indigo-600 shrink-0" />
+                                <AlertCircle size={14} className={`${FEE_COLORS.unpaid.dot} animate-pulse group-hover:text-indigo-600 shrink-0`} />
                               )}
                             </div>
                             <div className="space-y-1 mb-2">
                               <div className="flex flex-col text-xs sm:text-xs font-bold">
                                 <span className="text-slate-400">Paid:</span>
-                                <span className={m.paid > 0 ? "text-emerald-600" : "text-slate-300"}>{m.paid}</span>
+                                <span className={m.paid > 0 ? FEE_COLORS.paid.text : "text-slate-300"}>{m.paid}</span>
                               </div>
                               <div className="flex flex-col text-xs sm:text-xs font-black">
                                 <span className="text-slate-400 uppercase">Pend:</span>
-                                <span className={m.pending > 0 ? "text-rose-600" : "text-slate-300"}>{m.pending}</span>
+                                <span className={m.pending > 0 ? FEE_COLORS.unpaid.text : "text-slate-300"}>{m.pending}</span>
                               </div>
                             </div>
                             <div className="mt-auto w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div className={`h-full transition-all duration-500 ${m.isFutureMonth ? 'bg-slate-200' : m.isComplete ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${m.isFutureMonth ? 100 : (m.paid / Math.max(1, m.due)) * 100}%` }}></div>
+                                <div className={`h-full transition-all duration-500 ${m.isFutureMonth ? FEE_COLORS.future.dot : m.isComplete ? FEE_COLORS.paid.dot : m.paid > 0 ? FEE_COLORS.partial.dot : FEE_COLORS.unpaid.dot}`} style={{ width: `${m.isFutureMonth ? 100 : (m.paid / Math.max(1, m.due)) * 100}%` }}></div>
                             </div>
                           </div>
                         ))}
@@ -6974,9 +6984,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-black text-slate-900 uppercase">{d.desc}</span>
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${
-                                      d.status === 'paid' ? 'bg-emerald-100 text-emerald-600' :
-                                      d.status === 'waived' ? 'bg-amber-100 text-amber-600' :
-                                      'bg-rose-100 text-rose-600'
+                                      dueColor(d.status).badge
                                     }`}>
                                       {d.status.toUpperCase()}
                                     </span>
@@ -7554,7 +7562,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                     <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                       <div className="space-y-0.5">
                         <p className="text-xs font-black uppercase text-slate-800 dark:text-white">Dark Theme / Dark Mode</p>
-                        <p className="text-xs text-slate-405">Enable an eye-friendly dark look for all management dashboards.</p>
+                        <p className="text-xs text-slate-400">Enable an eye-friendly dark look for all management dashboards.</p>
                       </div>
                       <button 
                         type="button"
@@ -7874,7 +7882,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                       onClick={() => {
                         toast.success("Templates are automatically synced to the cloud!");
                       }}
-                      className="bg-slate-900 hover:bg-slate-850 text-white font-black text-xs uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
+                      className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest py-2 px-6 shadow-md transition-all active:scale-95"
                     >
                       Sync Status
                     </button>
@@ -8728,7 +8736,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 hover:bg-gray-250 border border-gray-250 text-gray-700 rounded-xl text-xs font-bold transition-all"
+                  className="px-4 py-2 hover:bg-gray-200 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all"
                 >
                   Cancel
                 </button>
@@ -8864,7 +8872,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                         {(() => {
                           const fData = feeStudents.find(fs => String(fs.id) === String(selectedStudentReport.id));
                           if (!fData) return '0';
-                          return `${getTotalPending(fData) + getTotalOtherFunds(fData)}`;
+                          return `${getStudentTotalPending(fData)}`;
                         })()}
                       </div>
                       <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-0.5">Total Pending Dues</p>
@@ -9559,7 +9567,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       {/* ========== CUSTOM PERIOD DELETION CONFIRMATION MODAL ========== */}
       {periodToDeletePending && (
         <div id="delete-period-modal" className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto animate-fade-in animate-duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 border border-slate-150 animate-scale-up">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 border border-slate-200 animate-scale-up">
             <div className="flex items-center gap-3 text-red-600 mb-4 bg-red-50 p-3.5 rounded-xl border border-red-100">
               <AlertCircle size={24} className="shrink-0" />
               <div>
@@ -9586,7 +9594,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                 onClick={() => {
                   executeDeletePeriod(periodToDeletePending.period, periodToDeletePending.day);
                 }}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-250"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-200"
               >
                 Yes, Remove Slot
               </button>
@@ -9598,7 +9606,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
       {/* ========== GENERAL DELETION CONFIRMATION MODAL ========== */}
       {deleteConfirmModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 overflow-y-auto animate-fade-in animate-duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 border border-slate-150 animate-scale-up">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col p-6 border border-slate-200 animate-scale-up">
             <div className="flex items-center gap-3 text-red-600 mb-4 bg-red-50 p-3.5 rounded-xl border border-red-100">
               <AlertCircle size={24} className="shrink-0" />
               <div>
@@ -9622,7 +9630,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
               <button
                 type="button"
                 onClick={confirmAction}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-250"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-red-200"
               >
                 Yes, Delete
               </button>
@@ -9676,7 +9684,7 @@ const [extraFees, setExtraFees] = useState<Record<string, string>>({
                   const classObj = classes.find(c => c.id === st.classId);
                   const fData = feeStudents.find(fs => String(fs.id) === String(st.id));
                   const totalPaid = fData ? (fData.payments || []).reduce((sum, p) => sum + p.amount, 0) : 0;
-                  const totalPending = fData ? getTotalPending(fData) + getTotalOtherFunds(fData) : 0;
+                  const totalPending = fData ? getStudentTotalPending(fData) : 0;
 
                   return (
                     <>

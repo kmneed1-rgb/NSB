@@ -666,7 +666,7 @@ export default function StudentDashboard({
           >
             <Bell size={18} />
             {notifications.filter(n => n.isUnread).length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-indigo-650 text-white font-black text-[10px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+              <span className="absolute -top-1 -right-1 bg-indigo-600 text-white font-black text-[10px] w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                 {notifications.filter(n => n.isUnread).length}
               </span>
             )}
@@ -821,7 +821,7 @@ export default function StudentDashboard({
 
               return (
                 <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-full text-xs font-extrabold uppercase tracking-widest animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-650 animate-ping"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping"></span>
                   CURRENT PERIOD: {currentPeriodObj.period} — {currentPeriodObj.subject} (Prof. {teacherObj?.name || 'Faculty'})
                 </div>
               );
@@ -849,7 +849,7 @@ export default function StudentDashboard({
               >
                 <Bell size={16} className="text-slate-600" />
                 {notifications.filter(n => n.isUnread).length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-650 text-white font-extrabold text-xs w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
+                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-600 text-white font-extrabold text-xs w-4.5 h-4.5 rounded-full flex items-center justify-center border border-white">
                     {notifications.filter(n => n.isUnread).length}
                   </span>
                 )}
@@ -865,7 +865,7 @@ export default function StudentDashboard({
                       exit={{ opacity: 0, y: 10 }}
                       className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 py-3 flex flex-col font-sans"
                     >
-                      <div className="px-4 pb-2 border-b border-slate-150 flex items-center justify-between">
+                      <div className="px-4 pb-2 border-b border-slate-200 flex items-center justify-between">
                         <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Campus Broadcaster</span>
                         <div className="flex items-center gap-2">
                           {notifications.length > 0 && (
@@ -887,7 +887,7 @@ export default function StudentDashboard({
                           notifications.map(notif => (
                             <div 
                               key={notif.id} 
-                              className={`p-3 text-left transition-colors hover:bg-slate-50/50 ${notif.isUnread ? 'bg-indigo-55/10' : ''}`}
+                              className={`p-3 text-left transition-colors hover:bg-slate-50/50 ${notif.isUnread ? 'bg-indigo-50/10' : ''}`}
                             >
                               <div className="flex items-start gap-2.5">
                                 <span className="text-xs">
@@ -896,10 +896,10 @@ export default function StudentDashboard({
                                 <div className="space-y-0.5 max-w-[210px] overflow-hidden">
                                   <h4 className="font-extrabold text-xs text-slate-900 leading-tight flex items-center gap-1.5">
                                     <span className="truncate">{notif.title}</span>
-                                    {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-605 shrink-0"></span>}
+                                    {notif.isUnread && <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0"></span>}
                                   </h4>
                                   <p className="text-xs text-slate-600 leading-relaxed word-break whitespace-normal break-words">{notif.message}</p>
-                                  <span className="text-xs text-slate-450 block font-mono mt-1">{notif.timestamp}</span>
+                                  <span className="text-xs text-slate-400 block font-mono mt-1">{notif.timestamp}</span>
                                 </div>
                               </div>
                             </div>
@@ -918,7 +918,7 @@ export default function StudentDashboard({
         {activeTab === 'dashboard' && (
           <div id="panel-student-home" className="space-y-8 animate-fade-in bg-sky-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-sky-100 shadow-inner">
             {/* Greeting Header */}
-            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-sky-50/40 rounded-2xl p-6 md:p-8 border border-indigo-150 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
+            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-sky-50/40 rounded-2xl p-6 md:p-8 border border-indigo-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-t-4 border-t-indigo-600">
               <div>
                 <span className="text-xs font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">STUDENT ADVISORY</span>
                 <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display uppercase">Hello, {userSession.name}!</h1>
@@ -957,7 +957,7 @@ export default function StudentDashboard({
                 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.95 }}
-                className="bg-gradient-to-br from-indigo-50/50 via-white to-blue-50/30 p-6 border border-indigo-150 border-b-4 border-b-indigo-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                className="bg-gradient-to-br from-indigo-50/50 via-white to-blue-50/30 p-6 border border-indigo-200 border-b-4 border-b-indigo-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div onClick={() => handleTabChange('attendance')}>
                   <div className="flex items-center justify-between mb-4">
@@ -995,7 +995,7 @@ export default function StudentDashboard({
               {/* Marks Quick Peek Widget - Geometric style */}
               <div 
                 onClick={() => handleTabChange('marks')}
-                className="bg-gradient-to-br from-amber-50/50 via-white to-yellow-50/30 p-6 border border-amber-150 border-b-4 border-b-amber-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                className="bg-gradient-to-br from-amber-50/50 via-white to-yellow-50/30 p-6 border border-amber-200 border-b-4 border-b-amber-500 shadow-xs rounded-2xl hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
                   <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-1.5 mb-3">
@@ -1047,13 +1047,13 @@ export default function StudentDashboard({
                     Analyzing cumulative score percentages across all logged examinations and curriculum blocks.
                   </p>
                 </div>
-                <div className="text-xs uppercase font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850 border border-slate-150 dark:border-slate-800 px-2.5 py-1">
+                <div className="text-xs uppercase font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 px-2.5 py-1">
                   Overall Academic Weightage
                 </div>
               </div>
 
               {uniqueSubjects.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-850  text-xs font-medium">
+                <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-800  text-xs font-medium">
                   📚 No subject-wise statistics can be generated yet because your teachers have not uploaded any exam marks.
                 </div>
               ) : (
@@ -1088,7 +1088,7 @@ export default function StudentDashboard({
                     }
 
                     return (
-                      <div key={subject} className="space-y-2 border-b border-slate-100 dark:border-slate-850 pb-4 last:border-0 last:pb-0">
+                      <div key={subject} className="space-y-2 border-b border-slate-100 dark:border-slate-800 pb-4 last:border-0 last:pb-0">
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-extrabold text-slate-950 dark:text-white uppercase tracking-wider">{subject}</span>
                           <div className="flex items-center gap-2">
@@ -1112,7 +1112,7 @@ export default function StudentDashboard({
                         {/* Micro exam data logs inside progress breakdown */}
                         <div className="flex flex-wrap gap-1.5 mt-1 text-xs text-slate-400 font-medium">
                           {subjectMarks.map((m) => (
-                            <span key={m.id} className="bg-slate-50 dark:bg-slate-950/45 px-1.5 py-0.5 border border-slate-100 dark:border-slate-850/50">
+                            <span key={m.id} className="bg-slate-50 dark:bg-slate-950/45 px-1.5 py-0.5 border border-slate-100 dark:border-slate-800/50">
                               {m.examType}: <strong className="text-slate-700 dark:text-slate-300 font-bold">{m.marksObtained}/{m.maxMarks}</strong>
                             </span>
                           ))}
@@ -1125,7 +1125,7 @@ export default function StudentDashboard({
             </div>
 
             {/* ========== ACADEMIC PERFORMANCE TREND CHART ========== */}
-            <div id="academic-performance-trend-block" className="bg-gradient-to-br from-indigo-50/30 via-white to-slate-50/30 border border-indigo-150 p-6 shadow-xs border-t-4 border-t-indigo-600 rounded-2xl">
+            <div id="academic-performance-trend-block" className="bg-gradient-to-br from-indigo-50/30 via-white to-slate-50/30 border border-indigo-200 p-6 shadow-xs border-t-4 border-t-indigo-600 rounded-2xl">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 uppercase tracking-wide font-display flex items-center gap-2">
@@ -1140,7 +1140,7 @@ export default function StudentDashboard({
                 <div className="flex flex-wrap gap-2 text-xs font-bold uppercase font-mono">
                   <span className="bg-slate-100 text-slate-600 px-2 py-1">Normalized to %</span>
                   {uniqueSubjects.length > 0 && (
-                    <span className="bg-indigo-50 text-indigo-700 px-2 py-1 border border-indigo-150">
+                    <span className="bg-indigo-50 text-indigo-700 px-2 py-1 border border-indigo-200">
                       {uniqueSubjects.length} Subjects Tracked
                     </span>
                   )}
@@ -1272,7 +1272,7 @@ export default function StudentDashboard({
                   <tbody className="divide-y divide-gray-100 text-sm">
                     {myAttendanceSorted.length > 0 ? (
                       myAttendanceSorted.map(log => (
-                        <tr key={log.id} className="hover:bg-gray-55/20 transition-colors">
+                        <tr key={log.id} className="hover:bg-gray-50/20 transition-colors">
                           <td className="px-6 py-4 font-bold text-slate-800">
                             <span className="block">{formatAttendanceDay(log.date)}</span>
                             <span className="block text-[10px] font-mono font-normal text-gray-400">{log.date}</span>
@@ -1404,7 +1404,7 @@ export default function StudentDashboard({
                       Progress tracking of subject scores across unit and summative tests.
                     </p>
                   </div>
-                  <div className="bg-amber-50 text-amber-900 border border-amber-150 px-2.5 py-1 text-xs font-bold uppercase font-mono">
+                  <div className="bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1 text-xs font-bold uppercase font-mono">
                     Scores Shown in % Scale
                   </div>
                 </div>
@@ -1490,7 +1490,7 @@ export default function StudentDashboard({
                           const grade = calculateGrade(item.marksObtained, item.maxMarks);
                           const pct = Math.round((item.marksObtained / Math.max(1, item.maxMarks)) * 100);
                           return (
-                            <tr key={item.id} className="hover:bg-gray-55/20">
+                            <tr key={item.id} className="hover:bg-gray-50/20">
                               <td className="px-6 py-4 font-bold text-slate-900">{item.subject}</td>
                               <td className="px-6 py-4 font-mono font-semibold text-gray-700">
                                 {item.marksObtained} / {item.maxMarks}
@@ -1629,7 +1629,7 @@ export default function StudentDashboard({
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-150">
+                  <tbody className="divide-y divide-gray-200">
                     {DAYS.map(day => (
                       <tr key={day} className="hover:bg-gray-50/20">
                         <td className="px-4 py-6 font-bold text-gray-700 text-xs bg-gray-50/50">
@@ -1670,7 +1670,7 @@ export default function StudentDashboard({
                                       borderLeft: isLive ? `4px solid #ef4444` : `3px solid ${col}`, 
                                       backgroundColor: isLive ? '#fef2f2' : `${col}12` 
                                     }}
-                                    className={`p-2.5 rounded-r-xl border-t border-r border-b border-l-0 border-gray-150 text-left transition-all ${
+                                    className={`p-2.5 rounded-r-xl border-t border-r border-b border-l-0 border-gray-200 text-left transition-all ${
                                       isLive ? 'ring-2 ring-red-500 shadow-md shadow-red-100 animate-pulse' : ''
                                     }`}
                                   >
@@ -1679,12 +1679,12 @@ export default function StudentDashboard({
                                         {entry.subject}
                                       </div>
                                       {isLive && (
-                                        <span className="shrink-0 bg-red-650 text-white text-[10px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
+                                        <span className="shrink-0 bg-red-600 text-white text-[10px] font-black tracking-widest px-1 py-0.5 rounded uppercase font-display scale-90">
                                           LIVE
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-xs text-slate-755 mt-0.5 truncate font-medium">
+                                    <div className="text-xs text-slate-700 mt-0.5 truncate font-medium">
                                       👤 {getTeacherName(entry.teacherId)}
                                     </div>
                                     <div className="text-xs font-mono text-slate-500 mt-1">
@@ -1720,7 +1720,7 @@ export default function StudentDashboard({
             dues: []
           };
 
-          const account = getStudentFullAccount(fStudent, 2026);
+          const account = getStudentFullAccount(fStudent, new Date().getFullYear());
 
           return (
             <div id="panel-student-fees" className={`space-y-8 animate-fade-in font-sans font-medium bg-emerald-50/50 p-4 sm:p-6 -mx-4 sm:-mx-6 rounded-2xl border border-emerald-100 shadow-inner ${darkTheme ? 'text-slate-100 bg-emerald-950/20 border-emerald-900' : 'text-slate-800'}`}>
@@ -1746,7 +1746,7 @@ export default function StudentDashboard({
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100'}`}>
                   <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Total Settled</p>
-                  <p className="text-xl font-black text-emerald-650 mt-1">{account.totalPaid.toLocaleString()}</p>
+                  <p className="text-xl font-black text-emerald-600 mt-1">{account.totalPaid.toLocaleString()}</p>
                   <p className="text-xs text-emerald-500 font-mono mt-2">Paid ledger transactions</p>
                 </div>
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${darkTheme ? 'bg-rose-950/20 border-rose-900' : 'bg-rose-50 border-rose-100'}`}>
@@ -1757,11 +1757,11 @@ export default function StudentDashboard({
                 <div className={`p-4 border shadow-sm rounded-2xl flex flex-col justify-between ${
                   account.grandTotalPending === 0
                     ? (darkTheme ? 'bg-emerald-950/20 border-emerald-900' : 'bg-emerald-50 border-emerald-100')
-                    : (darkTheme ? 'bg-amber-950/20 border-amber-900' : 'bg-amber-50 border-amber-100')
+                    : (darkTheme ? 'bg-rose-950/20 border-rose-900' : 'bg-rose-50 border-rose-100')
                 }`}>
-                  <p className={`text-xs font-black uppercase tracking-widest ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Grand Payable</p>
-                  <p className={`text-xl font-black mt-1 ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>{account.grandTotalPending.toLocaleString()}</p>
-                  <span className={`text-xs font-bold uppercase mt-2 block ${account.grandTotalPending === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                  <p className={`text-xs font-black uppercase tracking-widest ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>Grand Payable</p>
+                  <p className={`text-xl font-black mt-1 ${account.grandTotalPending === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{account.grandTotalPending.toLocaleString()}</p>
+                  <span className={`text-xs font-bold uppercase mt-2 block ${account.grandTotalPending === 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                     {account.grandTotalPending === 0 ? '✓ perfect standing' : '⚠️ Settle soon'}
                   </span>
                 </div>
@@ -1781,12 +1781,16 @@ export default function StudentDashboard({
                         <div key={m.month} className={`p-4 border rounded-2xl group transition-all duration-200 ${
                           darkTheme 
                             ? 'bg-slate-950/50 border-slate-800 hover:border-indigo-900 hover:bg-slate-900' 
-                            : 'bg-slate-50 border-slate-150 hover:border-indigo-150 hover:bg-white'
+                            : 'bg-slate-50 border-slate-200 hover:border-indigo-200 hover:bg-white'
                         }`}>
                           <div className="flex justify-between items-center mb-2">
                             <span className={`text-xs font-black uppercase ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{m.month} 2026</span>
-                            {m.isComplete ? (
+                            {m.isFutureMonth ? (
+                              <span className="bg-slate-300 text-white rounded-full p-0.5"><Clock size={10} /></span>
+                            ) : m.isComplete ? (
                               <span className="bg-emerald-500 text-white rounded-full p-0.5"><CheckCircle2 size={10} /></span>
+                            ) : m.paid > 0 ? (
+                              <span className="bg-amber-500 text-white rounded-full p-0.5"><Clock size={10} /></span>
                             ) : (
                               <span className="bg-rose-500 text-white rounded-full p-0.5 animate-pulse"><AlertCircle size={10} /></span>
                             )}
@@ -1824,7 +1828,7 @@ export default function StudentDashboard({
                       {account.otherFunds.length > 0 ? (
                         account.otherFunds.map((fund, index) => (
                           <div key={index} className={`p-3 border rounded-xl flex justify-between items-center ${
-                            darkTheme ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-150'
+                            darkTheme ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                           }`}>
                             <div className="text-left">
                               <p className={`text-xs font-black uppercase ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{fund.desc}</p>
@@ -1836,6 +1840,41 @@ export default function StudentDashboard({
                       ) : (
                         <div className="py-8 text-center text-xs text-slate-400 uppercase tracking-widest  font-bold">
                           No extra fines or class funds recorded
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dues (Paper Fund / Exam Fee / Summer Pack) */}
+                  <div className={`p-6 border shadow-sm rounded-3xl mt-4 ${darkTheme ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <h3 className={`text-xs font-black uppercase tracking-widest mb-4 border-b pb-2 ${darkTheme ? 'text-slate-200 border-slate-800' : 'text-slate-900 border-slate-100'}`}>
+                      Dues &amp; Class Funds
+                    </h3>
+                    <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                      {account.dues.length > 0 ? (
+                        account.dues.map((d, index) => {
+                          const remaining = Math.max(0, Number(d.amount || 0) - Number(d.paidAmount || 0));
+                          const statusColor = d.status === 'paid'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : d.status === 'waived'
+                            ? 'bg-slate-100 text-slate-600'
+                            : 'bg-amber-100 text-amber-700';
+                          return (
+                            <div key={index} className={`p-3 border rounded-xl flex justify-between items-center ${darkTheme ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="text-left min-w-0">
+                                <p className={`text-xs font-black uppercase truncate ${darkTheme ? 'text-white' : 'text-slate-800'}`}>{d.desc}</p>
+                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">{d.month} {d.year}</p>
+                              </div>
+                              <div className="text-right shrink-0 ml-2">
+                                <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${statusColor}`}>{d.status}</span>
+                                <p className="text-xs font-black text-rose-600 font-mono mt-1">{remaining.toLocaleString()}</p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="py-8 text-center text-xs text-slate-400 uppercase tracking-widest font-bold">
+                          No dues recorded
                         </div>
                       )}
                     </div>

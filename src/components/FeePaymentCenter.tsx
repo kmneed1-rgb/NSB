@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { X, Search, CheckCircle2, CreditCard, Receipt, AlertCircle, ChevronLeft, ChevronDown, Wallet, ArrowRight, CalendarDays, BadgeCheck, Banknote } from 'lucide-react';
 import { StudentFeeData, Student } from '../types';
-import { MONTHS, getDueRemaining, getDuePaid } from '../lib/feeEngine';
+import { MONTHS, getDueRemaining, getDuePaid, isTuitionFeeType } from '../lib/feeEngine';
+import { FEE_COLORS, FEE_INFO, dueColor } from '../lib/feeColors';
 
 // ===== Month parsing helpers (mirror of PrincipalDashboard's parseMonthKey) =====
 export const MONTH_ALIAS: Record<string, number> = {
@@ -19,9 +20,6 @@ export const parseMonthKey = (raw: unknown, fallbackYear: number): { idx: number
   const idx = MONTH_ALIAS[m[1].toLowerCase()];
   return { idx: idx === undefined ? -1 : idx, year: m[2] ? Number(m[2]) : fallbackYear };
 };
-
-const TUITION_FEE_TYPES = /^(tuition|school|monthly)\s*(nsb\s*)?fee$/i;
-const isTuitionFeeType = (t: string) => TUITION_FEE_TYPES.test(String(t || '').trim()) || /school\s*(nsb\s*)?fee/i.test(String(t || ''));
 
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'JazzCash', 'EasyPaisa', 'Online'];
 
@@ -46,7 +44,7 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
-  const [panel, setPanel] = useState<{ kind: 'month' | 'due' | 'all'; key: string; remaining: number } | null>(null);
+  const [panel, setPanel] = useState<{ kind: 'month' | 'due' | 'all'; key: string; remaining: number; advance?: number } | null>(null);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('Cash');
   const [showPaidDues, setShowPaidDues] = useState(false);
@@ -73,6 +71,7 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
     const ev = MONTH_ALIAS[alias];
     const eIdx = typeof ev === 'number' ? ev : -1;
     const nowY = new Date().getFullYear();
+    const nowM = new Date().getMonth();
     const startIdx = Number(yr) === nowY && eIdx >= 0 ? eIdx : 0;
     return MONTHS.slice(startIdx).map(m => {
       const mi = MONTHS.indexOf(m);
@@ -88,8 +87,14 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
         return k.idx === mi && k.year === Number(yr) && d.status !== 'waived';
       });
       const duesPending = monthDues.reduce((s, d) => s + getDueRemaining(d), 0);
-      const tuitionRemaining = Math.max(0, b - paid);
-      return { m, base: b, paid, tuitionRemaining, duesPending, monthDues };
+      // Aage ka month abhi due NAHI hota — sirf advance maana jaata hai.
+      // Pehle woh "pending" mein gina ja raha tha (≈ PKR 6.4 lakh ka farq) aur
+      // un students ko "Pay" dikhta tha. Ab future = slate (upcoming) + Advance.
+      const isFuture = Number(yr) === nowY && mi > nowM;
+      const rawRemaining = Math.max(0, b - paid);
+      const tuitionRemaining = isFuture ? 0 : rawRemaining;
+      const advanceAmount = isFuture ? rawRemaining : 0;
+      return { m, base: b, paid, tuitionRemaining, advanceAmount, duesPending, monthDues, isFuture };
     });
   };
 
@@ -131,9 +136,9 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
   const recentPayments = fs ? [...(fs.payments || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 8) : [];
 
   // ===== Pay panel helpers =====
-  const openMonthPanel = (m: string, remaining: number) => {
-    setPanel({ kind: 'month', key: `${m} ${year}`, remaining });
-    setAmount(String(remaining));
+  const openMonthPanel = (m: string, remaining: number, advance?: number) => {
+    setPanel({ kind: 'month', key: `${m} ${year}`, remaining, advance });
+    setAmount(remaining > 0 ? String(remaining) : advance ? String(advance) : '');
     setMethod('Cash');
   };
   const openDuePanel = (d: { id: string }) => {
@@ -251,15 +256,15 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
                 <>
                   {/* Summary strip */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                    <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100">
+                    <div className={`p-3 rounded-xl ${FEE_INFO.chip} ${FEE_INFO.chipBorder}`}>
                       <span className="block text-[9px] font-black text-indigo-400 uppercase tracking-widest">Total Paid</span>
                       <span className="block text-sm font-black text-indigo-700">PKR {paidTotal.toLocaleString()}</span>
                     </div>
-                    <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-100">
+                    <div className={`p-3 rounded-xl ${FEE_COLORS.unpaid.chip} ${FEE_COLORS.unpaid.chipBorder}`}>
                       <span className="block text-[9px] font-black text-rose-400 uppercase tracking-widest">Tuition Remaining</span>
                       <span className="block text-sm font-black text-rose-600">{tuitionPendingTotal > 0 ? `PKR ${tuitionPendingTotal.toLocaleString()}` : 'Clear'}</span>
                     </div>
-                    <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-100">
+                    <div className={`p-3 rounded-xl ${FEE_COLORS.pending.chip} ${FEE_COLORS.pending.chipBorder}`}>
                       <span className="block text-[9px] font-black text-amber-500 uppercase tracking-widest">Dues / Funds Pending</span>
                       <span className="block text-sm font-black text-amber-700">{duesPendingTotal > 0 ? `PKR ${duesPendingTotal.toLocaleString()}` : 'Clear'}</span>
                     </div>
@@ -287,17 +292,17 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
                           const rem = getDueRemaining(d);
                           const pd = getDuePaid(d);
                           return (
-                            <div key={d.id} className="p-3 rounded-xl border border-amber-100 bg-amber-50/50">
+                            <div key={d.id} className={`p-3 rounded-xl border ${FEE_COLORS.pending.chipBorder} ${FEE_COLORS.pending.chip}`}>
                               <div className="flex items-start justify-between gap-3 flex-wrap">
                                 <div className="min-w-0">
                                   <p className="text-sm font-black text-slate-900 flex items-center gap-2 flex-wrap">
-                                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest">{d.desc}</span>
+                                    <span className={`px-2 py-0.5 rounded-full ${FEE_COLORS.pending.badge} text-[9px] font-black uppercase tracking-widest`}>{d.desc}</span>
                                     <span className="text-[10px] font-bold text-slate-400 uppercase">{d.month} {d.year}</span>
                                   </p>
                                   <p className="text-[10px] font-bold text-slate-400 mt-1">
                                     Total: PKR {Number(d.amount || 0).toLocaleString()}
-                                    {pd > 0 && <> - Paid: <span className="text-emerald-600 font-black">PKR {pd.toLocaleString()}</span></>}
-                                    {' '}- Remaining: <span className="text-rose-600 font-black">PKR {rem.toLocaleString()}</span>
+                                    {pd > 0 && <> - Paid: <span className={`${FEE_COLORS.paid.text} font-black`}>PKR {pd.toLocaleString()}</span></>}
+                                    {' '}- Remaining: <span className={`${FEE_COLORS.unpaid.text} font-black`}>PKR {rem.toLocaleString()}</span>
                                   </p>
                                 </div>
                                 <button
@@ -356,19 +361,30 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
 
                     <div className="space-y-1.5">
                       {monthRows.map(r => (
-                        <div key={r.m} className={`p-2.5 rounded-xl border ${r.tuitionRemaining === 0 && r.duesPending === 0 ? 'bg-emerald-50/50 border-emerald-100' : 'bg-white border-slate-200'}`}>
+                        <div key={r.m} className={`p-2.5 rounded-xl border ${r.isFuture ? 'bg-slate-50/70 border-slate-100' : r.tuitionRemaining === 0 && r.duesPending === 0 ? 'bg-emerald-50/50 border-emerald-100' : 'bg-white border-slate-200'}`}>
                           <div className="flex items-center justify-between gap-3 flex-wrap">
                             <div className="flex items-center gap-3 min-w-0">
                               <span className="w-11 text-[11px] font-black text-slate-700 uppercase shrink-0">{r.m}</span>
                               <div className="text-[9px] font-bold text-slate-400 uppercase leading-tight">
-                                <span>Base: PKR {r.base.toLocaleString()} - Paid: <span className="text-emerald-600 font-black">PKR {r.paid.toLocaleString()}</span></span>
-                                {r.tuitionRemaining > 0 && <span className="block">Remaining: <span className="text-rose-600 font-black">PKR {r.tuitionRemaining.toLocaleString()}</span></span>}
-                                {r.duesPending > 0 && <span className="block">Dues (Pending): <span className="text-amber-600 font-black">PKR {r.duesPending.toLocaleString()}</span></span>}
+                                <span>Base: PKR {r.base.toLocaleString()} - Paid: <span className={`${FEE_COLORS.paid.text} font-black`}>PKR {r.paid.toLocaleString()}</span></span>
+                                {r.tuitionRemaining > 0 && <span className="block">Remaining: <span className={`${FEE_COLORS.unpaid.text} font-black`}>PKR {r.tuitionRemaining.toLocaleString()}</span></span>}
+                                {r.isFuture && <span className="block">Upcoming month - advance only</span>}
+                                {r.duesPending > 0 && <span className="block">Dues (Pending): <span className={`${FEE_COLORS.pending.text} font-black`}>PKR {r.duesPending.toLocaleString()}</span></span>}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {r.tuitionRemaining === 0 && r.duesPending === 0 ? (
-                                <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1"><CheckCircle2 size={10} /> Clear</span>
+                              {r.isFuture ? (
+                                <>
+                                  <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[9px] font-black uppercase tracking-widest">Upcoming</span>
+                                  <button
+                                    onClick={() => openMonthPanel(r.m, 0, r.advanceAmount)}
+                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Banknote size={11} /> Advance
+                                  </button>
+                                </>
+                              ) : r.tuitionRemaining === 0 && r.duesPending === 0 ? (
+                                <span className={`px-2 py-1 rounded-lg ${FEE_COLORS.paid.badge} text-[9px] font-black uppercase tracking-widest flex items-center gap-1`}><CheckCircle2 size={10} /> Clear</span>
                               ) : (
                                 <button
                                   onClick={() => openMonthPanel(r.m, r.tuitionRemaining)}
@@ -382,7 +398,7 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
                           {panel?.kind === 'month' && panel.key === `${r.m} ${year}` && (
                             <PayPanel
                               amount={amount} setAmount={setAmount} method={method} setMethod={setMethod}
-                              remaining={panel.remaining} onConfirm={confirmPay}
+                              remaining={panel.remaining} advance={panel.advance} onConfirm={confirmPay}
                               onCancel={() => { setPanel(null); setAmount(''); }}
                             />
                           )}
@@ -442,12 +458,13 @@ export function FeePaymentCenter({ open, onClose, feeStudents, students, initial
 }
 
 // ===== Inline payment panel (amount + method + confirm) =====
-function PayPanel({ amount, setAmount, method, setMethod, remaining, onConfirm, onCancel, note }: {
+function PayPanel({ amount, setAmount, method, setMethod, remaining, advance, onConfirm, onCancel, note }: {
   amount: string;
   setAmount: (v: string) => void;
   method: string;
   setMethod: (v: string) => void;
   remaining: number;
+  advance?: number;
   onConfirm: () => void;
   onCancel: () => void;
   note?: string;
@@ -461,6 +478,11 @@ function PayPanel({ amount, setAmount, method, setMethod, remaining, onConfirm, 
         {remaining > 0 && (
           <button onClick={() => setAmount(String(remaining))} className="text-[9px] font-black text-emerald-600 uppercase tracking-widest hover:underline cursor-pointer">
             Full Remaining (PKR {remaining.toLocaleString()})
+          </button>
+        )}
+        {remaining <= 0 && (advance ?? 0) > 0 && (
+          <button onClick={() => setAmount(String(advance))} className="text-[9px] font-black text-indigo-600 uppercase tracking-widest hover:underline cursor-pointer">
+            Full Advance (PKR {advance!.toLocaleString()})
           </button>
         )}
       </div>

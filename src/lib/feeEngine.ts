@@ -140,6 +140,19 @@ const normMonthYear = (raw: unknown, fallback: number): number => {
   return m ? Number(m[1]) : fallback;
 };
 
+/**
+ * Non-tuition fee types (Admission Fee, Paper Fund, Annual Fee, ...) — in ka payment
+ * tuition month ke against count NAHI hona chahiye, warna tuition pending galat
+ * kam ho jata hai. FeePaymentCenter pehle se sirf tuition payments ginti thi —
+ * ab engine bhi wahi rule use karta hai (dono screens ka number ab same hai).
+ */
+const NON_TUITION_FEE_TYPES = /^(admission|annual|registration|paper|exam|summer|miscellaneous|transport|security|uniform)\b/i;
+export const isTuitionFeeType = (feeType?: string | null): boolean => {
+  const t = String(feeType || '').trim();
+  if (!t) return true; // type nahi diya → tuition maano (purana behaviour)
+  return !NON_TUITION_FEE_TYPES.test(t);
+};
+
 export const getMonthlySummary = (student: StudentFeeData, month: string, year: number) => {
   const monthIndex = normMonthIdx(month) !== -1 ? normMonthIdx(month) : MONTHS.indexOf(month as Month);
   const currentMonthIndex = new Date().getMonth();
@@ -162,8 +175,13 @@ export const getMonthlySummary = (student: StudentFeeData, month: string, year: 
   const due = (isFutureMonth || isBeforeEnrollment) ? 0 : student.monthlyFee;
   // FIX: p.month === month (exact match) ki jagah robust parsing —
   // 'September 2026' / 'Sep' / 'September' sab formats count hote hain
+  // Non-tuition payments (Admission/Paper/Annual fee) tuition ke against count nahi hote.
   const paid = student.payments
-    .filter(p => normMonthIdx(p.month) === monthIndex && normMonthYear(p.month, year) === year)
+    .filter(p =>
+      normMonthIdx(p.month) === monthIndex &&
+      normMonthYear(p.month, year) === year &&
+      isTuitionFeeType(p.feeType)
+    )
     .reduce((sum, p) => sum + p.amount, 0);
   
   const pending = Math.max(0, due - paid);
@@ -301,15 +319,18 @@ export const getGroupOtherFunds = (
 // 8. getStudentFullAccount
 export const getStudentFullAccount = (student: StudentFeeData, year: number) => {
   const yearlyBreakdown = getYearlySummary(student, year);
-  
+
   const currentMonthIndex = new Date().getMonth();
-  
+
   // Calculate totals for all months
   const totalDue = yearlyBreakdown.reduce((sum, m) => sum + m.due, 0);
   const totalPaid = yearlyBreakdown.reduce((sum, m) => sum + m.paid, 0);
   const totalPending = yearlyBreakdown.reduce((sum, m) => sum + m.pending, 0);
-  
+
   const otherFundsTotal = getTotalOtherFunds(student);
+  // Dues (Paper Fund / Summer Pack / misc) bhi pending hain — inke bina
+  // "Grand Payable" number asli se kam dikhta tha.
+  const duesTotal = getTotalDues(student);
 
   return {
     yearlyBreakdown,
@@ -318,7 +339,9 @@ export const getStudentFullAccount = (student: StudentFeeData, year: number) => 
     totalPending,
     otherFunds: student.otherFunds,
     otherFundsTotal,
-    grandTotalPending: totalPending + otherFundsTotal
+    dues: student.dues || [],
+    duesTotal,
+    grandTotalPending: totalPending + otherFundsTotal + duesTotal
   };
 };
 
@@ -328,18 +351,24 @@ export const getGlobalStats = (students: StudentFeeData[]) => {
   let totalCollected = 0;
   let totalPending = 0;
   let totalOther = 0;
+  let totalDues = 0;
 
   students.forEach(s => {
     totalCollected += getTotalCollected(s);
     totalPending += getTotalPending(s);
     totalOther += getTotalOtherFunds(s);
+    totalDues += getTotalDues(s);
   });
 
   return {
     totalStudents,
     totalCollected,
-    totalPending,
-    totalOther
+    // Dues (Paper Fund / Summer Pack / misc) bhi outstanding hain — inke bina
+    // "Pending" number asli raqam se kam dikhta tha.
+    totalPending: totalPending + totalDues,
+    totalTuitionPending: totalPending,
+    totalOther,
+    totalDues,
   };
 };
 
@@ -422,6 +451,14 @@ export const getTotalDues = (student: StudentFeeData) => {
 export const getPaidDues = (student: StudentFeeData) => {
   return (student.dues || []).reduce((sum, d) => sum + getDuePaid(d), 0);
 };
+
+/**
+ * 14.1 getStudentTotalPending - student ka poora outstanding:
+ * tuition + other funds + dues. Har jagah (dots, receipts, WhatsApp, stats)
+ * isi helper se nikala jata hai taake numbers ek jaise rahein.
+ */
+export const getStudentTotalPending = (student: StudentFeeData): number =>
+  getTotalPending(student) + getTotalOtherFunds(student) + getTotalDues(student);
 
 // 15. getDuesByMonth - Get dues for a specific month/year
 export const getDuesByMonth = (student: StudentFeeData, month: string, year: number) => {

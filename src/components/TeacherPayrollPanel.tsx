@@ -677,19 +677,19 @@ export default function TeacherPayrollPanel({
 
       {/* Totals */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-gradient-to-br from-indigo-50/70 via-white to-slate-50/40 border border-indigo-150 p-4 rounded-2xl shadow-2xs">
+        <div className="bg-gradient-to-br from-indigo-50/70 via-white to-slate-50/40 border border-indigo-200 p-4 rounded-2xl shadow-2xs">
           <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Staff</p>
           <p className="text-xl font-black text-slate-900">{teachers.length}</p>
         </div>
-        <div className="bg-gradient-to-br from-blue-50/70 via-white to-sky-50/40 border border-blue-150 p-4 rounded-2xl shadow-2xs">
+        <div className="bg-gradient-to-br from-blue-50/70 via-white to-sky-50/40 border border-blue-200 p-4 rounded-2xl shadow-2xs">
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Payable</p>
           <p className="text-xl font-black text-slate-900">{formatPKR(totals.payable)}</p>
         </div>
-        <div className="bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border border-emerald-150 p-4 rounded-2xl shadow-2xs">
+        <div className="bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border border-emerald-200 p-4 rounded-2xl shadow-2xs">
           <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Paid</p>
           <p className="text-xl font-black text-emerald-700">{formatPKR(totals.paid)}</p>
         </div>
-        <div className="bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/40 border border-amber-150 p-4 rounded-2xl shadow-2xs">
+        <div className="bg-gradient-to-br from-amber-50/70 via-white to-yellow-50/40 border border-amber-200 p-4 rounded-2xl shadow-2xs">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Remaining</p>
           <p className="text-xl font-black text-amber-700">{formatPKR(Math.max(0, totals.payable - totals.paid))}</p>
         </div>
